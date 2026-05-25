@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Bridge: Intermediate Representation — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>6. The Bridge: Intermediate Representation</h2>
+
+<p>The AST is source-language-shaped. It has <code>if</code> nodes, <code>while</code> loops, <code>return</code> statements — all the structure of our source language. The CPU does not know about any of these. The CPU knows about registers, memory addresses, arithmetic operations, and jumps.</p>
+
+<p>We need something in between. An <strong>Intermediate Representation</strong> (IR) that is lower-level than the AST but higher-level than assembly. Rust has HIR (High-level IR) and MIR (Mid-level IR) for exactly this purpose. The Rust compiler desugars your Rust code into HIR, then simplifies further into MIR, which is used for borrow checking and optimization before code generation.</p>
+
+<p>Our IR is similar in spirit to MIR: a flat list of instructions organized into <strong>basic blocks</strong>, operating on <strong>virtual registers</strong> in <strong>Static Single Assignment</strong> (SSA) form.</p>
+
+<h3>What is SSA?</h3>
+
+<p>Static Single Assignment means every variable is assigned exactly once. If you assign to the same variable twice in the source, the IR creates two different virtual registers — one for each assignment. This is like Rust's immutability-by-default, but taken to the extreme:</p>
+
+<div class="diagram">Source:                 SSA IR:
+  x = 1                   %0 = const 1
+  x = x + 2               %1 = const 2
+                          %2 = add %0, %1
+  return x                ret %2
+
+  (x is reassigned,       (every %reg is defined once,
+   not the same x!)        no reassignment!)</div>
+
+<p>Why SSA? Because it makes optimizations simpler — like Rust's borrow checker makes memory safety simpler. In SSA form, every use of a value points to exactly one definition. There is no need for reaching-definition analysis because the definition is baked into the name. Constant folding, dead code elimination, and many other optimizations become trivial traversals.</p>
+
+<div class="callout info">
+<strong>SSA and Rust's ownership</strong>
+There is a deep connection between SSA and Rust's ownership model. In both systems, every value has a single "home." In Rust, ownership ensures one binding at a time. In SSA, the IR ensures one definition per register. Both eliminate classes of bugs at the representation level rather than through analysis passes.
+</div>
+
+<h3>IR Design</h3>
+
+<p>Our IR has three core concepts: <strong>virtual registers</strong> (VRegs), <strong>instructions</strong>, and <strong>basic blocks</strong>.</p>
+
+<p>A <strong>virtual register</strong> is an abstract temporary — like a Rust local variable but unbounded in number. We give them names like <code>%0</code>, <code>%1</code>, etc. During code generation, the register allocator maps them to real x86-64 registers or stack slots.</p>
+
+<p>A <strong>basic block</strong> is a straight-line sequence of instructions with exactly one entry point (the top) and one exit point (the bottom, which is a terminator like <code>jmp</code>, <code>br</code>, or <code>ret</code>).</p>
+
+<p>An <strong>instruction</strong> is a single operation: <code>add</code>, <code>sub</code>, <code>load</code>, <code>store</code>, <code>const</code>, <code>call</code>, etc. Each instruction defines (at most) one virtual register.</p>
+
+<p>Here are the IR types:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ir.rs</span></div>
+    <pre><code><span class="kw">pub type</span> <span class="ty">VReg</span> = <span class="hl">usize</span>;
+<span class="kw">pub type</span> <span class="ty">BlockId</span> = <span class="hl">usize</span>;
+
+<span class="kw">pub struct</span> <span class="ty">Function</span> {
+    <span class="kw">pub</span> name: <span class="hl">String</span>,
+    <span class="kw">pub</span> ret_type: <span class="ty">Type</span>,
+    <span class="kw">pub</span> params: <span class="hl">Vec</span>&lt;(<span class="hl">String</span>, <span class="ty">VReg</span>)&gt;,
+    <span class="kw">pub</span> blocks: <span class="hl">Vec</span>&lt;<span class="ty">BasicBlock</span>&gt;,
+}
+
+<span class="kw">pub struct</span> <span class="ty">BasicBlock</span> {
+    <span class="kw">pub</span> id: <span class="ty">BlockId</span>,
+    <span class="kw">pub</span> params: <span class="hl">Vec</span>&lt;<span class="ty">VReg</span>&gt;,
+    <span class="kw">pub</span> instrs: <span class="hl">Vec</span>&lt;<span class="ty">Instr</span>&gt;,
+    <span class="kw">pub</span> terminator: <span class="ty">Terminator</span>,
+}
+
+<span class="kw">pub enum</span> <span class="ty">Instr</span> {
+    Add(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Sub(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Mul(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Div(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Eq(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Neq(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Lt(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Gt(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Le(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Ge(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Not(<span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Neg(<span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Load(<span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Store(<span class="ty">VReg</span>, <span class="ty">VReg</span>),
+    Const(<span class="ty">VReg</span>, <span class="ty">i64</span>),
+    Call(<span class="ty">VReg</span>, <span class="hl">String</span>, <span class="hl">Vec</span>&lt;<span class="ty">VReg</span>&gt;),
+}
+
+<span class="kw">pub enum</span> <span class="ty">Terminator</span> {
+    Return(<span class="hl">Option</span>&lt;<span class="ty">VReg</span>&gt;),
+    Jump(<span class="ty">BlockId</span>),
+    Branch(<span class="ty">VReg</span>, <span class="ty">BlockId</span>, <span class="ty">BlockId</span>),
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ir.ml</span></div>
+    <pre><code><span class="kw">type</span> vreg = int
+<span class="kw">type</span> block_id = int
+
+<span class="kw">type</span> func = {
+  name:      string;
+  ret_type:  typ;
+  params:    (string * vreg) list;
+  blocks:    basic_block array;
+}
+
+<span class="kw">and</span> basic_block = {
+  id:         block_id;
+  params:     vreg list;
+  instrs:     instr list;
+  terminator: terminator;
+}
+
+<span class="kw">and</span> instr =
+  | Add   of vreg * vreg * vreg
+  | Sub   of vreg * vreg * vreg
+  | Mul   of vreg * vreg * vreg
+  | Div   of vreg * vreg * vreg
+  | Eq    of vreg * vreg * vreg
+  | Neq   of vreg * vreg * vreg
+  | Lt    of vreg * vreg * vreg
+  | Gt    of vreg * vreg * vreg
+  | Le    of vreg * vreg * vreg
+  | Ge    of vreg * vreg * vreg
+  | Not   of vreg * vreg
+  | Neg   of vreg * vreg
+  | Load  of vreg * vreg
+  | Store of vreg * vreg
+  | Const of vreg * int
+  | Call  of vreg * string * vreg list
+
+<span class="kw">and</span> terminator =
+  | Return of vreg option
+  | Jump   of block_id
+  | Branch of vreg * block_id * block_id</code></pre>
+  </div>
+</div>
+
+<h3>Building SSA IR Directly</h3>
+
+<p>The classic approach to SSA is: build a non-SSA IR first, then run a separate pass to convert it to SSA form. That is wasteful. Instead, we use the algorithm from Braun et al. (2013) — "Simple and Efficient Construction of Static Single Assignment Form" — which builds SSA <em>directly</em> during IR construction.</p>
+
+<p>The algorithm works like this:</p>
+
+<ol>
+  <li><strong>Each AST variable maps to a stack of VRegs.</strong> Every time we see an assignment to a variable, we push a new VReg onto its stack. This gives us the "single assignment" property — each assignment creates a new virtual register.</li>
+  <li><strong>When we use a variable, look up its current VReg.</strong> Pop the most recent VReg from the variable's stack. That is the definition that reaches this use.</li>
+  <li><strong>If the variable is defined in multiple predecessors, insert a Phi node.</strong> When we reach a join point in the control flow (after an <code>if</code> statement), the variable might have different values depending on which branch we came from. The Phi node selects the correct value based on the incoming edge.</li>
+  <li><strong>Blocks start unsealed.</strong> A block is "sealed" when all its predecessors are known. Before sealing, we do not know every path that might reach the block. We defer Phi insertion until the block is sealed and all incoming values are known.</li>
+</ol>
+
+<p>Here is the core data structure for the SSA builder:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ir_build.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="hl">std::collections</span>::<span class="hl">HashMap</span>;
+
+<span class="kw">struct</span> <span class="ty">SSABuilder</span> {
+    <span class="cm">// Every AST variable has a stack of VRegs</span>
+    <span class="cm">// Each assignment pushes a new VReg</span>
+    stacks: <span class="hl">HashMap</span>&lt;<span class="hl">String</span>, <span class="hl">Vec</span>&lt;<span class="ty">VReg</span>&gt;&gt;,
+
+    <span class="cm">// Phi instructions we still need to fill in</span>
+    incomplete_phis: <span class="hl">HashMap</span>&lt;(<span class="ty">BlockId</span>, <span class="hl">String</span>), <span class="ty">VReg</span>&gt;,
+
+    <span class="cm">// Map from BlockId → whether all predecessors are known</span>
+    sealed: <span class="hl">Vec</span>&lt;<span class="hl">bool</span>&gt;,
+
+    <span class="cm">// Next VReg ID to allocate</span>
+    next_vreg: <span class="hl">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">SSABuilder</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>() -&gt; <span class="hl">Self</span> {
+        <span class="hl">Self</span> {
+            stacks: <span class="hl">HashMap::new</span>(),
+            incomplete_phis: <span class="hl">HashMap::new</span>(),
+            sealed: <span class="hl">Vec::new</span>(),
+            next_vreg: <span class="num">0</span>,
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">fresh_vreg</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>) -&gt; <span class="ty">VReg</span> {
+        <span class="kw">let</span> v = <span class="hl">self</span>.next_vreg;
+        <span class="hl">self</span>.next_vreg += <span class="num">1</span>;
+        v
+    }
+
+    <span class="cm">/// Read the current value of a variable.</span>
+    <span class="cm">/// Returns the VReg that holds its most recent definition.</span>
+    <span class="kw">fn</span> <span class="fn">read_var</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>, name: &amp;<span class="hl">str</span>, block: <span class="ty">BlockId</span>) -&gt; <span class="ty">VReg</span> {
+        <span class="kw">if let</span> <span class="hl">Some</span>(stack) = <span class="hl">self</span>.stacks.<span class="fn">get</span>(name) {
+            <span class="kw">if let</span> <span class="hl">Some</span>(&amp;vreg) = stack.<span class="fn">last</span>() {
+                <span class="kw">return</span> vreg;
+            }
+        }
+        <span class="cm">// Variable not defined yet in this block —</span>
+        <span class="cm">// try to add a Phi or read from a predecessor</span>
+        <span class="hl">self</span>.<span class="fn">read_var_rec</span>(name, block)
+    }
+
+    <span class="cm">/// Write a new value for a variable.</span>
+    <span class="cm">/// Pushes a fresh VReg onto its stack.</span>
+    <span class="kw">fn</span> <span class="fn">write_var</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>, name: &amp;<span class="hl">str</span>) -&gt; <span class="ty">VReg</span> {
+        <span class="kw">let</span> vreg = <span class="hl">self</span>.<span class="fn">fresh_vreg</span>();
+        <span class="hl">self</span>.stacks.<span class="fn">entry</span>(name.<span class="fn">to_string</span>())
+            .<span class="fn">or_default</span>()
+            .<span class="fn">push</span>(vreg);
+        vreg
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ir_build.ml</span></div>
+    <pre><code><span class="kw">type</span> ssa_builder = {
+  stacks:           (string, vreg list) <span class="hl">Hashtbl</span>.t;
+  incomplete_phis:  ((block_id * string), vreg) <span class="hl">Hashtbl</span>.t;
+  sealed:           bool array;
+  mutable next_vreg: int;
+}
+
+<span class="kw">let</span> <span class="fn">create</span> () = {
+  stacks          = <span class="hl">Hashtbl</span>.create 32;
+  incomplete_phis = <span class="hl">Hashtbl</span>.create 16;
+  sealed          = [||];
+  next_vreg       = 0;
+}
+
+<span class="kw">let</span> <span class="fn">fresh_vreg</span> b =
+  <span class="kw">let</span> v = b.next_vreg <span class="kw">in</span>
+  b.next_vreg &lt;- b.next_vreg + 1;
+  v
+
+<span class="kw">let</span> <span class="kw">rec</span> <span class="fn">read_var</span> b name block_id =
+  <span class="kw">match</span> <span class="hl">Hashtbl</span>.find_opt b.stacks name <span class="kw">with</span>
+  | <span class="hl">Some</span> stack <span class="kw">when</span> stack &lt;&gt; [] -&gt; <span class="hl">List</span>.hd stack
+  | _ -&gt; <span class="fn">read_var_rec</span> b name block_id
+
+<span class="kw">let</span> <span class="fn">write_var</span> b name =
+  <span class="kw">let</span> vreg = <span class="fn">fresh_vreg</span> b <span class="kw">in</span>
+  <span class="kw">let</span> stack = <span class="kw">match</span> <span class="hl">Hashtbl</span>.find_opt b.stacks name <span class="kw">with</span>
+    | <span class="hl">Some</span> s -&gt; vreg :: s
+    | <span class="hl">None</span>  -&gt; [vreg]
+  <span class="kw">in</span>
+  <span class="hl">Hashtbl</span>.replace b.stacks name stack;
+  vreg</code></pre>
+  </div>
+</div>
+
+<h3>IR Examples</h3>
+
+<p>Let us see the IR our compiler produces for some programs. Start with the simplest:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> <span class="num">1</span> + <span class="num">2</span>;
+}</code></pre>
+
+<div class="diagram">func main:
+  b1:
+    %0 = const 1
+    %1 = const 2
+    %2 = add %0, %1
+    ret %2</div>
+
+<p>Three instructions. One basic block. Straight-line code, no control flow. Every VReg is defined once and used exactly once — textbook SSA.</p>
+
+<p>Now a function with control flow — the classic <code>max</code>:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">max</span>(<span class="ty">i32</span>, <span class="ty">a</span>: <span class="ty">i32</span>, <span class="ty">b</span>: <span class="ty">i32</span>) {
+    <span class="kw">if</span> (a &gt; b) {
+        <span class="kw">return</span> a;
+    } <span class="kw">else</span> {
+        <span class="kw">return</span> b;
+    }
+}</code></pre>
+
+<div class="diagram">func max:
+  b1 (entry):
+    %0 = const 1       (type constant — size hint)
+    %1 = const 0       (type constant)
+    %2 = gt %0, %1     (a > b)
+    br %2, b2, b3
+
+  b2 (then):
+    ret %0             (return a)
+
+  b3 (else):
+    ret %1             (return b)</div>
+
+<p>Wait — we need to load <code>a</code> and <code>b</code> from somewhere. In our IR, function parameters are VRegs that enter the entry block. The <code>gt</code> instruction compares the two parameter VRegs. If the condition is true, we branch to <code>b2</code> and return <code>a</code>'s VReg. Otherwise, we branch to <code>b3</code> and return <code>b</code>'s VReg.</p>
+
+<p>The Phi nodes appear when a variable is defined in multiple predecessors. Consider this variant where we compute a result and return it at the end:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">max</span>(<span class="ty">i32</span>, <span class="ty">a</span>: <span class="ty">i32</span>, <span class="ty">b</span>: <span class="ty">i32</span>) {
+    <span class="kw">let</span> <span class="ty">result</span>: <span class="ty">i32</span>;
+    <span class="kw">if</span> (a &gt; b) {
+        result = a;
+    } <span class="kw">else</span> {
+        result = b;
+    }
+    <span class="kw">return</span> result;
+}</code></pre>
+
+<div class="diagram">func max:
+  b1 (entry):
+    %0 = const 1       (a as VReg)
+    %1 = const 0       (b as VReg)
+    %2 = gt %0, %1
+    br %2, b2, b3
+
+  b2 (then):
+    store %0, result_slot
+    jmp b4
+
+  b3 (else):
+    store %1, result_slot
+    jmp b4
+
+  b4 (merge):
+    %3 = phi [b2: %0, b3: %1]
+    ret %3</div>
+
+<p>The Phi node <code>%3 = phi [b2: %0, b3: %1]</code> says: if we came from block <code>b2</code>, <code>%3</code> has the value of <code>%0</code> (which is <code>a</code>); if we came from block <code>b3</code>, <code>%3</code> has the value of <code>%1</code> (which is <code>b</code>). The Phi is purely conceptual — during code generation, it will be resolved into moves at the end of each predecessor block.</p>
+
+<div class="callout">
+<strong>Why not just use memory?</strong>
+We could store <code>result</code> to a stack slot in each branch and load it after the join. That works, but it defeats optimization. The Phi node tells the optimizer: "this value comes from one of two places." The optimizer can propagate both possibilities and potentially eliminate the merge entirely.
+</div>
+
+<h3>Optimization Passes</h3>
+
+<p>The SSA IR is not just a bridge to code generation — it is a platform for optimization. Because every VReg has exactly one definition, we can analyze and transform the IR with simple passes.</p>
+
+<h4>Constant Folding</h4>
+
+<p>Constant folding evaluates constant expressions at compile time. If we have <code>const %0, 3; const %1, 4; add %2, %0, %1</code>, we replace it with <code>const %2, 7</code>. This is like Rust's <code>const</code> evaluation — the computation moves from runtime to compile time.</p>
+
+<p>Here is the constant folding pass — a 30-line traversal:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/iropt.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="hl">std::collections</span>::<span class="hl">HashMap</span>;
+
+<span class="kw">pub fn</span> <span class="fn">constant_fold</span>(func: &amp;<span class="kw">mut</span> <span class="ty">Function</span>) {
+    <span class="kw">let mut</span> values: <span class="hl">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="ty">i64</span>&gt; = <span class="hl">HashMap::new</span>();
+
+    <span class="kw">for</span> block <span class="kw">in</span> &amp;<span class="kw">mut</span> func.blocks {
+        <span class="kw">for</span> instr <span class="kw">in</span> &amp;<span class="kw">mut</span> block.instrs {
+            <span class="kw">match</span> instr {
+                Instr::Const(vreg, n) =&gt; {
+                    values.<span class="fn">insert</span>(*vreg, *n);
+                }
+                Instr::Add(dst, l, r) =&gt; {
+                    <span class="kw">if let</span> (<span class="hl">Some</span>(a), <span class="hl">Some</span>(b)) = (values.<span class="fn">get</span>(l), values.<span class="fn">get</span>(r)) {
+                        <span class="kw">let</span> result = a.<span class="fn">wrapping_add</span>(*b);
+                        values.<span class="fn">insert</span>(*dst, result);
+                        *instr = Instr::Const(*dst, result);
+                    }
+                }
+                Instr::Sub(dst, l, r) =&gt; {
+                    <span class="kw">if let</span> (<span class="hl">Some</span>(a), <span class="hl">Some</span>(b)) = (values.<span class="fn">get</span>(l), values.<span class="fn">get</span>(r)) {
+                        <span class="kw">let</span> result = a.<span class="fn">wrapping_sub</span>(*b);
+                        values.<span class="fn">insert</span>(*dst, result);
+                        *instr = Instr::Const(*dst, result);
+                    }
+                }
+                <span class="cm">// ... Mul, Div, comparisons, etc.</span>
+                _ =&gt; {}
+            }
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>iropt.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">constant_fold</span> func =
+  <span class="kw">let</span> values = <span class="hl">Hashtbl</span>.create 64 <span class="kw">in</span>
+  <span class="hl">Array</span>.iter (<span class="kw">fun</span> block -&gt;
+    <span class="hl">List</span>.iteri (<span class="kw">fun</span> i instr -&gt;
+      <span class="kw">match</span> instr <span class="kw">with</span>
+      | Const (vreg, n) -&gt;
+          <span class="hl">Hashtbl</span>.replace values vreg n
+      | Add (dst, l, r) -&gt;
+          (<span class="kw">match</span> <span class="hl">Hashtbl</span>.find_opt values l,
+                 <span class="hl">Hashtbl</span>.find_opt values r <span class="kw">with</span>
+           | <span class="hl">Some</span> a, <span class="hl">Some</span> b -&gt;
+               <span class="kw">let</span> result = <span class="hl">Int64</span>.(<span class="fn">add</span> a b) <span class="kw">in</span>
+               <span class="hl">Hashtbl</span>.replace values dst result;
+               block.instrs &lt;- <span class="hl">List</span>.mapi (<span class="kw">fun</span> j _ -&gt;
+                 <span class="kw">if</span> j = i <span class="kw">then</span> Const (dst, result) <span class="kw">else</span> <span class="fn">nth</span> block.instrs j) block.instrs
+           | _ -&gt; ())
+      | _ -&gt; ()
+    ) block.instrs
+  ) func.blocks</code></pre>
+  </div>
+</div>
+
+<p>Here is the before-and-after for a program with constant expressions:</p>
+
+<pre><code><span class="cm">;; Before constant folding</span>
+<span class="kw">func</span> <span class="fn">main</span>:
+  b1:
+    %0 = const <span class="num">2</span>
+    %1 = const <span class="num">3</span>
+    %2 = const <span class="num">4</span>
+    %3 = mul %1, %2    <span class="cm">; 3 * 4</span>
+    %4 = add %0, %3    <span class="cm">; 2 + 12</span>
+    ret %4
+
+<span class="cm">;; After constant folding</span>
+<span class="kw">func</span> <span class="fn">main</span>:
+  b1:
+    %0 = const <span class="num">14</span>
+    ret %0</code></pre>
+
+<p>From 5 instructions to 2. The entire computation happens at compile time. The generated assembly is just <code>mov eax, 14; ret</code>.</p>
+
+<h4>Dead Code Elimination</h4>
+
+<p>An instruction is dead if its result VReg is never used. In SSA form, dead code elimination is trivial: count the uses of each VReg. If a definition has zero uses, remove it. This is like Rust's dead code warnings — the compiler tells you about values you compute but never use.</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/iropt.rs</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">dead_code_elimination</span>(func: &amp;<span class="kw">mut</span> <span class="ty">Function</span>) {
+    <span class="cm">// Count uses of every VReg</span>
+    <span class="kw">let mut</span> use_count: <span class="hl">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="hl">usize</span>&gt; = <span class="hl">HashMap::new</span>();
+
+    <span class="kw">for</span> block <span class="kw">in</span> &amp;func.blocks {
+        <span class="kw">for</span> instr <span class="kw">in</span> &amp;block.instrs {
+            <span class="kw">for</span> &amp;vreg <span class="kw">in</span> <span class="fn">used_vregs</span>(instr) {
+                *use_count.<span class="fn">entry</span>(vreg).<span class="fn">or_insert</span>(<span class="num">0</span>) += <span class="num">1</span>;
+            }
+        }
+    }
+
+    <span class="cm">// Remove instructions whose result is never used</span>
+    <span class="kw">for</span> block <span class="kw">in</span> &amp;<span class="kw">mut</span> func.blocks {
+        block.instrs.<span class="fn">retain</span>(|instr| {
+            <span class="kw">if let</span> <span class="hl">Some</span>(&amp;dst) = <span class="fn">def_vreg</span>(instr) {
+                use_count.<span class="fn">get</span>(&amp;dst).<span class="fn">unwrap_or</span>(&amp;<span class="num">0</span>) &gt; &amp;<span class="num">0</span>
+                    || <span class="fn">has_side_effect</span>(instr)
+            } <span class="kw">else</span> {
+                <span class="kw">true</span>  <span class="cm">// instructions without defs (e.g., Store) are never dead</span>
+            }
+        });
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>iropt.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">dead_code_elimination</span> func =
+  <span class="kw">let</span> use_count = <span class="hl">Hashtbl</span>.create 64 <span class="kw">in</span>
+
+  <span class="cm">(* Count uses *)</span>
+  <span class="hl">Array</span>.iter (<span class="kw">fun</span> block -&gt;
+    <span class="hl">List</span>.iter (<span class="kw">fun</span> instr -&gt;
+      <span class="hl">List</span>.iter (<span class="kw">fun</span> vreg -&gt;
+        <span class="hl">Hashtbl</span>.replace use_count vreg
+          (<span class="hl">Hashtbl</span>.find_opt use_count vreg |&gt; <span class="hl">Option</span>.value ~default:0 + 1)
+      ) (<span class="fn">used_vregs</span> instr)
+    ) block.instrs
+  ) func.blocks;
+
+  <span class="cm">(* Remove unused defs *)</span>
+  <span class="hl">Array</span>.iter (<span class="kw">fun</span> block -&gt;
+    block.instrs &lt;- <span class="hl">List</span>.filter (<span class="kw">fun</span> instr -&gt;
+      <span class="kw">match</span> <span class="fn">def_vreg</span> instr <span class="kw">with</span>
+      | <span class="hl">Some</span> dst -&gt;
+          (<span class="hl">Hashtbl</span>.find_opt use_count dst |&gt; <span class="hl">Option</span>.value ~default:0) &gt; 0
+          || <span class="fn">has_side_effect</span> instr
+      | <span class="hl">None</span> -&gt; <span class="kw">true</span>
+    ) block.instrs
+  ) func.blocks</code></pre>
+  </div>
+</div>
+
+<h4>Algebraic Simplification</h4>
+
+<p>Algebraic simplification replaces expensive operations with cheaper ones:</p>
+
+<table class="file-table">
+  <tr><th>Pattern</th><th>Replacement</th><th>Rationale</th></tr>
+  <tr><td><code>add %x, 0</code></td><td><code>%x</code></td><td>Adding zero is identity</td></tr>
+  <tr><td><code>sub %x, 0</code></td><td><code>%x</code></td><td>Subtracting zero is identity</td></tr>
+  <tr><td><code>mul %x, 1</code></td><td><code>%x</code></td><td>Multiplying by one is identity</td></tr>
+  <tr><td><code>mul %x, 0</code></td><td><code>const 0</code></td><td>Multiplying by zero is zero</td></tr>
+  <tr><td><code>div %x, 1</code></td><td><code>%x</code></td><td>Dividing by one is identity</td></tr>
+  <tr><td><code>sub %x, %x</code></td><td><code>const 0</code></td><td>Value minus itself is zero</td></tr>
+  <tr><td><code>not not %x</code></td><td><code>%x</code></td><td>Double negation cancels</td></tr>
+</table>
+
+<p>These are all simple pattern-matches on the instruction. In Rust, we can implement them as a <code>match</code> inside a traversal. The elegance of SSA is that these patterns are purely local — they depend only on the current instruction and the instructions that define its operands, never on distant code.</p>
+
+<div class="callout tip">
+<strong>Optimization pipelines</strong>
+Like Rust's <code>rustc</code>, our compiler should run optimizations in a pipeline. Run constant folding first (it creates more constants), then algebraic simplification (clean up the leftovers), then dead code elimination (remove instructions made redundant by the previous passes). Run the pipeline multiple times until no further changes occur — this is called "fixpoint iteration."
+</div>
+
+<h3>What the IR Enables</h3>
+
+<p>The IR is the turning point of the compiler. Everything before it is frontend: source-language-specific. Everything after is backend: target-machine-specific. The IR is the interface between them. Changing the frontend language does not change the backend. Changing the target architecture does not change the frontend.</p>
+
+<p>This is the same architectural insight that powers LLVM. LLVM IR is the common representation shared by all LLVM frontends (C, C++, Rust, Swift, ...) and all LLVM backends (x86, ARM, RISC-V, ...). Our IR is simpler, but the idea is the same.</p>
+
+<h3>Showing IR for Complex Programs</h3>
+
+<p>Let us look at the IR for a program with multiple functions, nested control flow, and variable reassignment:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">factorial</span>(<span class="ty">i32</span>, <span class="ty">n</span>: <span class="ty">i32</span>) {
+    <span class="kw">let</span> <span class="ty">result</span>: <span class="ty">i32</span> = <span class="num">1</span>;
+    <span class="kw">while</span> (n &gt; <span class="num">0</span>) {
+        result = result * n;
+        n = n - <span class="num">1</span>;
+    }
+    <span class="kw">return</span> result;
+}</code></pre>
+
+<p>This program has a loop, variable reassignment (<code>n</code> and <code>result</code> are mutated), and a return at the end. Here is the SSA IR our compiler generates:</p>
+
+<div class="diagram">func factorial:
+  b1 (entry):
+    %0  = const 1           ; result = 1
+    %1  = gt %n, 0          ; n > 0?
+    br %1, b2, b4           ; while condition check
+
+  b2 (loop body):
+    %r1 = phi [b1: %0, b3: %r3]    ; result — comes from entry or loop back edge
+    %n1 = phi [b1: %n, b3: %n2]    ; n — same
+    %r2 = mul %r1, %n1             ; result * n
+    %n2 = sub %n1, 1               ; n - 1
+    %c2 = gt %n2, 0                ; n > 0 again
+    br %c2, b3, b4                 ; continue?
+
+  b3 (loop continue):
+    jmp b2                         ; back to loop header
+
+  b4 (exit):
+    %r_final = phi [b1: %0, b2: %r2]    ; final result value
+    ret %r_final</div>
+
+<p>Observe the Phi nodes:</p>
+<ul>
+  <li><code>%r1</code> merges <code>%0</code> (initial <code>result = 1</code> from the entry block) with <code>%r3</code> (the updated <code>result * n</code> from the loop back edge).</li>
+  <li><code>%n1</code> merges the initial parameter <code>%n</code> with the decremented <code>%n2</code> from the back edge.</li>
+  <li><code>%r_final</code> merges the initial <code>%0</code> (if the loop never executes) with <code>%r2</code> (if the loop executed at least once).</li>
+</ul>
+
+<p>This is the power of SSA: every use of a variable points to exactly one definition. The Phi nodes make the data flow explicit at join points. And because each reassignment creates a new VReg, the optimizer can track each value independently.</p>
+
+<h3>Companion Source Files</h3>
+
+<table class="file-table">
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>src/ir.rs</code></td><td>IR type definitions: VReg, BasicBlock, Instr, Terminator</td></tr>
+  <tr><td><code>src/ir_build.rs</code></td><td>SSA builder using Braun et al. algorithm</td></tr>
+  <tr><td><code>src/iropt.rs</code></td><td>Optimization passes: constant fold, DCE, algebraic simplification</td></tr>
+</table>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Global Value Numbering (GVN)</strong>
+Add a GVN pass that detects when two instructions compute the same value. For example, <code>%1 = add %a, %b</code> and <code>%2 = add %a, %b</code> produce the same result. Replace all uses of <code>%2</code> with <code>%1</code> and remove the redundant instruction. This is a powerful optimization that subsumes common subexpression elimination.
+</div>
+
+<div class="exercise">
+<strong>2. Dead block elimination</strong>
+After optimizations like constant folding, some basic blocks may become unreachable. Add a pass that removes blocks that are not reachable from the entry block. This is a simple graph traversal: mark reachable blocks, remove the rest.
+</div>
+
+<div class="exercise">
+<strong>3. Strength reduction</strong>
+Replace expensive operations with cheaper ones: <code>mul %x, 2</code> → <code>add %x, %x</code>; <code>div %x, 4</code> → <code>shr %x, 2</code>. These are useful for architectures where multiplication and division are slow.
+</div>
+
+<div class="exercise">
+<strong>4. Copy propagation</strong>
+After register allocation, we may have <code>%1 = copy %0</code> where <code>%0</code> is never modified after the copy. Replace all uses of <code>%1</code> with <code>%0</code> and remove the copy. This is especially important for Phi node resolution, which creates many copies.
+</div>
+
+<div class="exercise">
+<strong>5. IR verification pass</strong>
+Write a pass that verifies the IR is well-formed: every VReg used is defined exactly once (SSA property), every block referenced by terminators exists, no instruction uses undefined values. Run this after every transformation. It is a sanity check that catches bugs in other passes — like Rust's <code>debug_assert!</code>.
+</div>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="05-semantics.html" class="prev">Does This Make Sense?</a>
+  <a href="07-codegen.html" class="next">From IR to Machine Code</a>
+</div>
+
+</body>
+</html>

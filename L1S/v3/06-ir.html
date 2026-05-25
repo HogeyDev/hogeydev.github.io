@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bridging the Gap — Building a Compiler</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler</a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+</script>
+
+<h2>6 · Bridging the Gap</h2>
+
+<p class="subtitle" style="font-size:1.15rem;color:var(--fg2);margin-bottom:1.5rem;">
+  The AST is tied to source language syntax. But the machine doesn't know about
+  if-statements, while-loops, or function declarations. We need something in between.
+</p>
+
+<p>
+  Think about what we have: a beautiful, type-checked AST. Every node represents
+  some concept from our source language — <code>If</code>, <code>While</code>,
+  <code>FuncDecl</code>, <code>Let</code>. These are perfect for analysis.
+  We can ask "what type does this <code>If</code> return?" or "what variables
+  does this <code>While</code> reference?"
+</p>
+
+<p>
+  Now think about what the machine wants: flat sequences of instructions.
+  Load a value into a register. Add two registers. Compare. Jump if equal.
+  The machine doesn't have <code>if</code>. It has <code>cmp</code> and
+  <code>jne</code>. It doesn't have <code>while</code>. It has
+  <code>jmp</code> and conditional branches.
+</p>
+
+<p>
+  We need a translator. Someone who speaks both "high-level source" and
+  "low-level machine" fluently. That translator is an
+  <strong>intermediate representation (IR)</strong>.
+</p>
+
+<div class="callout">
+<strong>Why not go directly from AST to assembly?</strong>
+  We could. Early compilers did. But separating IR generation from assembly
+  generation gives us enormous flexibility: we can optimize the IR, target
+  multiple architectures from the same IR, and reason about programs at a
+  level that's simpler than the full AST. Think of IR as the compiler's
+  <em>lingua franca</em> — a universal language that every compiler phase
+  understands.
+</div>
+
+<h3>The Problem with the AST</h3>
+
+<p>
+  Let's look at a concrete example. Here's a simple function in our language:
+</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">max</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+  <span class="kw">if</span> (a > b) {
+    <span class="kw">return</span> a;
+  } <span class="kw">else</span> {
+    <span class="kw">return</span> b;
+  }
+}</code></pre>
+
+<p>
+  The AST for this looks like a tree:
+</p>
+
+<div class="diagram">FuncDecl "max" ret=i32 params=[a:i32, b:i32]
+  └── Block
+      └── If
+          ├── cond: Binary Gt
+          │   ├── Ident "a"
+          │   └── Ident "b"
+          ├── then: Block
+          │   └── Return
+          │       └── Ident "a"
+          └── else: Block
+              └── Return
+                  └── Ident "b"</div>
+
+<p>
+  This tree is great for analysis. We can traverse it, check types, find
+  unused variables, and so on. But to generate code, we need to linearize it.
+  We need to decide: what order do we evaluate things? Where do we store
+  intermediate results? How do we encode the branch?
+</p>
+
+<p>
+  The IR answers all three questions. It's a <strong>linear representation</strong>
+  of the computation. Every expression becomes a sequence of instructions that
+  compute into <strong>virtual registers</strong>. Every control flow construct
+  becomes <strong>basic blocks</strong> connected by branches.
+</p>
+
+<h3>Designing Our IR</h3>
+
+<p>
+  Our IR has three levels of structure:
+</p>
+
+<table class="file-table">
+  <tr>
+    <th>Concept</th>
+    <th>IR Structure</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td>Program</td>
+    <td><code>IrModule</code></td>
+    <td>List of functions + global variables</td>
+  </tr>
+  <tr>
+    <td>Function</td>
+    <td><code>IrFunction</code></td>
+    <td>Name, parameters, list of basic blocks</td>
+  </tr>
+  <tr>
+    <td>Block</td>
+    <td><code>IrBlock</code></td>
+    <td>Label, instruction list, terminator</td>
+  </tr>
+  <tr>
+    <td>Value</td>
+    <td><code>%0</code>, <code>%1</code>, ...</td>
+    <td>Virtual register (unlimited supply)</td>
+  </tr>
+</table>
+
+<p>
+  The key insight: <strong>virtual registers are an unlimited resource</strong>.
+  Unlike real CPU registers (which number 16 on x86-64), we can create as many
+  virtual registers as we want. The register allocator (later) will map them to
+  real registers or spill them to memory. For now, we just number them:
+  <code>%0</code>, <code>%1</code>, <code>%2</code>, and so on.
+</p>
+
+<h3>IR Instruction Set</h3>
+
+<p>
+  Our IR is a simple three-address code. Most instructions take the form:
+  <code>%dest = op %src1, %src2</code>.
+</p>
+
+<table class="file-table">
+  <tr>
+    <th>Instruction</th>
+    <th>Format</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>const</code></td>
+    <td><code>%d = const <em>val</em></code></td>
+    <td>Load an integer constant into a vreg</td>
+  </tr>
+  <tr>
+    <td><code>add</code></td>
+    <td><code>%d = add %a, %b</code></td>
+    <td>Integer addition</td>
+  </tr>
+  <tr>
+    <td><code>sub</code></td>
+    <td><code>%d = sub %a, %b</code></td>
+    <td>Integer subtraction</td>
+  </tr>
+  <tr>
+    <td><code>mul</code></td>
+    <td><code>%d = mul %a, %b</code></td>
+    <td>Integer multiplication</td>
+  </tr>
+  <tr>
+    <td><code>div</code></td>
+    <td><code>%d = div %a, %b</code></td>
+    <td>Integer division</td>
+  </tr>
+  <tr>
+    <td><code>eq</code></td>
+    <td><code>%d = eq %a, %b</code></td>
+    <td>Equality comparison (result is 0 or 1)</td>
+  </tr>
+  <tr>
+    <td><code>lt</code></td>
+    <td><code>%d = lt %a, %b</code></td>
+    <td>Less-than comparison</td>
+  </tr>
+  <tr>
+    <td><code>gt</code></td>
+    <td><code>%d = gt %a, %b</code></td>
+    <td>Greater-than comparison</td>
+  </tr>
+  <tr>
+    <td><code>and</code></td>
+    <td><code>%d = and %a, %b</code></td>
+    <td>Bitwise AND</td>
+  </tr>
+  <tr>
+    <td><code>or</code></td>
+    <td><code>%d = or %a, %b</code></td>
+    <td>Bitwise OR</td>
+  </tr>
+  <tr>
+    <td><code>not</code></td>
+    <td><code>%d = not %a</code></td>
+    <td>Bitwise NOT</td>
+  </tr>
+  <tr>
+    <td><code>neg</code></td>
+    <td><code>%d = neg %a</code></td>
+    <td>Arithmetic negation</td>
+  </tr>
+  <tr>
+    <td><code>load</code></td>
+    <td><code>%d = load <em>slot</em></code></td>
+    <td>Load from a stack slot (local variable)</td>
+  </tr>
+  <tr>
+    <td><code>store</code></td>
+    <td><code>store <em>slot</em>, %a</code></td>
+    <td>Store to a stack slot</td>
+  </tr>
+  <tr>
+    <td><code>call</code></td>
+    <td><code>%d = call <em>name</em>(%a, %b)</code></td>
+    <td>Call a function</td>
+  </tr>
+</table>
+
+<p>And the terminators (which end a basic block):</p>
+
+<table class="file-table">
+  <tr>
+    <th>Terminator</th>
+    <th>Format</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><code>ret</code></td>
+    <td><code>ret %a</code></td>
+    <td>Return from function with value</td>
+  </tr>
+  <tr>
+    <td><code>br</code></td>
+    <td><code>br <em>label</em></code></td>
+    <td>Unconditional branch to a block</td>
+  </tr>
+  <tr>
+    <td><code>br_cond</code></td>
+    <td><code>br_cond %c, <em>tlab</em>, <em>flab</em></code></td>
+    <td>Branch on condition (non-zero = true)</td>
+  </tr>
+</table>
+
+<h3>Building IR from AST</h3>
+
+<p>
+  Now we reach the heart of this chapter: translating the AST into IR.
+  The process follows a simple pattern for every AST node:
+</p>
+
+<ul>
+  <li><strong>Statements</strong> produce side effects (stores, calls) and linear control flow.</li>
+  <li><strong>Expressions</strong> produce a value in a virtual register.</li>
+  <li><strong>Control flow</strong> (if, while) produces branch instructions between basic blocks.</li>
+</ul>
+
+<p>
+  Let's define our IR data structures first:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ir.rs</span></div>
+    <pre><code><span class="kw">pub type</span> <span class="ty">VReg</span> = <span class="ty">usize</span>;
+
+<span class="kw">pub struct</span> <span class="ty">IrModule</span> {
+  <span class="kw">pub</span> functions: <span class="ty">Vec</span>&lt;<span class="ty">IrFunction</span>&gt;,
+  <span class="kw">pub</span> globals: <span class="ty">Vec</span>&lt;(<span class="ty">String</span>, <span class="ty">Type</span>)&gt;,
+}
+
+<span class="kw">pub struct</span> <span class="ty">IrFunction</span> {
+  <span class="kw">pub</span> name: <span class="ty">String</span>,
+  <span class="kw">pub</span> params: <span class="ty">Vec</span>&lt;(<span class="ty">String</span>, <span class="ty">Type</span>)&gt;,
+  <span class="kw">pub</span> blocks: <span class="ty">Vec</span>&lt;<span class="ty">IrBlock</span>&gt;,
+}
+
+<span class="kw">pub struct</span> <span class="ty">IrBlock</span> {
+  <span class="kw">pub</span> label: <span class="ty">String</span>,
+  <span class="kw">pub</span> instrs: <span class="ty">Vec</span>&lt;<span class="ty">IrInstr</span>&gt;,
+  <span class="kw">pub</span> term: <span class="ty">IrTerm</span>,
+}
+
+<span class="kw">pub enum</span> <span class="ty">IrInstr</span> {
+  <span class="fn">Const</span>(<span class="ty">VReg</span>, <span class="ty">i64</span>),
+  <span class="fn">Add</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Sub</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Mul</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Div</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Eq</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Lt</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Gt</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">And</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Or</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Not</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Neg</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>),
+  <span class="fn">Load</span>(<span class="ty">VReg</span>, <span class="ty">usize</span>), <span class="cm">// load into vreg from stack slot</span>
+  <span class="fn">Store</span>(<span class="ty">usize</span>, <span class="ty">VReg</span>),  <span class="cm">// store vreg into stack slot</span>
+  <span class="fn">Call</span>(<span class="ty">VReg</span>, <span class="ty">String</span>, <span class="ty">Vec</span>&lt;<span class="ty">VReg</span>&gt;),
+}
+
+<span class="kw">pub enum</span> <span class="ty">IrTerm</span> {
+  <span class="fn">Ret</span>(<span class="ty">VReg</span>),
+  <span class="fn">Br</span>(<span class="ty">String</span>),
+  <span class="fn">BrCond</span>(<span class="ty">VReg</span>, <span class="ty">String</span>, <span class="ty">String</span>),
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ir.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">vreg</span> = <span class="kw">int</span>
+
+<span class="kw">type</span> <span class="ty">ir_instr</span> =
+  | <span class="fn">Const</span> of <span class="ty">vreg</span> * <span class="kw">int64</span>
+  | <span class="fn">Add</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Sub</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Mul</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Div</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Eq</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Lt</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Gt</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">And</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Or</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Not</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Neg</span> of <span class="ty">vreg</span> * <span class="ty">vreg</span>
+  | <span class="fn">Load</span> of <span class="ty">vreg</span> * <span class="kw">int</span>
+  | <span class="fn">Store</span> of <span class="kw">int</span> * <span class="ty">vreg</span>
+  | <span class="fn">Call</span> of <span class="ty">vreg</span> * <span class="kw">string</span> * <span class="ty">vreg</span> <span class="kw">list</span>
+
+<span class="kw">type</span> <span class="ty">ir_term</span> =
+  | <span class="fn">Ret</span> of <span class="ty">vreg</span>
+  | <span class="fn">Br</span> of <span class="kw">string</span>
+  | <span class="fn">BrCond</span> of <span class="ty">vreg</span> * <span class="kw">string</span> * <span class="kw">string</span>
+
+<span class="kw">type</span> <span class="ty">ir_block</span> = {
+  label: <span class="kw">string</span>;
+  instrs: <span class="ty">ir_instr</span> <span class="kw">list</span>;
+  term: <span class="ty">ir_term</span>;
+}
+
+<span class="kw">type</span> <span class="ty">ir_function</span> = {
+  name: <span class="kw">string</span>;
+  params: (<span class="kw">string</span> * <span class="ty">typ</span>) <span class="kw">list</span>;
+  blocks: <span class="ty">ir_block</span> <span class="kw">list</span>;
+}
+
+<span class="kw">type</span> <span class="ty">ir_module</span> = {
+  functions: <span class="ty">ir_function</span> <span class="kw">list</span>;
+  globals: (<span class="kw">string</span> * <span class="ty">typ</span>) <span class="kw">list</span>;
+}</code></pre>
+  </div>
+</div>
+
+<h3>The IR Builder</h3>
+
+<p>
+  The IR builder is a stateful object that carries a few things:
+</p>
+
+<ul>
+  <li>A counter for generating fresh virtual registers (<code>%0</code>, <code>%1</code>, ...)</li>
+  <li>A counter for generating fresh block labels</li>
+  <li>The current block we're emitting instructions into</li>
+  <li>A map from variable names to stack slot indices</li>
+  <li>The list of completed blocks (for the function we're building)</li>
+</ul>
+
+<p>
+  Here's how we build IR for expressions. Each expression returns the virtual
+  register that holds its result:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ir_builder.rs</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">IrBuilder</span> {
+  vreg_counter: <span class="ty">usize</span>,
+  block_counter: <span class="ty">usize</span>,
+  slots: <span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">usize</span>&gt;,
+  <span class="kw">pub</span> current_block: <span class="ty">IrBlock</span>,
+  <span class="kw">pub</span> blocks: <span class="ty">Vec</span>&lt;<span class="ty">IrBlock</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">IrBuilder</span> {
+  <span class="kw">pub fn</span> <span class="fn">new</span>() -> <span class="ty">Self</span> {
+    <span class="ty">IrBuilder</span> {
+      vreg_counter: <span class="num">0</span>,
+      block_counter: <span class="num">0</span>,
+      slots: <span class="ty">HashMap</span>::<span class="fn">new</span>(),
+      current_block: <span class="ty">IrBlock</span>::<span class="fn">new</span>(<span class="str">"entry"</span>.<span class="fn">into</span>()),
+      blocks: <span class="fn">vec!</span>[],
+    }
+  }
+
+  <span class="kw">fn</span> <span class="fn">fresh_vreg</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -> <span class="ty">VReg</span> {
+    <span class="kw">let</span> r = <span class="kw">self</span>.vreg_counter;
+    <span class="kw">self</span>.vreg_counter += <span class="num">1</span>;
+    r
+  }
+
+  <span class="kw">fn</span> <span class="fn">fresh_block</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -> <span class="ty">String</span> {
+    <span class="kw">let</span> b = <span class="fn">format!</span>(<span class="str">"b{}"</span>, <span class="kw">self</span>.block_counter);
+    <span class="kw">self</span>.block_counter += <span class="num">1</span>;
+    b
+  }
+
+  <span class="kw">fn</span> <span class="fn">emit</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, instr: <span class="ty">IrInstr</span>) {
+    <span class="kw">self</span>.current_block.instrs.<span class="fn">push</span>(instr);
+  }
+
+  <span class="kw">fn</span> <span class="fn">finish_block</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, term: <span class="ty">IrTerm</span>) -> <span class="ty">String</span> {
+    <span class="kw">self</span>.current_block.term = term;
+    <span class="kw">let</span> label = <span class="kw">self</span>.current_block.label.<span class="fn">clone</span>();
+    <span class="kw">let</span> block = std::mem::<span class="fn">replace</span>(
+      &amp;<span class="kw">mut</span> <span class="kw">self</span>.current_block,
+      <span class="ty">IrBlock</span>::<span class="fn">new</span>(<span class="kw">self</span>.<span class="fn">fresh_block</span>()),
+    );
+    <span class="kw">self</span>.blocks.<span class="fn">push</span>(block);
+    label
+  }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ir_builder.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">ir_builder</span> = {
+  mutable vreg_counter: <span class="kw">int</span>;
+  mutable block_counter: <span class="kw">int</span>;
+  slots: (<span class="kw">string</span>, <span class="kw">int</span>) <span class="ty">Hashtbl</span>.t;
+  mutable current_block: <span class="ty">ir_block</span>;
+  mutable blocks: <span class="ty">ir_block</span> <span class="kw">list</span>;
+}
+
+<span class="kw">let</span> <span class="fn">create</span> () = {
+  vreg_counter = <span class="num">0</span>;
+  block_counter = <span class="num">0</span>;
+  slots = <span class="fn">Hashtbl</span>.<span class="fn">create</span> <span class="num">16</span>;
+  current_block = { label = <span class="str">"entry"</span>; instrs = []; term = <span class="ty">Ret</span> <span class="num">0</span> };
+  blocks = [];
+}
+
+<span class="kw">let</span> <span class="fn">fresh_vreg</span> b =
+  <span class="kw">let</span> r = b.vreg_counter <span class="kw">in</span>
+  b.vreg_counter <- r + <span class="num">1</span>;
+  r
+
+<span class="kw">let</span> <span class="fn">fresh_block</span> b =
+  <span class="kw">let</span> name = <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"b%d"</span> b.block_counter <span class="kw">in</span>
+  b.block_counter <- b.block_counter + <span class="num">1</span>;
+  name
+
+<span class="kw">let</span> <span class="fn">emit</span> b instr =
+  b.current_block <- {
+    b.current_block <span class="kw">with</span>
+    instrs = b.current_block.instrs @ [instr]
+  }
+
+<span class="kw">let</span> <span class="fn">finish_block</span> b term =
+  b.current_block <- { b.current_block <span class="kw">with</span> term };
+  <span class="kw">let</span> label = b.current_block.label <span class="kw">in</span>
+  <span class="kw">let</span> finished = b.current_block <span class="kw">in</span>
+  b.current_block <- {
+    label = <span class="fn">fresh_block</span> b;
+    instrs = [];
+    term = <span class="ty">Ret</span> <span class="num">0</span>;
+  };
+  b.blocks <- b.blocks @ [finished];
+  label</code></pre>
+  </div>
+</div>
+
+<h4>Expressions to IR</h4>
+
+<p>
+  Translating an expression is straightforward: we emit instructions that
+  compute the value into a fresh virtual register:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ir_builder.rs (continued)</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">expr_to_ir</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, expr: &amp;<span class="ty">Expr</span>) -> <span class="ty">VReg</span> {
+  <span class="kw">match</span> expr {
+    <span class="ty">Expr</span>::<span class="fn">IntLit</span>(_, val) => {
+      <span class="kw">let</span> r = <span class="kw">self</span>.<span class="fn">fresh_vreg</span>();
+      <span class="kw">self</span>.<span class="fn">emit</span>(<span class="ty">IrInstr</span>::<span class="fn">Const</span>(r, *val));
+      r
+    }
+
+    <span class="ty">Expr</span>::<span class="fn">BoolLit</span>(_, val) => {
+      <span class="kw">let</span> r = <span class="kw">self</span>.<span class="fn">fresh_vreg</span>();
+      <span class="kw">self</span>.<span class="fn">emit</span>(<span class="ty">IrInstr</span>::<span class="fn">Const</span>(r,
+        <span class="kw">if</span> *val { <span class="num">1</span> } <span class="kw">else</span> { <span class="num">0</span> }));
+      r
+    }
+
+    <span class="ty">Expr</span>::<span class="fn">Ident</span>(_, name) => {
+      <span class="kw">let</span> slot = <span class="kw">self</span>.slots[name];
+      <span class="kw">let</span> r = <span class="kw">self</span>.<span class="fn">fresh_vreg</span>();
+      <span class="kw">self</span>.<span class="fn">emit</span>(<span class="ty">IrInstr</span>::<span class="fn">Load</span>(r, slot));
+      r
+    }
+
+    <span class="ty">Expr</span>::<span class="fn">Binary</span>(_, op, lhs, rhs) => {
+      <span class="kw">let</span> l = <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(lhs);
+      <span class="kw">let</span> r = <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(rhs);
+      <span class="kw">let</span> d = <span class="kw">self</span>.<span class="fn">fresh_vreg</span>();
+      <span class="kw">let</span> instr = <span class="kw">match</span> op {
+        <span class="ty">BinOp</span>::<span class="fn">Add</span> => <span class="ty">IrInstr</span>::<span class="fn">Add</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">Sub</span> => <span class="ty">IrInstr</span>::<span class="fn">Sub</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">Mul</span> => <span class="ty">IrInstr</span>::<span class="fn">Mul</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">Div</span> => <span class="ty">IrInstr</span>::<span class="fn">Div</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">Eq</span>  => <span class="ty">IrInstr</span>::<span class="fn">Eq</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">Lt</span>  => <span class="ty">IrInstr</span>::<span class="fn">Lt</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">Gt</span>  => <span class="ty">IrInstr</span>::<span class="fn">Gt</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">And</span> => <span class="ty">IrInstr</span>::<span class="fn">And</span>(d, l, r),
+        <span class="ty">BinOp</span>::<span class="fn">Or</span>  => <span class="ty">IrInstr</span>::<span class="fn">Or</span>(d, l, r),
+      };
+      <span class="kw">self</span>.<span class="fn">emit</span>(instr);
+      d
+    }
+
+    <span class="ty">Expr</span>::<span class="fn">Call</span>(_, name, args) => {
+      <span class="kw">let</span> arg_regs: <span class="ty">Vec</span>&lt;<span class="ty">VReg</span>&gt; = args
+        .<span class="fn">iter</span>()
+        .<span class="fn">map</span>(|a| <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(a))
+        .<span class="fn">collect</span>();
+      <span class="kw">let</span> r = <span class="kw">self</span>.<span class="fn">fresh_vreg</span>();
+      <span class="kw">self</span>.<span class="fn">emit</span>(<span class="ty">IrInstr</span>::<span class="fn">Call</span>(r, name.<span class="fn">clone</span>(), arg_regs));
+      r
+    }
+
+    <span class="ty">Expr</span>::<span class="fn">Cast</span>(.., inner) => {
+      <span class="cm">// Cast is a no-op in IR — same bits, different interpretation</span>
+      <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(inner)
+    }
+  }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ir_builder.ml (continued)</span></div>
+    <pre><code><span class="kw">let rec</span> <span class="fn">expr_to_ir</span> b expr =
+  <span class="kw">match</span> expr <span class="kw">with</span>
+  | <span class="ty">Expr</span>.<span class="fn">IntLit</span> (_, n) ->
+    <span class="kw">let</span> r = <span class="fn">fresh_vreg</span> b <span class="kw">in</span>
+    <span class="fn">emit</span> b (<span class="ty">Const</span> (r, n));
+    r
+
+  | <span class="ty">Expr</span>.<span class="fn">BoolLit</span> (_, v) ->
+    <span class="kw">let</span> r = <span class="fn">fresh_vreg</span> b <span class="kw">in</span>
+    <span class="fn">emit</span> b (<span class="ty">Const</span> (r, <span class="kw">if</span> v <span class="kw">then</span> <span class="num">1L</span> <span class="kw">else</span> <span class="num">0L</span>));
+    r
+
+  | <span class="ty">Expr</span>.<span class="fn">Ident</span> (_, name) ->
+    <span class="kw">let</span> slot = <span class="ty">Hashtbl</span>.<span class="fn">find</span> b.slots name <span class="kw">in</span>
+    <span class="kw">let</span> r = <span class="fn">fresh_vreg</span> b <span class="kw">in</span>
+    <span class="fn">emit</span> b (<span class="ty">Load</span> (r, slot));
+    r
+
+  | <span class="ty">Expr</span>.<span class="fn">Binary</span> (_, op, lhs, rhs) ->
+    <span class="kw">let</span> l = <span class="fn">expr_to_ir</span> b lhs <span class="kw">in</span>
+    <span class="kw">let</span> r = <span class="fn">expr_to_ir</span> b rhs <span class="kw">in</span>
+    <span class="kw">let</span> d = <span class="fn">fresh_vreg</span> b <span class="kw">in</span>
+    <span class="kw">let</span> instr = <span class="kw">match</span> op <span class="kw">with</span>
+      | <span class="ty">Add</span> -> <span class="ty">Add</span> (d, l, r)
+      | <span class="ty">Sub</span> -> <span class="ty">Sub</span> (d, l, r)
+      | <span class="ty">Mul</span> -> <span class="ty">Mul</span> (d, l, r)
+      | <span class="ty">Div</span> -> <span class="ty">Div</span> (d, l, r)
+      | <span class="ty">Eq</span>  -> <span class="ty">Eq</span> (d, l, r)
+      | <span class="ty">Lt</span>  -> <span class="ty">Lt</span> (d, l, r)
+      | <span class="ty">Gt</span>  -> <span class="ty">Gt</span> (d, l, r)
+      | <span class="ty">And</span> -> <span class="ty">And</span> (d, l, r)
+      | <span class="ty">Or</span>  -> <span class="ty">Or</span> (d, l, r)
+    <span class="kw">in</span>
+    <span class="fn">emit</span> b instr;
+    d
+
+  | <span class="ty">Expr</span>.<span class="fn">Call</span> (_, name, args) ->
+    <span class="kw">let</span> arg_regs = <span class="ty">List</span>.<span class="fn">map</span> (<span class="fn">expr_to_ir</span> b) args <span class="kw">in</span>
+    <span class="kw">let</span> r = <span class="fn">fresh_vreg</span> b <span class="kw">in</span>
+    <span class="fn">emit</span> b (<span class="ty">Call</span> (r, name, arg_regs));
+    r
+
+  | <span class="ty">Expr</span>.<span class="fn">Cast</span> (_, _, inner) ->
+    <span class="cm">(* Cast is a no-op in IR *)</span>
+    <span class="fn">expr_to_ir</span> b inner</code></pre>
+  </div>
+</div>
+
+<h4>Statements and Control Flow</h4>
+
+<p>
+  Statements are where things get interesting. A statement doesn't produce a
+  value — it emits instructions and may split control flow into multiple blocks.
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <pre><code><span class="kw">fn</span> <span class="fn">stmt_to_ir</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, stmt: &amp;<span class="ty">Stmt</span>) {
+  <span class="kw">match</span> stmt {
+    <span class="ty">Stmt</span>::<span class="fn">Let</span>(_, name, _, init) => {
+      <span class="kw">if let</span> <span class="ty">Some</span>(init) = init {
+        <span class="kw">let</span> val = <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(init);
+        <span class="kw">let</span> slot = <span class="kw">self</span>.slots.<span class="fn">len</span>();
+        <span class="kw">self</span>.slots.<span class="fn">insert</span>(name.<span class="fn">clone</span>(), slot);
+        <span class="kw">self</span>.<span class="fn">emit</span>(<span class="ty">IrInstr</span>::<span class="fn">Store</span>(slot, val));
+      }
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">Return</span>(_, expr) => {
+      <span class="kw">let</span> val = <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(expr);
+      <span class="kw">self</span>.<span class="fn">finish_block</span>(<span class="ty">IrTerm</span>::<span class="fn">Ret</span>(val));
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">If</span>(_, cond, then_blk, else_blk) => {
+      <span class="kw">let</span> cond_reg = <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(cond);
+      <span class="kw">let</span> then_label = <span class="kw">self</span>.<span class="fn">fresh_block</span>();
+      <span class="kw">let</span> else_label = <span class="kw">self</span>.<span class="fn">fresh_block</span>();
+      <span class="kw">let</span> after_label = <span class="kw">self</span>.<span class="fn">fresh_block</span>();
+
+      <span class="cm">// Branch on condition</span>
+      <span class="kw">self</span>.<span class="fn">finish_block</span>(
+        <span class="ty">IrTerm</span>::<span class="fn">BrCond</span>(cond_reg, then_label, else_label));
+
+      <span class="cm">// Then block</span>
+      <span class="kw">self</span>.current_block.label = then_label;
+      <span class="kw">for</span> s <span class="kw">in</span> then_blk {
+        <span class="kw">self</span>.<span class="fn">stmt_to_ir</span>(s);
+      }
+      <span class="cm">// If block didn't end with return, branch to after</span>
+      <span class="kw">if</span> !<span class="fn">ended_with_return</span>(then_blk) {
+        <span class="kw">self</span>.<span class="fn">finish_block</span>(<span class="ty">IrTerm</span>::<span class="fn">Br</span>(after_label));
+      }
+
+      <span class="cm">// Else block</span>
+      <span class="kw">if let</span> <span class="ty">Some</span>(else_blk) = else_blk {
+        <span class="kw">self</span>.current_block.label = else_label;
+        <span class="kw">for</span> s <span class="kw">in</span> else_blk {
+          <span class="kw">self</span>.<span class="fn">stmt_to_ir</span>(s);
+        }
+        <span class="kw">if</span> !<span class="fn">ended_with_return</span>(else_blk) {
+          <span class="kw">self</span>.<span class="fn">finish_block</span>(<span class="ty">IrTerm</span>::<span class="fn">Br</span>(after_label));
+        }
+      } <span class="kw">else</span> {
+        <span class="cm">// No else: branch directly to after</span>
+        <span class="kw">self</span>.current_block.label = else_label;
+        <span class="kw">self</span>.<span class="fn">finish_block</span>(<span class="ty">IrTerm</span>::<span class="fn">Br</span>(after_label));
+      }
+
+      <span class="cm">// After block (continue point)</span>
+      <span class="kw">self</span>.current_block.label = after_label;
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">While</span>(_, cond, body) => {
+      <span class="kw">let</span> header_label = <span class="kw">self</span>.<span class="fn">fresh_block</span>();
+      <span class="kw">let</span> body_label = <span class="kw">self</span>.<span class="fn">fresh_block</span>();
+      <span class="kw">let</span> after_label = <span class="kw">self</span>.<span class="fn">fresh_block</span>();
+
+      <span class="cm">// Branch to loop header</span>
+      <span class="kw">self</span>.<span class="fn">finish_block</span>(<span class="ty">IrTerm</span>::<span class="fn">Br</span>(header_label));
+
+      <span class="cm">// Header: evaluate condition</span>
+      <span class="kw">self</span>.current_block.label = header_label;
+      <span class="kw">let</span> cond_reg = <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(cond);
+      <span class="kw">self</span>.<span class="fn">finish_block</span>(
+        <span class="ty">IrTerm</span>::<span class="fn">BrCond</span>(cond_reg, body_label, after_label));
+
+      <span class="cm">// Body</span>
+      <span class="kw">self</span>.current_block.label = body_label;
+      <span class="kw">for</span> s <span class="kw">in</span> body {
+        <span class="kw">self</span>.<span class="fn">stmt_to_ir</span>(s);
+      }
+      <span class="cm">// Loop back to header</span>
+      <span class="kw">if</span> !<span class="fn">ended_with_return</span>(body) {
+        <span class="kw">self</span>.<span class="fn">finish_block</span>(<span class="ty">IrTerm</span>::<span class="fn">Br</span>(header_label));
+      }
+
+      <span class="cm">// After loop</span>
+      <span class="kw">self</span>.current_block.label = after_label;
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">Expr</span>(_, expr) => {
+      <span class="kw">self</span>.<span class="fn">expr_to_ir</span>(expr);
+    }
+  }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <pre><code><span class="kw">let rec</span> <span class="fn">stmt_to_ir</span> b stmt =
+  <span class="kw">match</span> stmt <span class="kw">with</span>
+  | <span class="ty">Stmt</span>.<span class="fn">Let</span> (_, name, _, init) -> (
+    <span class="kw">match</span> init <span class="kw">with</span>
+    | <span class="ty">None</span> -> ()
+    | <span class="ty">Some</span> init_expr ->
+      <span class="kw">let</span> val = <span class="fn">expr_to_ir</span> b init_expr <span class="kw">in</span>
+      <span class="kw">let</span> slot = <span class="ty">Hashtbl</span>.<span class="fn">length</span> b.slots <span class="kw">in</span>
+      <span class="ty">Hashtbl</span>.<span class="fn">replace</span> b.slots name slot;
+      <span class="fn">emit</span> b (<span class="ty">Store</span> (slot, val))
+  )
+
+  | <span class="ty">Stmt</span>.<span class="fn">Return</span> (_, expr) ->
+    <span class="kw">let</span> val = <span class="fn">expr_to_ir</span> b expr <span class="kw">in</span>
+    <span class="fn">finish_block</span> b (<span class="ty">Ret</span> val)
+
+  | <span class="ty">Stmt</span>.<span class="fn">If</span> (_, cond, then_blk, else_blk) ->
+    <span class="kw">let</span> cond_reg = <span class="fn">expr_to_ir</span> b cond <span class="kw">in</span>
+    <span class="kw">let</span> then_lab = <span class="fn">fresh_block</span> b <span class="kw">in</span>
+    <span class="kw">let</span> else_lab = <span class="fn">fresh_block</span> b <span class="kw">in</span>
+    <span class="kw">let</span> after_lab = <span class="fn">fresh_block</span> b <span class="kw">in</span>
+
+    <span class="fn">finish_block</span> b (<span class="ty">BrCond</span> (cond_reg, then_lab, else_lab));
+
+    <span class="cm">(* then block *)</span>
+    b.current_block <- { b.current_block <span class="kw">with</span> label = then_lab };
+    <span class="ty">List</span>.<span class="fn">iter</span> (<span class="fn">stmt_to_ir</span> b) then_blk;
+    <span class="kw">if</span> <span class="fn">not</span> (<span class="fn">ended_with_return</span> then_blk) <span class="kw">then</span>
+      <span class="fn">finish_block</span> b (<span class="ty">Br</span> after_lab);
+
+    <span class="cm">(* else block *)</span>
+    (<span class="kw">match</span> else_blk <span class="kw">with</span>
+    | <span class="ty">None</span> ->
+      b.current_block <- { b.current_block <span class="kw">with</span> label = else_lab };
+      <span class="fn">finish_block</span> b (<span class="ty">Br</span> after_lab)
+    | <span class="ty">Some</span> blk ->
+      b.current_block <- { b.current_block <span class="kw">with</span> label = else_lab };
+      <span class="ty">List</span>.<span class="fn">iter</span> (<span class="fn">stmt_to_ir</span> b) blk;
+      <span class="kw">if</span> <span class="fn">not</span> (<span class="fn">ended_with_return</span> blk) <span class="kw">then</span>
+        <span class="fn">finish_block</span> b (<span class="ty">Br</span> after_lab));
+
+    <span class="cm">(* after block *)</span>
+    b.current_block <- { b.current_block <span class="kw">with</span> label = after_lab }
+
+  | <span class="ty">Stmt</span>.<span class="fn">While</span> (_, cond, body) ->
+    <span class="kw">let</span> header_lab = <span class="fn">fresh_block</span> b <span class="kw">in</span>
+    <span class="kw">let</span> body_lab = <span class="fn">fresh_block</span> b <span class="kw">in</span>
+    <span class="kw">let</span> after_lab = <span class="fn">fresh_block</span> b <span class="kw">in</span>
+
+    <span class="fn">finish_block</span> b (<span class="ty">Br</span> header_lab);
+
+    b.current_block <- { b.current_block <span class="kw">with</span> label = header_lab };
+    <span class="kw">let</span> cond_reg = <span class="fn">expr_to_ir</span> b cond <span class="kw">in</span>
+    <span class="fn">finish_block</span> b (<span class="ty">BrCond</span> (cond_reg, body_lab, after_lab));
+
+    b.current_block <- { b.current_block <span class="kw">with</span> label = body_lab };
+    <span class="ty">List</span>.<span class="fn">iter</span> (<span class="fn">stmt_to_ir</span> b) body;
+    <span class="kw">if</span> <span class="fn">not</span> (<span class="fn">ended_with_return</span> body) <span class="kw">then</span>
+      <span class="fn">finish_block</span> b (<span class="ty">Br</span> header_lab);
+
+    b.current_block <- { b.current_block <span class="kw">with</span> label = after_lab }
+
+  | <span class="ty">Stmt</span>.<span class="fn">Expr</span> (_, expr) ->
+    <span class="fn">expr_to_ir</span> b expr</code></pre>
+  </div>
+</div>
+
+<h3>Walkthrough: <code>func main(i32) { return 1 + 2; }</code></h3>
+
+<p>
+  Let's trace the IR builder on a tiny function. The AST is:
+</p>
+
+<div class="diagram">FuncDecl "main" ret=i32 params=[]
+  └── Block
+      └── Return
+          └── Binary Add
+              ├── IntLit 1
+              └── IntLit 2</div>
+
+<p>
+  The builder starts in <code>b0 (entry)</code>. It processes the <code>Return</code>
+  statement:
+</p>
+
+<ol>
+  <li>Evaluate <code>1</code>: emit <code>%0 = const 1</code></li>
+  <li>Evaluate <code>2</code>: emit <code>%1 = const 2</code></li>
+  <li>Evaluate <code>1 + 2</code>: emit <code>%2 = add %0, %1</code></li>
+  <li>Finish block with <code>ret %2</code></li>
+</ol>
+
+<p>
+  Resulting IR:
+</p>
+
+<div class="diagram"><span class="kw">func</span> main:
+  b0 (entry):
+    %0 = const 1
+    %1 = const 2
+    %2 = add %0, %1
+    ret %2</div>
+
+<p>
+  Beautiful. The tree has been flattened into a linear sequence of instructions.
+  Every intermediate value has a name (a virtual register). The control flow is
+  trivial — just one block that returns.
+</p>
+
+<h3>Walkthrough: <code>max</code> with if/else</h3>
+
+<p>
+  Now the more interesting case:
+</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">max</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+  <span class="kw">if</span> (a > b) {
+    <span class="kw">return</span> a;
+  } <span class="kw">else</span> {
+    <span class="kw">return</span> b;
+  }
+}</code></pre>
+
+<p>
+  The AST for <code>max</code> has an <code>If</code> node with a comparison,
+  two branches, and two <code>Return</code> statements. The IR builder
+  transforms this into:
+</p>
+
+<div class="diagram"><span class="kw">func</span> max:
+  <span class="cm">; Parameters live in stack slots 0 (a) and 1 (b)</span>
+
+  b0 (entry):
+    %0 = load 0     <span class="cm">; a</span>
+    %1 = load 1     <span class="cm">; b</span>
+    %2 = gt %0, %1   <span class="cm">; a > b</span>
+    br_cond %2, b1, b2
+
+  b1:
+    ret %0
+
+  b2:
+    ret %1</code></pre>
+
+<p>
+  The <code>if</code> became a <code>br_cond</code>. The two branches became
+  separate blocks. The control flow is explicit — you can trace every path
+  through the function just by following the arrows:
+</p>
+
+<div class="diagram">           entry
+           |
+           v
+      ┌─ b0 ──────┐
+      │ gt %0, %1  │
+      └──┬──────┬──┘
+    true │      │ false
+         v      v
+      ┌─ b1 ┐ ┌─ b2 ┐
+      │ ret │ │ ret │
+      │ %0  │ │ %1  │
+      └─────┘ └─────┘</div>
+
+<div class="callout info">
+<strong>Note on parameter slots</strong>: Function parameters are stored in
+  stack slots just like local variables. The caller pushes arguments onto
+  the stack, and the IR builder assigns them slot numbers. Slot 0 is the
+  first parameter, slot 1 is the second, and so on. When we generate x86-64
+  assembly, these will map to the actual calling convention (registers first,
+  then stack).
+</div>
+
+<h3>The "Aha" Moment</h3>
+
+<p>
+  Here's what just happened: <strong>all high-level control flow becomes just
+  branches and labels</strong>. The <code>if</code> statement — with its
+  condition, then-branch, and else-branch — collapsed into three blocks:
+  one for the condition check, one for the then-path, one for the else-path,
+  connected by <code>br_cond</code>.
+</p>
+
+<p>
+  The <code>while</code> loop — with its condition re-check at every
+  iteration — collapsed into three blocks: one for the header
+  (check condition, then branch into body or exit), one for the body
+  (do work, then branch back to header), and one for after the loop.
+</p>
+
+<p>
+  This is the point where we stop thinking about programs as structured
+  control flow and start thinking about them as <strong>control flow graphs</strong>.
+  The IR is the bridge between these two worldviews. The AST is the "what
+  the programmer wrote." The IR is the "what the machine needs."
+</p>
+
+<p>
+  From here, everything else becomes simpler. Want to optimize? Work on the IR.
+  Want to generate assembly? Emit machine instructions for each IR instruction.
+  Want to add a new backend? Just translate IR to the target architecture.
+  The IR isolates the rest of the compiler from the source language's
+  idiosyncrasies.
+</p>
+
+<h3>Variable Slots and Stack Layout</h3>
+
+<p>
+  One detail we glossed over: how do variables become stack slots? Each
+  local variable and parameter gets a numbered slot. The slot index is just
+  the order in which we encountered the variable. When we generate x86-64
+  assembly, slot <em>n</em> lives at <code>rbp - (n + 1) * 8</code>
+  (or however many bytes the type requires).
+</p>
+
+<p>
+  Parameter slots work the same way. When a function is called, the arguments
+  are stored in the first N slots. The return address and frame pointer are
+  handled by the calling convention, not the IR.
+</p>
+
+<h3>Printing IR</h3>
+
+<p>
+  A simple printer makes IR debugging much easier:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <pre><code><span class="kw">pub fn</span> <span class="fn">print_module</span>(module: &amp;<span class="ty">IrModule</span>) {
+  <span class="kw">for</span> func <span class="kw">in</span> &amp;module.functions {
+    <span class="fn">println!</span>(<span class="str">"func {}:"</span>, func.name);
+    <span class="kw">for</span> block <span class="kw">in</span> &amp;func.blocks {
+      <span class="fn">println!</span>(<span class="str">"  {}:"</span>, block.label);
+      <span class="kw">for</span> instr <span class="kw">in</span> &amp;block.instrs {
+        <span class="fn">println!</span>(<span class="str">"    {}"</span>, <span class="fn">display_instr</span>(instr));
+      }
+      <span class="fn">println!</span>(<span class="str">"    {}"</span>, <span class="fn">display_term</span>(&amp;block.term));
+    }
+  }
+}
+
+<span class="kw">fn</span> <span class="fn">display_instr</span>(instr: &amp;<span class="ty">IrInstr</span>) -> <span class="ty">String</span> {
+  <span class="kw">match</span> instr {
+    <span class="ty">IrInstr</span>::<span class="fn">Const</span>(d, v) => <span class="fn">format!</span>(<span class="str">"%{} = const {}"</span>, d, v),
+    <span class="ty">IrInstr</span>::<span class="fn">Add</span>(d, a, b) => <span class="fn">format!</span>(<span class="str">"%{} = add %{}, %{}"</span>, d, a, b),
+    <span class="ty">IrInstr</span>::<span class="fn">Load</span>(d, s) => <span class="fn">format!</span>(<span class="str">"%{} = load {}"</span>, d, s),
+    <span class="ty">IrInstr</span>::<span class="fn">Store</span>(s, v) => <span class="fn">format!</span>(<span class="str">"store {}, %{}"</span>, s, v),
+    <span class="ty">IrInstr</span>::<span class="fn">Call</span>(d, n, a) => {
+      <span class="kw">let</span> args = a.<span class="fn">iter</span>()
+        .<span class="fn">map</span>(|r| <span class="fn">format!</span>(<span class="str">"%{}"</span>, r))
+        .<span class="fn">collect::</span>&lt;<span class="ty">Vec</span>&lt;_&gt;&gt;()
+        .<span class="fn">join</span>(<span class="str">", "</span>);
+      <span class="fn">format!</span>(<span class="str">"%{} = call {}({})"</span>, d, n, args)
+    }
+    _ => <span class="fn">format!</span>(<span class="str">"{:?}"</span>, instr),
+  }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <pre><code><span class="kw">let</span> <span class="fn">string_of_instr</span> = <span class="kw">function</span>
+  | <span class="ty">Const</span> (d, v) -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = const %Ld"</span> d v
+  | <span class="ty">Add</span> (d, a, b) -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = add %%%d, %%%d"</span> d a b
+  | <span class="ty">Sub</span> (d, a, b) -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = sub %%%d, %%%d"</span> d a b
+  | <span class="ty">Mul</span> (d, a, b) -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = mul %%%d, %%%d"</span> d a b
+  | <span class="ty">Div</span> (d, a, b) -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = div %%%d, %%%d"</span> d a b
+  | <span class="ty">Eq</span> (d, a, b)  -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = eq %%%d, %%%d"</span> d a b
+  | <span class="ty">Lt</span> (d, a, b)  -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = lt %%%d, %%%d"</span> d a b
+  | <span class="ty">Gt</span> (d, a, b)  -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = gt %%%d, %%%d"</span> d a b
+  | <span class="ty">Load</span> (d, s)   -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = load %d"</span> d s
+  | <span class="ty">Store</span> (s, v)  -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"store %d, %%%d"</span> s v
+  | <span class="ty">Call</span> (d, n, a) ->
+    <span class="kw">let</span> args = <span class="ty">String</span>.<span class="fn">concat</span> <span class="str">", "</span>
+      (<span class="ty">List</span>.<span class="fn">map</span> (<span class="kw">fun</span> r -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d"</span> r) a) <span class="kw">in</span>
+    <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%%%d = call %s(%s)"</span> d n args
+  | _ -> <span class="str">"???"</span>
+
+<span class="kw">let</span> <span class="fn">string_of_term</span> = <span class="kw">function</span>
+  | <span class="ty">Ret</span> v       -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"ret %%%d"</span> v
+  | <span class="ty">Br</span> l        -> <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"br %s"</span> l
+  | <span class="ty">BrCond</span> (c, t, f) ->
+    <span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"br_cond %%%d, %s, %s"</span> c t f</code></pre>
+  </div>
+</div>
+
+<h3>Why This Matters</h3>
+
+<p>
+  The IR is where the compiler starts to look like a <em>compiler</em> and not
+  just a fancy parser. With the IR, we've crossed the boundary from
+  "understanding the program" to "computing the program." Every subsequent phase
+  — optimization, register allocation, instruction selection — operates on the
+  IR. The AST fades into the background.
+</p>
+
+<div class="callout tip">
+<strong>IR Design Space</strong>
+  Our IR is a custom design for this book. Real compilers use more sophisticated
+  IRs: LLVM uses <strong>LLVM IR</strong> (static single assignment, typed),
+  GCC uses <strong>GIMPLE</strong> and <strong>RTL</strong>, and many research
+  compilers use <strong>Sea of Nodes</strong> or <strong>Thorn</strong>.
+  The principles are the same: linearize the computation, make control flow
+  explicit, provide unlimited temporaries.
+</div>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Short-circuit <code>&&</code> evaluation</strong>
+  <p>Our IR builder translates <code>And</code> to a single <code>and</code>
+  IR instruction. But this evaluates both operands unconditionally. Add proper
+  short-circuit semantics: <code>a && b</code> should only evaluate <code>b</code>
+  if <code>a</code> is true. Hint: emit a <code>br_cond</code> + phi-like merge,
+  or just use two blocks.</p>
+</div>
+
+<div class="exercise">
+<strong>2. Phi nodes</strong>
+  <p>After translating <code>if (c) { x = 1; } else { x = 2; }</code>, the
+  variable <code>x</code> has two possible definitions. In SSA form, this
+  requires a <code>phi</code> node. Add a <code>IrInstr::Phi</code> variant
+  and modify the IR builder to emit phi nodes when a variable is defined in
+  both branches of an if-else. What does the phi look like in our IR syntax?</p>
+</div>
+
+<div class="exercise">
+<strong>3. Break and continue</strong>
+  <p>Our language currently doesn't have <code>break</code> or
+  <code>continue</code> in while loops. Add them. How do the
+  <code>stmt_to_ir</code> methods for <code>break</code> and
+  <code>continue</code> differ from a normal statement? You'll need to track
+  the current loop's header and after labels in the IR builder.</p>
+</div>
+
+<div class="exercise">
+<strong>4. IR verification pass</strong>
+  <p>Write a verifier that checks IR for common errors: undefined virtual
+  registers (used before defined), blocks that don't end with a terminator,
+  terminators that reference nonexistent block labels. This catches bugs in
+  the IR builder early.</p>
+</div>
+
+<div class="exercise">
+<strong>5. Dead block elimination</strong>
+  <p>After building IR, some blocks might be unreachable (especially after
+  short-circuit <code>&&</code>). Write a dead block elimination pass that
+  removes blocks not reachable from the entry block. How do you compute
+  reachability?</p>
+</div>
+
+<h3>What's Next</h3>
+
+<p>
+  We have IR. We have virtual registers, basic blocks, and control flow graphs.
+  Now the real work begins: we need to turn this IR into actual machine code.
+  We need to pick real x86-64 registers, lay out a stack frame, and emit
+  assembly instructions that a real CPU can execute. This is code generation,
+  and it's where the compiler stops being abstract and starts being real.
+</p>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="05-semantics.html" class="prev">Does This Make Sense?</a>
+  <a href="07-codegen.html" class="next">Speaking the Machine's Language</a>
+</div>
+
+</body>
+</html>

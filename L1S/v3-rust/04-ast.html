@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The AST — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h1>Chapter 04: The AST</h1>
+
+<p class="subtitle">The parser produces structure. What does that structure look like?</p>
+
+<div class="callout info">
+  <strong>What you'll learn in this chapter:</strong> The complete abstract syntax tree definition for our language, how Rust enums model tree nodes, why we discard certain syntactic details, and how to visualize and debug ASTs.
+</div>
+
+<h2>The Problem</h2>
+
+<p>The parser consumes tokens and produces a tree. But what kind of tree? Every programming language has two potential tree representations:</p>
+
+<table class="file-table">
+  <tr>
+    <th></th>
+    <th>Concrete Syntax Tree (CST)</th>
+    <th>Abstract Syntax Tree (AST)</th>
+  </tr>
+  <tr>
+    <td>Contains</td>
+    <td>Every token: keywords, punctuation, parentheses, semicolons</td>
+    <td>Only semantic nodes: expressions, statements, declarations</td>
+  </tr>
+  <tr>
+    <td>Preserves</td>
+    <td>Syntactic details: which kind of parenthesis, exact operator spelling</td>
+    <td>Only the structure and meaning</td>
+  </tr>
+  <tr>
+    <td>Used for</td>
+    <td>Formatting, refactoring tools, syntax highlighting</td>
+    <td>Semantic analysis, code generation, optimization</td>
+  </tr>
+</table>
+
+<p>Our compiler uses an <strong>AST</strong> — we discard details that don't affect meaning. The semicolons, parentheses, and braces are structural hints during parsing, but they don't appear in the AST. What remains is the pure semantics of the program.</p>
+
+<div class="diagram">
+<pre><code>Source:         <span class="kw">func</span> add(i32, a: i32, b: i32) { <span class="kw">return</span> a + b; }
+
+CST (contains everything):
+  Keyword(Func) Ident("add") OpenParen Ident("i32") Comma ...
+
+AST (only the meaning):
+  FuncDecl("add", return=i32, params=[("a",i32),("b",i32)],
+    body=[Return(Binary(+, Ident("a"), Ident("b")))])</code></pre>
+</div>
+
+<h2>The AST in Rust: Enums All the Way Down</h2>
+
+<p>In Rust, an AST is a collection of enums. Each enum represents a category of node, and each variant represents a specific kind of node. Data that belongs to a node (like a name or a child node) is carried by the variant's fields.</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ast.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="kw">crate</span>::span::<span class="ty">Span</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::token::{<span class="ty">BinaryOp</span>, <span class="ty">UnaryOp</span>};
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstProgram</span> {
+    <span class="kw">pub</span> funcs: <span class="kw">Vec</span>&lt;<span class="ty">AstFuncDecl</span>&gt;,
+}
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstFuncDecl</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> ret_type: <span class="ty">AstType</span>,
+    <span class="kw">pub</span> params: <span class="kw">Vec</span>&lt;<span class="ty">AstParam</span>&gt;,
+    <span class="kw">pub</span> body: <span class="kw">Vec</span>&lt;<span class="ty">AstStmt</span>&gt;,
+}
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstParam</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> ty: <span class="ty">AstType</span>,
+}
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstType</span> {
+    <span class="ty">Ident</span>(<span class="ty">String</span>),          <span class="cm">// i32, bool, void, user-defined</span>
+    <span class="ty">Ptr</span>(<span class="kw">Box</span>&lt;<span class="ty">AstType</span>&gt;),     <span class="cm">// @T — pointer type</span>
+    <span class="ty">Array</span>(<span class="kw">Box</span>&lt;<span class="ty">AstType</span>&gt;, <span class="ty">usize</span>), <span class="cm">// [N]T</span>
+}
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstStmt</span> {
+    <span class="ty">Return</span>(<span class="ty">AstExpr</span>),
+    <span class="ty">VarDecl</span> {
+        name: <span class="ty">String</span>,
+        ty: <span class="ty">AstType</span>,
+        init: <span class="ty">AstExpr</span>,
+    },
+    <span class="ty">If</span>(<span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="kw">Box</span>&lt;<span class="ty">AstStmt</span>&gt;, <span class="ty">Option</span>&lt;<span class="kw">Box</span>&lt;<span class="ty">AstStmt</span>&gt;&gt;),
+    <span class="ty">While</span>(<span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="kw">Box</span>&lt;<span class="ty">AstStmt</span>&gt;),
+    <span class="ty">Block</span>(<span class="kw">Vec</span>&lt;<span class="ty">AstStmt</span>&gt;),
+    <span class="ty">Expr</span>(<span class="ty">AstExpr</span>),
+    <span class="ty">Error</span>,  <span class="cm">// placeholder for parse errors — keeps the compiler going</span>
+}
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstExpr</span> {
+    <span class="ty">Int</span>(i64),
+    <span class="ty">Bool</span>(<span class="kw">bool</span>),
+    <span class="ty">Ident</span>(<span class="ty">String</span>),
+    <span class="ty">Unary</span> {
+        op: <span class="ty">UnaryOp</span>,
+        expr: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+    },
+    <span class="ty">Binary</span> {
+        op: <span class="ty">BinaryOp</span>,
+        left: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+        right: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+    },
+    <span class="ty">Call</span> {
+        callee: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+        args: <span class="kw">Vec</span>&lt;<span class="ty">AstExpr</span>&gt;,
+    },
+    <span class="ty">Cast</span> {
+        target_type: <span class="ty">AstType</span>,
+        expr: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+    },
+    <span class="ty">Error</span>,  <span class="cm">// placeholder for parse errors</span>
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">ast_program</span> = {
+  funcs: <span class="ty">ast_func_decl</span> list;
+}
+
+<span class="kw">type</span> <span class="ty">ast_func_decl</span> = {
+  name: <span class="ty">string</span>;
+  ret_type: <span class="ty">ast_type</span>;
+  params: <span class="ty">ast_param</span> list;
+  body: <span class="ty">ast_stmt</span> list;
+}
+
+<span class="kw">type</span> <span class="ty">ast_param</span> = {
+  name: <span class="ty">string</span>;
+  ty: <span class="ty">ast_type</span>;
+}
+
+<span class="kw">type</span> <span class="ty">ast_type</span> =
+  | <span class="ty">AstType_Ident</span> of string
+  | <span class="ty">AstType_Ptr</span> of ast_type
+  | <span class="ty">AstType_Array</span> of ast_type * int
+
+<span class="kw">type</span> <span class="ty">ast_stmt</span> =
+  | <span class="ty">AstStmt_Return</span> of ast_expr
+  | <span class="ty">AstStmt_VarDecl</span> of string * ast_type * ast_expr
+  | <span class="ty">AstStmt_If</span> of ast_expr * ast_stmt * ast_stmt option
+  | <span class="ty">AstStmt_While</span> of ast_expr * ast_stmt
+  | <span class="ty">AstStmt_Block</span> of ast_stmt list
+  | <span class="ty">AstStmt_Expr</span> of ast_expr
+  | <span class="ty">AstStmt_Error</span>
+
+<span class="kw">type</span> <span class="ty">ast_expr</span> =
+  | <span class="ty">AstExpr_Int</span> of int64
+  | <span class="ty">AstExpr_Bool</span> of bool
+  | <span class="ty">AstExpr_Ident</span> of string
+  | <span class="ty">AstExpr_Unary</span> of unary_op * ast_expr
+  | <span class="ty">AstExpr_Binary</span> of ast_expr * binary_op * ast_expr
+  | <span class="ty">AstExpr_Call</span> of ast_expr * ast_expr list
+  | <span class="ty">AstExpr_Cast</span> of ast_type * ast_expr
+  | <span class="ty">AstExpr_Error</span></code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+  <strong>Reading the OCaml:</strong> If you know Rust enums, you know OCaml variants. The main difference is naming: Rust uses <code>AstExpr::Int(i64)</code> while OCaml uses <code>AstExpr_Int of int64</code>. Rust carries fields with <code>{ }</code> naming, OCaml uses positional arguments. But the structure is identical — same variants, same nesting patterns, same recursive references through <code>Box</code> (Rust) or implicit boxing (OCaml).
+</div>
+
+<h2>Why This Design?</h2>
+
+<p>Every AST design choice has a rationale. Let's walk through the key decisions:</p>
+
+<h3>AstType is an Enum</h3>
+
+<p>Types can be simple names (<code>i32</code>, <code>bool</code>), pointers (<code>@T</code>), or arrays (<code>[N]T</code>). By making <code>AstType</code> an enum, we can add more type constructors later (tuples, generics, function types) without changing any code that pattern-matches on types. The compiler will tell us everywhere we need to update.</p>
+
+<h3>Box for Recursive Types</h3>
+
+<p>Rust needs to know the size of every type at compile time. An enum is as large as its largest variant. If <code>AstExpr</code> contained an <code>AstExpr</code> directly (without boxing), the size would be infinite. <code>Box&lt;AstExpr&gt;</code> stores the child on the heap and keeps the enum size fixed at a pointer width. This is the standard Rust pattern for recursive data structures — the same reason <code>List</code> uses <code>Box</code> in Rust but not in OCaml (OCaml uses uniform representation and implicit boxing).</p>
+
+<h3>AstStmt::Error and AstExpr::Error</h3>
+
+<p>These sentinel variants are our error recovery mechanism. When the parser encounters an invalid construct, it produces an <code>Error</code> node instead of panicking. Later phases handle <code>Error</code> by propagating it — type checking an error expression yields an error type, code generation for an error statement emits nothing. This keeps the pipeline running even with invalid input.</p>
+
+<h3>Choice of Children</h3>
+
+<p>Note that <code>AstStmt::Return</code> contains an <code>AstExpr</code> (the value to return), while <code>AstStmt::If</code> contains <code>Box&lt;AstExpr&gt;</code> and <code>Box&lt;AstStmt&gt;</code>. The <code>Box</code> is used when the variant would otherwise contain a recursive type directly (making the enum too large). <code>Return</code> doesn't need <code>Box</code> because <code>Vec&lt;AstStmt&gt;</code> and <code>String</code> in sibling variants are already large enough that the single <code>AstExpr</code> doesn't make the enum bigger.</p>
+
+<div class="callout info">
+  <strong>Enum sizing trick:</strong> You can check enum sizes with <code>std::mem::size_of::&lt;AstExpr&gt;()</code>. In practice, Rust's enum layout optimization means that variants with a single non-nullable pointer field (like <code>Box</code>) may be smaller than you expect. But the rule is simple: wrap recursive variants in <code>Box</code> to be safe and clear.
+</div>
+
+<h2>The Display Trait for AST Debugging</h2>
+
+<p>During development, you'll often want to print an AST to see what the parser produced. Implementing <code>Display</code> for debugging is invaluable:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ast.rs</span> — Display impl</div>
+    <pre><code><span class="kw">use</span> <span class="kw">std</span>::fmt;
+
+<span class="kw">impl</span> fmt::<span class="ty">Display</span> <span class="kw">for</span> <span class="ty">AstProgram</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> fmt::<span class="ty">Formatter</span>&lt;'_&gt;) -&gt; fmt::<span class="ty">Result</span> {
+        <span class="kw">for</span> func <span class="kw">in</span> &amp;<span class="kw">self</span>.funcs {
+            <span class="fn">write!</span>(f, <span class="str">"{}\n\n"</span>, func)?;
+        }
+        <span class="kw">Ok</span>(())
+    }
+}
+
+<span class="kw">impl</span> fmt::<span class="ty">Display</span> <span class="kw">for</span> <span class="ty">AstFuncDecl</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> fmt::<span class="ty">Formatter</span>&lt;'_&gt;) -&gt; fmt::<span class="ty">Result</span> {
+        <span class="fn">write!</span>(f, <span class="str">"func {}({}", <span class="kw">self</span>.name, <span class="kw">self</span>.ret_type)?;
+        <span class="kw">for</span> param <span class="kw">in</span> &amp;<span class="kw">self</span>.params {
+            <span class="fn">write!</span>(f, <span class="str">", {}"</span>, param)?;
+        }
+        <span class="fn">write!</span>(f, <span class="str">") {{\n"</span>)?;
+        <span class="kw">for</span> stmt <span class="kw">in</span> &amp;<span class="kw">self</span>.body {
+            <span class="fn">write!</span>(f, <span class="str">"  {};\n"</span>, stmt)?;
+        }
+        <span class="fn">write!</span>(f, <span class="str">"}}"</span>)
+    }
+}
+
+<span class="kw">impl</span> fmt::<span class="ty">Display</span> <span class="kw">for</span> <span class="ty">AstStmt</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> fmt::<span class="ty">Formatter</span>&lt;'_&gt;) -&gt; fmt::<span class="ty">Result</span> {
+        <span class="kw">match</span> <span class="kw">self</span> {
+            <span class="ty">AstStmt::Return</span>(expr) => <span class="fn">write!</span>(f, <span class="str">"return {}"</span>, expr),
+            <span class="ty">AstStmt::VarDecl</span> { name, ty, init } => {
+                <span class="fn">write!</span>(f, <span class="str">"let {}: {} = {}"</span>, name, ty, init)
+            }
+            <span class="ty">AstStmt::If</span>(cond, then_branch, else_branch) => {
+                <span class="fn">write!</span>(f, <span class="str">"if ({}) {{\n{}\n  }}"</span>, cond, then_branch)?;
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(else_) = else_branch {
+                    <span class="fn">write!</span>(f, <span class="str">" else {{\n{}\n  }}"</span>, else_)?;
+                }
+                <span class="kw">Ok</span>(())
+            }
+            <span class="ty">AstStmt::While</span>(cond, body) => {
+                <span class="fn">write!</span>(f, <span class="str">"while ({}) {{\n{}\n  }}"</span>, cond, body)
+            }
+            <span class="ty">AstStmt::Block</span>(stmts) => {
+                <span class="fn">write!</span>(f, <span class="str">"{{\n"</span>)?;
+                <span class="kw">for</span> s <span class="kw">in</span> stmts {
+                    <span class="fn">write!</span>(f, <span class="str">"  {};\n"</span>, s)?;
+                }
+                <span class="fn">write!</span>(f, <span class="str">"}}"</span>)
+            }
+            <span class="ty">AstStmt::Expr</span>(expr) => <span class="fn">write!</span>(f, <span class="str">"{}"</span>, expr),
+            <span class="ty">AstStmt::Error</span> => <span class="fn">write!</span>(f, <span class="str">"&lt;error&gt;"</span>),
+        }
+    }
+}
+
+<span class="kw">impl</span> fmt::<span class="ty">Display</span> <span class="kw">for</span> <span class="ty">AstExpr</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> fmt::<span class="ty">Formatter</span>&lt;'_&gt;) -&gt; fmt::<span class="ty">Result</span> {
+        <span class="kw">match</span> <span class="kw">self</span> {
+            <span class="ty">AstExpr::Int</span>(n) => <span class="fn">write!</span>(f, <span class="str">"{}"</span>, n),
+            <span class="ty">AstExpr::Bool</span>(b) => <span class="fn">write!</span>(f, <span class="str">"{}"</span>, b),
+            <span class="ty">AstExpr::Ident</span>(name) => <span class="fn">write!</span>(f, <span class="str">"{}"</span>, name),
+            <span class="ty">AstExpr::Unary</span> { op, expr } => <span class="fn">write!</span>(f, <span class="str">"({}{})"</span>, op, expr),
+            <span class="ty">AstExpr::Binary</span> { op, left, right } => {
+                <span class="fn">write!</span>(f, <span class="str">"({} {} {})"</span>, left, op, right)
+            }
+            <span class="ty">AstExpr::Call</span> { callee, args } => {
+                <span class="fn">write!</span>(f, <span class="str">"{}({})"</span>, callee,
+                    args.<span class="fn">iter</span>()
+                        .<span class="fn">map</span>(|a| <span class="kw">format!</span>(<span class="str">"{}"</span>, a))
+                        .<span class="fn">collect</span>::&lt;<span class="kw">Vec</span>&lt;_&gt;&gt;()
+                        .<span class="fn">join</span>(<span class="str">", "</span>))?;
+                <span class="kw">Ok</span>(())
+            }
+            <span class="ty">AstExpr::Cast</span> { target_type, expr } => {
+                <span class="fn">write!</span>(f, <span class="str">"cast({}, {})"</span>, target_type, expr)
+            }
+            <span class="ty">AstExpr::Error</span> => <span class="fn">write!</span>(f, <span class="str">"&lt;error&gt;"</span>),
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span> — show functions</div>
+    <pre><code><span class="kw">let</span> rec show_expr = <span class="kw">function</span>
+  | <span class="ty">AstExpr_Int</span> n -&gt; <span class="kw">string_of_int</span> n
+  | <span class="ty">AstExpr_Bool</span> b -&gt; <span class="kw">string_of_bool</span> b
+  | <span class="ty">AstExpr_Ident</span> name -> name
+  | <span class="ty">AstExpr_Unary</span> (op, e) ->
+      <span class="kw">Printf</span>.sprintf <span class="str">"(%s%s)"</span> (show_unary_op op) (show_expr e)
+  | <span class="ty">AstExpr_Binary</span> (l, op, r) ->
+      <span class="kw">Printf</span>.sprintf <span class="str">"(%s %s %s)"</span> (show_expr l) (show_binary_op op) (show_expr r)
+  | <span class="ty">AstExpr_Call</span> (callee, args) ->
+      <span class="kw">let</span> args_str = <span class="ty">String</span>.concat <span class="str">", "</span> (<span class="kw">List</span>.map show_expr args) <span class="kw">in</span>
+      <span class="kw">Printf</span>.sprintf <span class="str">"%s(%s)"</span> (show_expr callee) args_str
+  | <span class="ty">AstExpr_Cast</span> (ty, e) ->
+      <span class="kw">Printf</span>.sprintf <span class="str">"cast(%s, %s)"</span> (show_type ty) (show_expr e)
+  | <span class="ty">AstExpr_Error</span> -> <span class="str">"&lt;error&gt;"</span></code></pre>
+  </div>
+</div>
+
+<p>With this, we can print any AST:</p>
+
+<pre><code><span class="kw">println!</span>(<span class="str">"{}"</span>, program);</code></pre>
+
+<p>Which outputs:</p>
+
+<div class="diagram">
+<pre><code>func add(i32, a: i32, b: i32) {
+  return (a + b);
+}</code></pre>
+</div>
+
+<p>For a more structural view during debugging, we implement a tree renderer:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ast.rs</span> — tree debug</div>
+    <pre><code><span class="kw">impl</span> <span class="ty">AstProgram</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">debug_tree</span>(&amp;<span class="kw">self</span>) {
+        <span class="kw">println!</span>(<span class="str">"Program"</span>);
+        <span class="kw">for</span> func <span class="kw">in</span> &amp;<span class="kw">self</span>.funcs {
+            func.<span class="fn">debug_tree</span>(<span class="str">"  └── "</span>);
+        }
+    }
+}
+
+<span class="kw">impl</span> <span class="ty">AstExpr</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">debug_tree</span>(&amp;<span class="kw">self</span>, prefix: &amp;<span class="kw">str</span>) {
+        <span class="kw">match</span> <span class="kw">self</span> {
+            <span class="ty">AstExpr::Int</span>(n) => <span class="kw">println!</span>(<span class="str">"{}Int({})"</span>, prefix, n),
+            <span class="ty">AstExpr::Bool</span>(b) => <span class="kw">println!</span>(<span class="str">"{}Bool({})"</span>, prefix, b),
+            <span class="ty">AstExpr::Ident</span>(name) => <span class="kw">println!</span>(<span class="str">"{}Ident(\"{}\")"</span>, prefix, name),
+            <span class="ty">AstExpr::Binary</span> { op, left, right } => {
+                <span class="kw">println!</span>(<span class="str">"{}Binary({})"</span>, prefix, op);
+                left.<span class="fn">debug_tree</span>(&amp;<span class="kw">format!</span>(<span class="str">"{}  ├── "</span>, prefix));
+                right.<span class="fn">debug_tree</span>(&amp;<span class="kw">format!</span>(<span class="str">"{}  └── "</span>, prefix));
+            }
+            <span class="cm">// ... other variants similarly</span>
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span> — tree debug</div>
+    <pre><code><span class="kw">let</span> rec debug_expr prefix = <span class="kw">function</span>
+  | <span class="ty">AstExpr_Int</span> n -&gt; <span class="kw">Printf</span>.printf <span class="str">"%sInt(%Ld)\n"</span> prefix n
+  | <span class="ty">AstExpr_Bool</span> b -&gt; <span class="kw">Printf</span>.printf <span class="str">"%sBool(%b)\n"</span> prefix b
+  | <span class="ty">AstExpr_Ident</span> name -&gt; <span class="kw">Printf</span>.printf <span class="str">"%sIdent(%S)\n"</span> prefix name
+  | <span class="ty">AstExpr_Binary</span> (l, op, r) ->
+      <span class="kw">Printf</span>.printf <span class="str">"%sBinary(%s)\n"</span> prefix (show_binary_op op);
+      debug_expr (prefix ^ <span class="str">"  ├── "</span>) l;
+      debug_expr (prefix ^ <span class="str">"  └── "</span>) r</code></pre>
+  </div>
+</div>
+
+<p>Which produces:</p>
+
+<div class="diagram">
+<pre><code>Program
+  └── FuncDecl("add")
+        ├── ReturnType: Ident("i32")
+        ├── Params:
+        │   ├── Param("a", Ident("i32"))
+        │   └── Param("b", Ident("i32"))
+        └── Body:
+              └── Stmt::Return
+                    └── Binary(+)
+                          ├── Ident("a")
+                          └── Ident("b")</code></pre>
+</div>
+
+<div class="callout tip">
+  <strong>Debug-driven development:</strong> When the parser produces unexpected output, the first thing to do is print the debug tree. Is the tree missing a node? Does a <code>Binary</code> have its left and right swapped? The tree view makes structural issues immediately visible. We keep <code>debug_tree</code> around for the entire compiler development process — it's invaluable for diagnosing phase bugs.
+</div>
+
+<h2>Complete Walkthrough</h2>
+
+<p>Let's trace the full pipeline from source to AST for our running example:</p>
+
+<pre><code><span class="kw">func</span> add(i32, a: i32, b: i32) {
+  <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p><strong>Step 1: Lexing</strong> produces 21 tokens (we traced this in Chapter 2).</p>
+
+<p><strong>Step 2: Parsing</strong> organizes tokens into tree nodes.</p>
+
+<p><strong>Step 3: The AST</strong> — here's the complete structure in memory:</p>
+
+<div class="diagram">
+<pre><code>AstProgram {
+  funcs: [
+    AstFuncDecl {
+      name: "add",
+      ret_type: AstType::Ident("i32"),
+      params: [
+        AstParam { name: "a", ty: AstType::Ident("i32") },
+        AstParam { name: "b", ty: AstType::Ident("i32") },
+      ],
+      body: [
+        AstStmt::Return(
+          AstExpr::Binary {
+            op: Plus,
+            left: Box(AstExpr::Ident("a")),
+            right: Box(AstExpr::Ident("b")),
+          }
+        ),
+      ],
+    },
+  ],
+}</code></pre>
+</div>
+
+<p>Let's walk through the memory layout. The <code>AstProgram</code> owns a <code>Vec</code> of <code>AstFuncDecl</code>. The <code>Vec</code> is on the stack (pointer, length, capacity), and the function declarations are on the heap. Inside <code>AstFuncDecl</code>, the <code>body</code> field is another <code>Vec</code> of <code>AstStmt</code>. The <code>Return</code> variant holds an <code>AstExpr</code> inline (not boxed, because it fits in the enum size). Inside <code>Binary</code>, the <code>left</code> and <code>right</code> are <code>Box</code> pointers to heap-allocated sub-expressions.</p>
+
+<div class="diagram">
+<pre><code>Stack (Parser::parse_program returns):
+  AstProgram { funcs: (ptr, len, cap) }
+                              │
+Heap:                         ▼
+                    ┌─────────────────────┐
+                    │ AstFuncDecl          │
+                    │   name: "add"        │
+                    │   ret_type: Ident    │
+                    │   params: Vec        │
+                    │   body: Vec          │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ Vec&lt;AstStmt&gt;         │
+                    │   [0]: Return(expr)  │
+                    └─────────────────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │ AstExpr::Binary      │
+                    │   op: Plus           │
+                    │   left: Box ─────┐   │
+                    │   right: Box ──┐ │   │
+                    └─────────┬───────┼─┼───┘
+                              │       │ │
+                    ┌─────────▼───┐ ┌─▼─▼─────┐
+                    │ Ident("a")  │ │ Ident("b")│
+                    └─────────────┘ └──────────┘</code></pre>
+</div>
+
+<p>This is the heart of the compiler. Everything from here on — semantic analysis, lowering, code generation — operates on this tree. The tree is the bridge between the programmer's intentions (expressed as source text) and the machine's instructions (expressed as assembly or bytecode).</p>
+
+<h2>The AST and the Borrow Checker</h2>
+
+<p>One of the most elegant properties of the AST in Rust is that it enforces <em>tree shape</em> through ownership. Every node has exactly one parent. The <code>Box</code> pointer ensures exclusive ownership. There are no cycles, no shared references, no dangling pointers.</p>
+
+<p>This is exactly what the borrow checker verifies. When the semantic analyzer walks the AST, it can traverse with references:</p>
+
+<pre><code><span class="kw">fn</span> analyze_expr(&amp;<span class="kw">self</span>, expr: &amp;<span class="ty">AstExpr</span>) -&gt; <span class="ty">Type</span> {
+    <span class="kw">match</span> expr {
+        <span class="ty">AstExpr::Ident</span>(name) => <span class="kw">self</span>.<span class="fn">lookup_type</span>(name),
+        <span class="ty">AstExpr::Binary</span> { left, right, .. } => {
+            <span class="kw">let</span> lt = <span class="kw">self</span>.<span class="fn">analyze_expr</span>(left);
+            <span class="kw">let</span> rt = <span class="kw">self</span>.<span class="fn">analyze_expr</span>(right);
+            <span class="cm">// ... unify lt and rt</span>
+        }
+    }
+}</code></pre>
+
+<p>No mutex, no GC, no reference counting. Just immutable references into a tree with guaranteed lifetime. If the tree is alive, the references are valid. The borrow checker proves it.</p>
+
+<p>When you lower the AST to an IR, you consume the tree by value, moving nodes out:</p>
+
+<pre><code><span class="kw">fn</span> lower_func(<span class="kw">self</span>, func: &amp;<span class="kw">mut</span> <span class="ty">AstFuncDecl</span>) -&gt; <span class="ty">IrFunc</span> {
+    <span class="kw">let</span> body = <span class="kw">std::mem::take</span>(&amp;<span class="kw">mut</span> func.body);
+    <span class="cm">// body is now empty Vec, we own the original statements</span>
+}</code></pre>
+
+<p>The pipeline is linear: lex → parse → analyze → lower → codegen. Data moves forward. Old representations are dropped and freed. There's no tracing through old token streams or half-analyzed ASTs. Rust's ownership model makes the pipeline's structure explicit in the type system.</p>
+
+<h2>Exercises</h2>
+
+<div class="exercise">
+  <h3>Exercise 4.1: Implement the Complete AST</h3>
+  <p>Write the full <code>src/ast.rs</code> file with all type definitions from this chapter. Include <code>AstProgram</code>, <code>AstFuncDecl</code>, <code>AstParam</code>, <code>AstType</code>, <code>AstStmt</code>, and <code>AstExpr</code>. Implement <code>Display</code> for each type. Write a test that constructs an AST manually (without the parser) and prints it.</p>
+  <pre><code><span class="kw">fn</span> test_manual_ast() {
+    <span class="kw">let</span> program = <span class="ty">AstProgram</span> {
+        funcs: <span class="kw">vec!</span>[<span class="ty">AstFuncDecl</span> {
+            name: <span class="str">"main"</span>.<span class="fn">to_string</span>(),
+            ret_type: <span class="ty">AstType::Ident</span>(<span class="str">"i32"</span>.<span class="fn">to_string</span>()),
+            params: <span class="kw">vec!</span>[],
+            body: <span class="kw">vec!</span>[<span class="ty">AstStmt::Return</span>(<span class="ty">AstExpr::Int</span>(<span class="num">42</span>))],
+        }],
+    };
+    <span class="kw">println!</span>(<span class="str">"{}"</span>, program);
+}</code></pre>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 4.2: Implement a Pretty-Printer</h3>
+  <p>Extend the <code>Display</code> implementation into a full pretty-printer that produces valid L1 source code with proper indentation. Each nesting level should add 2 spaces. The output should be parseable — <code>parse(pretty_print(ast)) == ast</code> (up to span differences).</p>
+  <pre><code><span class="kw">impl</span> <span class="ty">AstStmt</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">pretty_print</span>(&amp;<span class="kw">self</span>, indent: <span class="ty">usize</span>) -&gt; <span class="ty">String</span> {
+        <span class="cm">// ...</span>
+    }
+}</code></pre>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 4.3: Add Spans to AST Nodes</h3>
+  <p>Add a <code>span: Span</code> field to every AST node. This lets the semantic analyzer report errors at precise locations. Update the parser to propagate spans from tokens to AST nodes. This is a mechanical but instructive change — it touches every variant and every parse function.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 4.4: AST Visitor Trait</h3>
+  <p>Implement a visitor pattern for the AST. Define a trait with default methods:</p>
+  <pre><code><span class="kw">pub</span> <span class="kw">trait</span> <span class="ty">AstVisitor</span> {
+    <span class="kw">fn</span> <span class="fn">visit_expr</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, expr: &amp;<span class="ty">AstExpr</span>) {}
+    <span class="kw">fn</span> <span class="fn">visit_stmt</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, stmt: &amp;<span class="ty">AstStmt</span>) {}
+    <span class="kw">fn</span> <span class="fn">visit_func</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="ty">AstFuncDecl</span>) {}
+}
+
+<span class="kw">impl</span> <span class="ty">AstProgram</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">walk</span>(&amp;<span class="kw">self</span>, visitor: &amp;<span class="kw">mut</span> <span class="kw">dyn</span> <span class="ty">AstVisitor</span>) {
+        <span class="kw">for</span> func <span class="kw">in</span> &amp;<span class="kw">self</span>.funcs {
+            visitor.<span class="fn">visit_func</span>(func);
+        }
+    }
+}</code></pre>
+  <p>This is useful for analyses that need to inspect the entire tree without writing recursive traversal each time.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 4.5: AST Diffing for Tests</h3>
+  <p>Write a function that compares two ASTs for equality (ignoring spans) and produces a human-readable diff of the differences. This is invaluable for testing compiler transformations — you can verify that "optimize this expression" changes the AST exactly as expected.</p>
+  <pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">diff_asts</span>(expected: &amp;<span class="ty">AstExpr</span>, actual: &amp;<span class="ty">AstExpr</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; {
+    <span class="cm">// Returns a list of differences like:</span>
+    <span class="cm">// "left.Int(42) != left.Int(43)"</span>
+}</code></pre>
+</div>
+
+<h2>What's Next</h2>
+
+<p>We have an AST. Now we need to understand what it <em>means</em>. Are the types correct? Are variables defined before use? Does every function return a value of the right type? The next chapter answers these questions through <strong>semantic analysis</strong>: the phase that gives meaning to the tree.</p>
+
+<p>That's the subject of <a href="05-semantics.html">Chapter 5: Semantic Analysis</a>.</p>
+
+<div class="chapter-nav">
+  <a href="03-parsing.html" class="prev">Previous: Parsing</a>
+  <a href="05-semantics.html" class="next">Next: Semantic Analysis</a>
+</div>
+
+</body>
+</html>

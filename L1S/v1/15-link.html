@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 15: Assembly &amp; Linking &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="14-codegen.html">&larr; Chapter 14</a> &ensp; Chapter 15: Assembly &amp; Linking &ensp; <a href="16-diag.html">Chapter 16 &rarr;</a></span>
+</div>
+
+<h2 id="link">15 &ensp; Assembly &amp; Linking</h2>
+
+<h3>The Compiler Driver</h3>
+
+<p>With the assembly string produced by <code>Codegen</code>, we have human-readable x86-64 NASM source code. But a string is not an executable &mdash; we need to assemble it into machine code and link it into a runnable binary. This is the job of the compiler driver in <code>main.rs</code>.</p>
+
+<p>The driver is a single <code>main()</code> function that orchestrates the entire compilation pipeline, from reading source files to producing executables. Let's trace the complete flow.</p>
+
+<h3>The Full Pipeline</h3>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Build pipeline from source to executable:</strong><br><br>
+<pre style="text-align:left;background:var(--bg3);border:none;padding:0.75rem;margin:0;">
+<span style="color:var(--fg2)">/home/user/project/</span>
+    │
+    ├── <span style="color:var(--green)">main.is</span>          <span style="color:var(--fg2)">// L1S source (you write this)</span>
+    │
+    │   [ignis compiles main.is]
+    │
+    ├── <span style="color:var(--orange)">main.asm</span>         <span style="color:var(--fg2)">// NASM assembly (generated by Codegen)</span>
+    │
+    │   [nasm -f elf64 main.asm]
+    │
+    ├── <span style="color:var(--orange)">main.o</span>           <span style="color:var(--fg2)">// ELF64 object file (generated by nasm)</span>
+    │
+    │   [cc -o main main.o -no-pie]
+    │
+    ├── <span style="color:var(--cyan)">main</span>             <span style="color:var(--fg2)">// Executable binary (generated by linker)</span>
+    │
+    │   [./main]
+    │
+    └── <span style="color:var(--fg2)">output: 42</span>      <span style="color:var(--fg2)">// Program runs!</span></pre>
+</div>
+
+<p>Notice that <code>main.o</code> is a temporary file &mdash; the driver deletes it after linking successfully.</p>
+
+<h3>The Driver Code (lines 68&ndash;109)</h3>
+
+<p>Here is the complete assembly and linking section of the driver:</p>
+
+<div class="code-header"><span>src/main.rs &mdash; Assembly, linking, and output</span></div>
+<pre><code>    <span class="cm">// --- Determine output binary path ---</span>
+    <span class="kw">let</span> bin_path = <span class="kw">if</span> args.<span class="fn">len</span>() &gt; <span class="num">2</span> &amp;&amp; args[<span class="num">2</span>] == <span class="str">"-o"</span> {
+        args[<span class="num">3</span>].<span class="fn">clone</span>()
+    } <span class="kw">else</span> {
+        <span class="kw">let</span> input = <span class="ty">Path</span>::<span class="fn">new</span>(&amp;args[<span class="num">1</span>]);
+        input.<span class="fn">with_extension</span>(<span class="str">""</span>).<span class="fn">to_string_lossy</span>().<span class="fn">to_string</span>()
+    };
+
+    <span class="kw">let</span> asm_path = <span class="fn">format!</span>(<span class="str">"{}.asm"</span>, bin_path);
+    <span class="kw">let</span> o_path = <span class="fn">format!</span>(<span class="str">"{}.o"</span>, bin_path);
+
+    <span class="cm">// --- Step 1: Write .asm file ---</span>
+    <span class="kw">let</span> _ = fs::<span class="fn">write</span>(&amp;asm_path, &amp;asm).<span class="fn">unwrap_or_else</span>(|e| {
+        <span class="fn">eprintln!</span>(<span class="str">"error writing {}: {}"</span>, asm_path, e);
+        std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+    });
+
+    <span class="cm">--- Step 2: Assemble with nasm ---</span>
+    <span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, <span class="str">"-o"</span>, &amp;o_path, &amp;asm_path])
+        .<span class="fn">status</span>()
+        .<span class="fn">unwrap_or_else</span>(|e| {
+            <span class="fn">eprintln!</span>(<span class="str">"error invoking assembler: {}"</span>, e);
+            std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+        });
+
+    <span class="kw">if</span> !status.<span class="fn">success</span>() {
+        std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="cm">--- Step 3: Link with cc ---</span>
+    <span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-o"</span>, &amp;bin_path, &amp;o_path, <span class="str">"-no-pie"</span>])
+        .<span class="fn">status</span>()
+        .<span class="fn">unwrap_or_else</span>(|e| {
+            <span class="fn">eprintln!</span>(<span class="str">"error invoking linker: {}"</span>, e);
+            std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+        });
+
+    <span class="kw">if</span> !status.<span class="fn">success</span>() {
+        std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="cm">--- Step 4: Cleanup .o file ---</span>
+    <span class="kw">let</span> _ = fs::<span class="fn">remove_file</span>(&amp;o_path);
+
+    <span class="fn">println!</span>(<span class="str">"wrote {}"</span>, bin_path);
+}</code></pre>
+
+<h3>Step-by-Step Walkthrough</h3>
+
+<h4>1. Output Path Resolution (lines 68&ndash;73)</h4>
+
+<p>The driver supports an optional <code>-o &lt;name&gt;</code> flag:</p>
+<pre><code><span style="color:var(--fg2)">$</span> ignis program.is                  <span style="color:var(--fg2)"># produces ./program</span>
+<span style="color:var(--fg2)">$</span> ignis program.is -o mybinary     <span style="color:var(--fg2)"># produces ./mybinary</span></code></pre>
+
+<p>The path is parsed by checking <code>args[2] == "-o"</code>. If the flag is present, <code>args[3]</code> is used as the output name. Otherwise, the input filename's extension is stripped: <code>program.is</code> becomes <code>program</code>. This uses <code>Path::with_extension("")</code> which handles edge cases like <code>foo.is.is</code> correctly (strips only the last extension).</p>
+
+<h4>2. Write Assembly File (lines 78&ndash;81)</h4>
+
+<pre><code>fs::<span class="fn">write</span>(&amp;asm_path, &amp;asm).<span class="fn">unwrap_or_else</span>(|e| {
+    <span class="fn">eprintln!</span>(<span class="str">"error writing {}: {}"</span>, asm_path, e);
+    std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+});</code></pre>
+
+<p>The assembly string from <code>Codegen::generate()</code> is written to a <code>.asm</code> file in the same directory as the intended output binary. If the write fails (e.g., permission denied, disk full), the error message is printed to stderr and the process exits with code 1.</p>
+
+<div class="callout info">
+<strong>Why keep the .asm file?</strong> The <code>.asm</code> file is intentionally not deleted. This lets developers inspect the generated assembly for debugging purposes. If you want to see what code L1S produced for your program, just look at <code>program.asm</code>.
+</div>
+
+<h4>3. Assemble with NASM (lines 83&ndash;93)</h4>
+
+<pre><code><span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+    .<span class="fn">args</span>(&amp;[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, <span class="str">"-o"</span>, &amp;o_path, &amp;asm_path])
+    .<span class="fn">status</span>()
+    .<span class="fn">unwrap_or_else</span>(|e| { <span class="cm">/* ... */</span> });
+
+<span class="kw">if</span> !status.<span class="fn">success</span>() { std::process::<span class="fn">exit</span>(<span class="num">1</span>); }</code></pre>
+
+<p><strong>NASM</strong> (Netwide Assembler) is invoked with these flags:</p>
+<ul>
+<li><strong><code>-f elf64</code></strong>: Output format is ELF64 (Executable and Linkable Format, 64-bit), the standard object file format on Linux x86-64.</li>
+<li><strong><code>-o &lt;.o path&gt;</code></strong>: Output object file path.</li>
+<li><strong><code>&lt;.asm path&gt;</code></strong>: Input assembly source file.</li>
+</ul>
+
+<p>The <code>Command::status()</code> method runs the process and returns its exit status. If NASM isn't installed, <code>unwrap_or_else</code> catches the <code>std::io::Error</code> (e.g., "No such file or directory") and prints a helpful message. If NASM finds errors in the assembly (syntax errors, undefined symbols), <code>status.success()</code> returns false and the driver exits.</p>
+
+<div class="callout warn">
+<strong>NASM must be installed!</strong> L1S requires NASM to be available on your <code>PATH</code>. Install it with your package manager:
+<pre style="margin:0.5rem 0 0;font-size:0.8rem;"><code><span style="color:var(--fg2)"># Debian/Ubuntu</span>
+$ sudo apt install nasm
+
+<span style="color:var(--fg2)"># Fedora</span>
+$ sudo dnf install nasm
+
+<span style="color:var(--fg2)"># macOS</span>
+$ brew install nasm</code></pre>
+</div>
+
+<h4>4. Link with cc (lines 95&ndash;105)</h4>
+
+<pre><code><span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+    .<span class="fn">args</span>(&amp;[<span class="str">"-o"</span>, &amp;bin_path, &amp;o_path, <span class="str">"-no-pie"</span>])
+    .<span class="fn">status</span>()
+    .<span class="fn">unwrap_or_else</span>(|e| { <span class="cm">/* ... */</span> });
+
+<span class="kw">if</span> !status.<span class="fn">success</span>() { std::process::<span class="fn">exit</span>(<span class="num">1</span>); }</code></pre>
+
+<p>The C compiler (<code>cc</code>, typically <code>gcc</code> or <code>clang</code>) is used as the linker. This is a common trick in small compilers &mdash; <code>cc</code> knows how to invoke the linker (<code>ld</code>) with all the right flags to set up the C runtime (<code>_start</code>, libc crt files, etc.). We don't need to link against libc itself, but the crt startup files are necessary for a working executable. The flags:</p>
+<ul>
+<li><strong><code>-o &lt;binary&gt;</code></strong>: Output executable path.</li>
+<li><strong><code>&lt;.o file&gt;</code></strong>: Input object file.</li>
+<li><strong><code>-no-pie</code></strong>: Produce a non-position-independent executable. L1S doesn't generate PIC-compliant code, so we disable PIE to avoid linker errors. Without this flag, the linker would try to make a PIE binary and fail because the assembly uses absolute addresses in some cases.</li>
+</ul>
+
+<h4>5. Cleanup (line 107)</h4>
+
+<pre><code><span class="kw">let</span> _ = fs::<span class="fn">remove_file</span>(&amp;o_path);</code></pre>
+
+<p>The intermediate <code>.o</code> object file is deleted. The <code>let _ =</code> suppresses the "unused result" warning &mdash; if deletion fails (e.g., file already removed), we don't care. The <code>.asm</code> file is kept for debugging.</p>
+
+<h4>6. Success Message (line 109)</h4>
+
+<pre><code><span class="fn">println!</span>(<span class="str">"wrote {}"</span>, bin_path);</code></pre>
+
+<p>A simple confirmation message tells the user the binary is ready.</p>
+
+<h3>The Complete <code>main()</code> Function</h3>
+
+<p>For context, here is the full driver including the compilation stages that precede assembly and linking:</p>
+
+<div class="code-header"><span>src/main.rs &mdash; Complete compiler driver</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> args: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = env::<span class="fn">args</span>().<span class="fn">collect</span>();
+    <span class="kw">if</span> args.<span class="fn">len</span>() &lt; <span class="num">2</span> {
+        <span class="fn">eprintln!</span>(<span class="str">"usage: ignis &lt;file.is&gt; [-o &lt;output&gt;]"</span>);
+        std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="cm">// 1. Read source file</span>
+    <span class="kw">let</span> source = fs::<span class="fn">read_to_string</span>(&amp;args[<span class="num">1</span>]).<span class="fn">unwrap_or_else</span>(|e| { <span class="cm">/* ... */</span> });
+
+    <span class="cm">// 2. Lex</span>
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = lexer::<span class="ty">Lexer</span>::<span class="fn">new</span>(&amp;source);
+    <span class="kw">let</span> (tokens, _lex_errors) = lexer.<span class="fn">tokenize</span>();
+
+    <span class="cm">// 3. Parse</span>
+    <span class="kw">let</span> diag = diag::<span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> parser = parser::<span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+    <span class="kw">let</span> <span class="kw">mut</span> prog = parser.<span class="fn">parse_program</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> diag = parser.<span class="fn">into_diagnostics</span>();
+    <span class="kw">if</span> diag.<span class="fn">has_errors</span>() { diag.<span class="fn">print_all</span>(); std::process::<span class="fn">exit</span>(<span class="num">1</span>); }
+
+    <span class="cm">// 4. Type check</span>
+    <span class="kw">let</span> <span class="kw">mut</span> types = types::<span class="ty">TypeArena</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> symbols = symbol::<span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> tc = typeck::<span class="ty">TypeChecker</span>::<span class="fn">new</span>(&amp;<span class="kw">mut</span> types, &amp;<span class="kw">mut</span> symbols, &amp;<span class="kw">mut</span> diag);
+    tc.<span class="fn">check_program</span>(&amp;<span class="kw">mut</span> prog);
+    <span class="kw">let</span> annotations = tc.annotations.<span class="fn">clone</span>();
+    <span class="kw">let</span> has_errors = tc.diag.<span class="fn">has_errors</span>();
+    <span class="kw">if</span> has_errors { diag.<span class="fn">print_all</span>(); std::process::<span class="fn">exit</span>(<span class="num">1</span>); }
+
+    <span class="cm">// 5. Build IR</span>
+    <span class="kw">let</span> builder = ir_build::<span class="ty">IrBuilder</span>::<span class="fn">new</span>(&amp;types, &amp;annotations, &amp;<span class="kw">mut</span> diag);
+    <span class="kw">let</span> <span class="kw">mut</span> ir_module = builder.<span class="fn">build</span>(&amp;prog);
+
+    <span class="cm">// 6. Optimize IR</span>
+    ir_opt::<span class="fn">optimize</span>(&amp;<span class="kw">mut</span> ir_module);
+
+    <span class="cm">// 7. Generate assembly</span>
+    <span class="kw">let</span> <span class="kw">mut</span> codegen = codegen::<span class="ty">Codegen</span>::<span class="fn">new</span>(&amp;types);
+    <span class="kw">let</span> asm = codegen.<span class="fn">generate</span>(&amp;ir_module);
+
+    <span class="cm">// 8. Write .asm, assemble, link, cleanup (lines 68-109, shown above)</span>
+    <span class="cm">// ...</span>
+}</code></pre>
+
+<p>Each stage is fallible. The driver either exits early on error (with a non-zero exit code) or proceeds to the next stage. The lexer errors are currently ignored (the <code>_lex_errors</code> variable is unused), but parser and type-checker errors abort compilation.</p>
+
+<h3>Error Handling Strategy</h3>
+
+<p>The driver uses a straightforward error handling pattern throughout:</p>
+
+<table class="file-table">
+<tr><th>Stage</th><th>Error Check</th><th>Exit Code</th></tr>
+<tr><td>Usage</td><td><code>args.len() &lt; 2</code></td><td>1</td></tr>
+<tr><td>File read</td><td><code>unwrap_or_else</code></td><td>1</td></tr>
+<tr><td>Parse</td><td><code>diag.has_errors()</code></td><td>1</td></tr>
+<tr><td>Type check</td><td><code>diag.has_errors()</code></td><td>1</td></tr>
+<tr><td>File write</td><td><code>unwrap_or_else</code></td><td>1</td></tr>
+<tr><td>NASM invocation</td><td><code>unwrap_or_else</code> + <code>status.success()</code></td><td>1</td></tr>
+<tr><td>CC invocation</td><td><code>unwrap_or_else</code> + <code>status.success()</code></td><td>1</td></tr>
+</table>
+
+<p>All errors are printed to stderr with descriptive messages. The process exits with code 1 on any failure, which is the standard Unix convention for non-zero exit on error.</p>
+
+<h3>The ABI Module</h3>
+
+<p>The <code>abi.rs</code> module is a small utility that delegates to <code>TypeArena</code> for size and alignment queries, plus a stack alignment helper:</p>
+
+<div class="code-header"><span>src/abi.rs &mdash; ABI helpers</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">type_size</span>(types: &amp;<span class="ty">TypeArena</span>, t: <span class="ty">TypeId</span>) -&gt; <span class="ty">u64</span> {
+    types.<span class="fn">size_of</span>(t)
+}
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">type_align</span>(types: &amp;<span class="ty">TypeArena</span>, t: <span class="ty">TypeId</span>) -&gt; <span class="ty">u64</span> {
+    types.<span class="fn">align_of</span>(t)
+}
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">stack_align</span>(size: <span class="ty">u64</span>) -&gt; <span class="ty">u64</span> {
+    (size + <span class="num">15</span>) &amp; !<span class="num">15</span>
+}</code></pre>
+
+<p><code>type_size</code> and <code>type_align</code> are thin wrappers that provide a clean interface for other modules (like <code>ir_build</code> during struct layout). The <code>stack_align</code> function rounds up to the next 16-byte boundary, matching the x86-64 SysV ABI requirement. The tests verify this:</p>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_stack_align</span>() {
+    <span class="fn">assert_eq!</span>(<span class="fn">stack_align</span>(<span class="num">4</span>), <span class="num">16</span>);
+    <span class="fn">assert_eq!</span>(<span class="fn">stack_align</span>(<span class="num">16</span>), <span class="num">16</span>);
+    <span class="fn">assert_eq!</span>(<span class="fn">stack_align</span>(<span class="num">17</span>), <span class="num">32</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_type_size</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> types = <span class="ty">TypeArena</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> i32 = types.<span class="fn">intern</span>(<span class="ty">TypeNode</span>::<span class="fn">I32</span>);
+    <span class="fn">assert_eq!</span>(<span class="fn">type_size</span>(&amp;types, i32), <span class="num">4</span>);
+}</code></pre>
+
+<h3>Testing the Build Pipeline</h3>
+
+<p>The build pipeline is best tested with end-to-end integration tests. A typical test would:</p>
+
+<ol>
+<li>Write a small L1S program to a temp file.</li>
+<li>Run <code>ignis temp.is -o temp_bin</code>.</li>
+<li>Check exit code is 0.</li>
+<li>Run <code>./temp_bin</code> and check its exit code or stdout.</li>
+<li>Clean up temp files.</li>
+</ol>
+
+<p>At the time of writing, the driver's external tool dependencies (NASM, cc) would require integration tests to be run separately:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo build --release
+<span style="color:var(--fg2)">$</span> echo "func main(i32) { return 42; }" &gt; /tmp/test.is
+<span style="color:var(--fg2)">$</span> ./target/release/ignis /tmp/test.is -o /tmp/test_bin
+wrote /tmp/test_bin
+<span style="color:var(--fg2)">$</span> /tmp/test_bin; echo $?
+42</code></pre>
+
+<div class="callout tip">
+<strong>Quick debugging</strong>: If linking fails, examine the generated <code>.asm</code> file. Try assembling it manually with <code>nasm -f elf64 file.asm</code> to see NASM's error messages. Then try linking manually with <code>cc -o file file.o -no-pie</code>. This isolates whether the error is in assembly generation or linking.
+</div>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>NASM not found</strong>: The error message is "error invoking assembler: No such file or directory". Install NASM via your package manager.</li>
+<li><strong>Linker errors about <code>main</code></strong>: The assembly declares <code>global main</code>, but if your program doesn't define a <code>main</code> function, the linker will fail with an undefined reference. Every L1S program needs a <code>func main(i32)</code> entry point.</li>
+<li><strong>Position-independent code</strong>: If you omit <code>-no-pie</code>, the linker may emit warnings or errors about relocations against read-only sections. Always use <code>-no-pie</code> until L1S supports PIC.</li>
+<li><strong>File path edge cases</strong>: <code>Path::with_extension("")</code> handles <code>foo.is</code> &rarr; <code>foo</code>, but <code>foo</code> (no extension) becomes <code>foo</code> (unchanged). Inputs like <code>.is</code> (hidden file) become empty string &mdash; test your output paths.</li>
+<li><strong>Permission denied</strong>: If <code>fs::write</code> fails, check that the output directory is writable. The <code>.asm</code> file is written alongside the binary, so consider the directory permissions.</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="14-codegen.html">&larr; Chapter 14</a> &ensp; Chapter 15: Assembly &amp; Linking &ensp; <a href="16-diag.html">Chapter 16 &rarr;</a></span>
+</div>
+
+</body>
+</html>

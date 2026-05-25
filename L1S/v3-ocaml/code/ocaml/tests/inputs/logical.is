@@ -1,0 +1,5 @@
+func main(i32) {
+    let t: bool = true;
+    let f: bool = false;
+    if (t && f) { return 0; } else { return 1; }
+}

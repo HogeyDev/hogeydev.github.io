@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 6: The Parser &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="05-ast.html">&larr; Chapter 5</a> &ensp; Chapter 6: The Parser &ensp; <a href="07-types.html">Chapter 7 &rarr;</a></span>
+</div>
+
+<h2 id="parser">6 &ensp; The Parser</h2>
+
+<h3>From Tokens to Syntax Trees</h3>
+
+<p>The lexer gives us a flat list of tokens. The parser's job is to impose <strong>structure</strong> on that list &mdash; to recognize that <code>func main(i32) { return 42; }</code> is a function declaration containing a return statement, not just 11 tokens in a row.</p>
+
+<p>L1S uses a <strong>hand-written recursive descent parser</strong> with a <strong>Pratt parser</strong> for expressions. This is a classic combination: recursive descent handles the irregular grammar of declarations and statements, while Pratt's algorithm elegantly handles operator precedence without a separate operator grammar.</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Parser pipeline:</strong><br><br>
+<code>[Tokens] &rarr; parse_program() &rarr; parse_declaration() &rarr; parse_func_decl() / parse_struct_decl() / ...<br>
+&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&rarr; parse_statement() &rarr; parse_if() / parse_while() / ...<br>
+&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&rarr; parse_expr() &rarr; Pratt (prefix + infix) &rarr; <strong>AstProgram</strong></code>
+</div>
+
+<h3>The Parser Struct</h3>
+
+<p>The parser wraps the token stream and a diagnostics accumulator:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; Parser struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Parser</span> {
+    tokens: <span class="ty">Vec</span>&lt;<span class="ty">SpannedToken</span>&gt;,
+    pos: <span class="ty">usize</span>,
+    diag: <span class="ty">Diagnostics</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Parser</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(tokens: <span class="ty">Vec</span>&lt;<span class="ty">SpannedToken</span>&gt;, diag: <span class="ty">Diagnostics</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Parser</span> { tokens, pos: 0, diag }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">into_diagnostics</span>(<span class="kw">self</span>) -&gt; <span class="ty">Diagnostics</span> {
+        <span class="kw">self</span>.diag
+    }
+}</code></pre>
+
+<p><strong>Fields:</strong></p>
+<ul>
+<li><strong><code>tokens</code></strong>: The full token stream from the lexer. Owned as <code>Vec&lt;SpannedToken&gt;</code> so the parser has full control and can move data out.</li>
+<li><strong><code>pos</code></strong>: Current index into the token stream. The "cursor."</li>
+<li><strong><code>diag</code></strong>: Accumulated errors and warnings. Consumed at the end via <code>into_diagnostics()</code>.</li>
+</ul>
+
+<h3>Cursor Helpers</h3>
+
+<p>These tiny methods are the building blocks of the entire parser. Understanding them is understanding how <em>every</em> parse method works:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; cursor operations</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">is_at_end</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">self</span>.<span class="fn">peek_token</span>() == <span class="ty">Token::Eof</span>
+}
+
+<span class="kw">fn</span> <span class="fn">peek</span>(&amp;<span class="kw">self</span>) -&gt; &amp;<span class="ty">SpannedToken</span> {
+    &amp;<span class="kw">self</span>.tokens[<span class="kw">self</span>.pos]
+}
+
+<span class="kw">fn</span> <span class="fn">peek_token</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">if</span> <span class="kw">self</span>.pos &gt;= <span class="kw">self</span>.tokens.<span class="fn">len</span>() {
+        <span class="kw">return</span> <span class="ty">Token::Eof</span>;
+    }
+    <span class="kw">self</span>.tokens[<span class="kw">self</span>.pos].token.<span class="fn">clone</span>()
+}
+
+<span class="kw">fn</span> <span class="fn">peek_nth</span>(&amp;<span class="kw">self</span>, n: <span class="ty">usize</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> idx = <span class="kw">self</span>.pos + n;
+    <span class="kw">if</span> idx &gt;= <span class="kw">self</span>.tokens.<span class="fn">len</span>() { <span class="kw">return</span> <span class="ty">Token::Eof</span>; }
+    <span class="kw">self</span>.tokens[idx].token.<span class="fn">clone</span>()
+}
+
+<span class="kw">fn</span> <span class="fn">advance</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; &amp;<span class="ty">SpannedToken</span> {
+    <span class="kw">let</span> t = &amp;<span class="kw">self</span>.tokens[<span class="kw">self</span>.pos];
+    <span class="kw">self</span>.pos += 1;
+    t
+}</code></pre>
+
+<p><strong>Check, match, expect &mdash; the three modes of token consumption:</strong></p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check</span>(&amp;<span class="kw">self</span>, tok: &amp;<span class="ty">Token</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">self</span>.<span class="fn">peek_token</span>() == *tok
+}
+
+<span class="kw">fn</span> <span class="fn">match_token</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, tok: &amp;<span class="ty">Token</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">check</span>(tok) { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="kw">true</span> } <span class="kw">else</span> { <span class="kw">false</span> }
+}
+
+<span class="kw">fn</span> <span class="fn">expect</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, tok: &amp;<span class="ty">Token</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">Span</span>, <span class="ty">Span</span>&gt; {
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">check</span>(tok) { <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">peek</span>().span; <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Ok</span>(span) }
+    <span class="kw">else</span> { <span class="ty">Err</span>(<span class="kw">self</span>.<span class="fn">current_span</span>()) }
+}
+
+<span class="kw">fn</span> <span class="fn">expect_ident</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">String</span>, <span class="ty">Span</span>&gt; {
+    <span class="kw">if</span> <span class="fn">matches!</span>(<span class="kw">self</span>.<span class="fn">peek_token</span>(), <span class="ty">Token::Ident</span>(_)) {
+        <span class="kw">let</span> token = <span class="kw">self</span>.<span class="fn">advance</span>();
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Token::Ident</span>(name) = &amp;token.token { <span class="ty">Ok</span>(name.<span class="fn">clone</span>()) }
+        <span class="kw">else</span> { <span class="kw">unreachable!</span>() }
+    } <span class="kw">else</span> { <span class="ty">Err</span>(<span class="kw">self</span>.<span class="fn">current_span</span>()) }
+}</code></pre>
+
+<div class="callout info">
+<strong>check vs match_token vs expect:</strong> <code>check</code> is a pure predicate (no mutation). <code>match_token</code> consumes the token if it matches and returns <code>bool</code> &mdash; useful for optional syntax like the comma between parameters. <code>expect</code> consumes the token if it matches, but signals failure via <code>Result</code> &mdash; the caller can decide whether to emit an error or insert a synthetic token.
+</div>
+
+<h3>Error Recovery Pattern</h3>
+
+<p>The most important design pattern in the parser is how <code>expect_ident</code> and <code>expect</code> integrate with <strong>error recovery</strong>. Consider <code>parse_func_decl</code>:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_func_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, pub_: <span class="ty">bool</span>) -&gt; <span class="ty">AstFuncDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Func</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="cm">// ... continue parsing with synthetic name "_"</span>
+}</code></pre>
+
+<p>The <code>unwrap_or_else</code> calls are deliberate: they let the parser continue after an error by inserting a <strong>synthetic value</strong>. A missing identifier becomes <code>"_"</code>, a missing closing brace gets a dummy span. The error is already recorded in the diagnostics, but the parser can keep going to find more errors. This maximizes the number of errors reported per compilation.</p>
+
+<h3>Infinite Loop Guards</h3>
+
+<p>Every loop that consumes input has a panic guard. If the parser ever gets stuck (e.g., a bug causes it to loop without advancing), the guard fires after 10,000 iterations:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_program</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstProgram</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> decls = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> guard = 0u32;
+    <span class="kw">while</span> !<span class="kw">self</span>.<span class="fn">is_at_end</span>() {
+        guard += 1;
+        <span class="kw">if</span> guard &gt; 10000 {
+            <span class="fn">panic!</span>(<span class="str">"INFINITE LOOP in parse_program at pos={}"</span>, <span class="kw">self</span>.pos);
+        }
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(decl) = <span class="kw">self</span>.<span class="fn">parse_declaration</span>() {
+            decls.<span class="fn">push</span>(decl);
+        } <span class="kw">else</span> {
+            <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// skip on parse failure</span>
+        }
+    }
+    <span class="ty">AstProgram</span> { decls }
+}</code></pre>
+
+<p>The guard + <code>self.advance()</code> on failure is the double lock: even if <code>parse_declaration</code> returns <code>None</code> without advancing, we force-advance past the current token to break the loop.</p>
+
+<h3>Declaration Parsing: <code>parse_declaration()</code></h3>
+
+<p>This is the top-level dispatch for the program's declarations. It looks at the current token and routes to the appropriate sub-parser:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; declaration dispatch</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">parse_declaration</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">AstDecl</span>&gt; {
+    <span class="kw">let</span> is_pub = <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Pub</span>);
+
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::Struct</span> =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Struct</span>(<span class="kw">self</span>.<span class="fn">parse_struct_decl</span>(is_pub))),
+        <span class="ty">Token::Enum</span>   =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Enum</span>(<span class="kw">self</span>.<span class="fn">parse_enum_decl</span>(is_pub))),
+        <span class="ty">Token::Spec</span>   =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Spec</span>(<span class="kw">self</span>.<span class="fn">parse_spec_decl</span>(is_pub))),
+        <span class="ty">Token::Impl</span>   =&gt; { <span class="cm">/* impl cannot be pub */</span> <span class="ty">Some</span>(<span class="ty">AstDecl::Impl</span>(<span class="kw">self</span>.<span class="fn">parse_impl_decl</span>())) }
+        <span class="ty">Token::Func</span>   =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Func</span>(<span class="kw">self</span>.<span class="fn">parse_func_decl</span>(is_pub))),
+        <span class="ty">Token::Typedef</span> =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Typedef</span>(<span class="kw">self</span>.<span class="fn">parse_typedef_decl</span>(is_pub))),
+        <span class="ty">Token::Import</span> =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Import</span>(<span class="kw">self</span>.<span class="fn">parse_import</span>())),
+        <span class="ty">Token::Static</span> =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::StaticVar</span>(<span class="kw">self</span>.<span class="fn">parse_static_var_decl</span>())),
+        _ =&gt; { <span class="kw">if</span> is_pub { <span class="kw">self</span>.<span class="fn">error</span>(<span class="str">"expected declaration after 'pub'"</span>, <span class="kw">self</span>.<span class="fn">current_span</span>()); } <span class="ty">None</span> }
+    }
+}</code></pre>
+
+<p>The <code>pub</code> keyword is treated as a <strong>prefix modifier</strong>: <code>match_token(&amp;Token::Pub)</code> consumes it if present, and the <code>is_pub</code> flag is forwarded to the sub-parser. Some declarations (<code>impl</code>, <code>import</code>, <code>static</code>) reject <code>pub</code> and record an error if it appears.</p>
+
+<h4><code>parse_func_decl</code> &mdash; Function Declarations</h4>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_func_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, pub_: <span class="ty">bool</span>) -&gt; <span class="ty">AstFuncDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Func</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenParen</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> return_type = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+    <span class="kw">let</span> params = <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Comma</span>) {
+        <span class="kw">self</span>.<span class="fn">parse_params</span>()
+    } <span class="kw">else</span> { <span class="ty">Vec</span>::<span class="fn">new</span>() };
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseParen</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> body = <span class="kw">self</span>.<span class="fn">parse_block</span>();
+    <span class="ty">AstFuncDecl</span> { span, pub_, name, return_type, params, body }
+}</code></pre>
+
+<p><strong>Walkthrough:</strong> <code>func main(i32, x: i32, y: i32) { ... }</code></p>
+<ol>
+<li><strong>Consume <code>func</code></strong> keyword, get the span.</li>
+<li><strong>Read the name</strong> via <code>expect_ident</code> &rarr; <code>"main"</code>.</li>
+<li><strong>Open paren</strong> &rarr; the return type is parsed first (<code>i32</code>).</li>
+<li><strong>Comma?</strong> If a comma follows the return type, there are named parameters. <code>parse_params</code> reads <code>x: i32, y: i32</code>.</li>
+<li><strong>Close paren</strong>, then <strong>parse the body block</strong>.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Why return type before parameters?</strong> This is unusual. Most C-like languages put the return type before the function name. L1S places it first so that <code>func main(i32, argc: i32, argv: @char)</code> reads naturally: the return type is the first type after the opening paren, then named parameters follow. A bare type like <code>i32</code> with no comma/name means "zero parameters, return type i32."
+</div>
+
+<h4><code>parse_struct_decl</code></h4>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_struct_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, pub_: <span class="ty">bool</span>) -&gt; <span class="ty">AstStructDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Struct</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> fields = <span class="kw">self</span>.<span class="fn">parse_fields</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="ty">AstStructDecl</span> { span, pub_, name, fields }
+}</code></pre>
+
+<p>Fields are parsed as <code>name: type;</code> pairs. The <code>parse_fields</code> method breaks when it sees <code>CloseBrace</code> or EOF, so missing semicolons on the last field are tolerated.</p>
+
+<h4><code>parse_enum_decl</code></h4>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_enum_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, pub_: <span class="ty">bool</span>) -&gt; <span class="ty">AstEnumDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Enum</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="cm">// Optional [noprefix] attribute</span>
+    <span class="kw">let</span> <span class="kw">mut</span> noprefix = <span class="kw">false</span>;
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::OpenBracket</span>) {
+        <span class="kw">loop</span> {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Noprefix</span>) { noprefix = <span class="kw">true</span>; }
+            <span class="kw">else</span> <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() == <span class="ty">Token::CloseBracket</span> { <span class="kw">break</span>; }
+            <span class="kw">else</span> { <span class="kw">self</span>.<span class="fn">error</span>(<span class="str">"expected enum modifier"</span>, <span class="kw">self</span>.<span class="fn">current_span</span>()); <span class="kw">self</span>.<span class="fn">advance</span>(); }
+            <span class="kw">if</span> !<span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Comma</span>) { <span class="kw">break</span>; }
+        }
+        <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBracket</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    }
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> variants = <span class="kw">self</span>.<span class="fn">parse_variants</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="ty">AstEnumDecl</span> { span, pub_, name, noprefix, variants, variant_values: <span class="ty">None</span> }
+}</code></pre>
+
+<p>The <code>[noprefix]</code> modifier is parsed as an attribute inside brackets. This pattern (bracket-delimited attributes before the body) is extensible &mdash; new modifiers can be added without changing the grammar structure.</p>
+
+<h4>Spec and Impl Declarations</h4>
+
+<p><strong>Spec</strong> declarations define interfaces (like Rust traits):</p>
+<pre><code><span class="kw">fn</span> <span class="fn">parse_spec_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, pub_: <span class="ty">bool</span>) -&gt; <span class="ty">AstSpecDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Spec</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> <span class="kw">mut</span> items = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> !<span class="kw">self</span>.<span class="fn">check</span>(&amp;<span class="ty">Token::CloseBrace</span>) &amp;&amp; !<span class="kw">self</span>.<span class="fn">is_at_end</span>() {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(item) = <span class="kw">self</span>.<span class="fn">parse_spec_item</span>() { items.<span class="fn">push</span>(item); }
+        <span class="kw">else</span> { <span class="kw">self</span>.<span class="fn">advance</span>(); }
+    }
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="ty">AstSpecDecl</span> { span, pub_, name, items }
+}</code></pre>
+
+<p><strong>Impl</strong> declarations provide implementations of specs for a type:</p>
+<pre><code><span class="kw">fn</span> <span class="fn">parse_impl_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstImplDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Impl</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> impl_type = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::For</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> spec_name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> <span class="kw">mut</span> methods = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> !<span class="kw">self</span>.<span class="fn">check</span>(&amp;<span class="ty">Token::CloseBrace</span>) &amp;&amp; !<span class="kw">self</span>.<span class="fn">is_at_end</span>() {
+        methods.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">parse_func_decl</span>(<span class="kw">false</span>));
+    }
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="ty">AstImplDecl</span> { span, impl_type, spec_name, methods }
+}</code></pre>
+
+<p>The <code>impl</code> keyword is followed by a type (which can be any valid type expression), then <code>for</code>, then the spec name, then a block of function declarations.</p>
+
+<h3>Statement Parsing: <code>parse_statement()</code></h3>
+
+<p>Statements are the executable units inside function bodies. The dispatch is clean because each statement starts with a unique keyword:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; statement dispatch</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">parse_statement</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">AstStmt</span>&gt; {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::Return</span>    =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Return</span>(<span class="kw">self</span>.<span class="fn">parse_return</span>())),
+        <span class="ty">Token::Let</span>       =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::VarDecl</span>(<span class="kw">self</span>.<span class="fn">parse_var_decl</span>())),
+        <span class="ty">Token::If</span>        =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::If</span>(<span class="kw">self</span>.<span class="fn">parse_if</span>())),
+        <span class="ty">Token::While</span>     =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::While</span>(<span class="kw">self</span>.<span class="fn">parse_while</span>())),
+        <span class="ty">Token::For</span>       =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::For</span>(<span class="kw">self</span>.<span class="fn">parse_for</span>())),
+        <span class="ty">Token::Asm</span>       =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Asm</span>(<span class="kw">self</span>.<span class="fn">parse_asm</span>())),
+        <span class="ty">Token::OpenBrace</span> =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Block</span>(<span class="kw">self</span>.<span class="fn">parse_block</span>())),
+        <span class="ty">Token::Import</span>    =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Import</span>(<span class="kw">self</span>.<span class="fn">parse_import</span>())),
+        _ =&gt; { <span class="cm">// Expression statement</span>
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">is_at_end</span>() { <span class="kw">return</span> <span class="ty">None</span>; }
+            <span class="kw">let</span> expr = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+            <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">previous_span</span>();
+            <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Semicolon</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+            <span class="ty">Some</span>(<span class="ty">AstStmt::Expr</span>(expr))
+        }
+    }
+}</code></pre>
+
+<p>The fallthrough case is the expression statement &mdash; any expression followed by a semicolon. This is how <code>foo();</code> (function call as statement) and <code>x = 42;</code> (assignment as statement) work.</p>
+
+<h4><code>parse_if</code></h4>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_if</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstIf</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::If</span>).<span class="fn">unwrap</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenParen</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> cond = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseParen</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> then_block = <span class="kw">self</span>.<span class="fn">parse_block</span>();
+    <span class="kw">let</span> else_branch = <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Else</span>) {
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+            <span class="ty">Token::If</span> =&gt; <span class="ty">Some</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">AstStmt::If</span>(<span class="kw">self</span>.<span class="fn">parse_if</span>()))),
+            _ =&gt; <span class="ty">Some</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">AstStmt::Block</span>(<span class="kw">self</span>.<span class="fn">parse_block</span>()))),
+        }
+    } <span class="kw">else</span> { <span class="ty">None</span> };
+    <span class="ty">AstIf</span> { span, cond, then_block, else_branch }
+}</code></pre>
+
+<p>Note the <code>else if</code> handling: when <code>else</code> is followed by <code>if</code>, the parser recursively calls <code>parse_if</code>, creating a nested chain: <code>if (a) {} else if (b) {} else {}</code> becomes <code>If(cond=a, else=Some(If(cond=b, else=Some(Block))))</code>.</p>
+
+<h4><code>parse_var_decl</code></h4>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_var_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstVarDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Let</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Colon</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> type_ = <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">parse_type</span>());
+    <span class="kw">let</span> init = <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Eq</span>) { <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">parse_expr</span>()) } <span class="kw">else</span> { <span class="ty">None</span> };
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Semicolon</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="ty">AstVarDecl</span> { span, name, type_, init }
+}</code></pre>
+
+<p>Variable declarations follow the pattern <code>let name: type = init;</code> where both the type annotation and initializer are required.</p>
+
+<h3>Pratt Parsing: Expressions</h3>
+
+<p>The elegant part of the parser. Instead of encoding precedence in nested functions (a la <code>parse_add_expr</code> calling <code>parse_mul_expr</code> calling <code>parse_primary</code>), Pratt parsing uses <strong>binding powers</strong>:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Operator binding powers (lower = looser, higher = tighter):</strong><br><br>
+<code>  =   (assignment) ........... 10<br>
+  ||  (logical or) .......... 20<br>
+  &amp;&amp;  (logical and) ......... 30<br>
+  == != (equality) ........... 40<br>
+  &lt; &gt; &lt;= &gt;= (comparison) ..... 50<br>
+  |   (bitwise or) .......... 60<br>
+  ^   (bitwise xor) ......... 70<br>
+  &amp;   (bitwise and) ......... 80<br>
+  &lt;&lt; &gt;&gt; (shift) .............. 90<br>
+  + -  (addition) ........... 100<br>
+  * / % (multiplication) .... 110<br>
+  ( [ { . -&gt; (postfix) ...... 130</code>
+</div>
+
+<p>The core algorithm is just three methods:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; Pratt expression parsing</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">parse_expr</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(0)
+}
+
+<span class="kw">fn</span> <span class="fn">parse_expr_bp</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, min_bp: <span class="ty">u8</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> lhs = <span class="kw">self</span>.<span class="fn">parse_prefix</span>();
+    <span class="kw">loop</span> {
+        <span class="kw">let</span> bp = <span class="kw">self</span>.<span class="fn">infix_bp</span>();
+        <span class="kw">if</span> bp == 0 || bp &lt; min_bp { <span class="kw">break</span>; }
+        lhs = <span class="kw">self</span>.<span class="fn">parse_infix</span>(lhs, bp);
+    }
+    lhs
+}</code></pre>
+
+<p><strong>How it works step by step:</strong></p>
+<ol>
+<li><strong>Parse a prefix expression</strong> (literal, identifier, unary operator, parenthesized expression).</li>
+<li><strong>Look at the next token</strong> &mdash; what's its binding power? Zero means "not an infix operator."</li>
+<li><strong>If the next operator binds tighter</strong> than the current minimum, parse it as an infix (which recursively calls <code>parse_expr_bp</code> for the right-hand side with a higher minimum).</li>
+<li><strong>If the next operator is looser</strong> (or zero), stop and return what we have.</li>
+</ol>
+
+<h4><code>infix_bp</code> &mdash; The Binding Power Table</h4>
+
+<pre><code><span class="kw">fn</span> <span class="fn">infix_bp</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">u8</span> {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::Eq</span> =&gt; 10,
+        <span class="ty">Token::PipePipe</span> =&gt; 20,
+        <span class="ty">Token::AmpAmp</span> =&gt; 30,
+        <span class="ty">Token::EqEq</span> | <span class="ty">Token::BangEq</span> =&gt; 40,
+        <span class="ty">Token::Lt</span> | <span class="ty">Token::Gt</span> | <span class="ty">Token::LtEq</span> | <span class="ty">Token::GtEq</span> =&gt; 50,
+        <span class="ty">Token::Pipe</span> =&gt; 60,
+        <span class="ty">Token::Caret</span> =&gt; 70,
+        <span class="ty">Token::Amp</span> =&gt; 80,
+        <span class="ty">Token::LtLt</span> | <span class="ty">Token::GtGt</span> =&gt; 90,
+        <span class="ty">Token::Plus</span> | <span class="ty">Token::Minus</span> =&gt; 100,
+        <span class="ty">Token::Star</span> | <span class="ty">Token::Slash</span> | <span class="ty">Token::Percent</span> =&gt; 110,
+        <span class="ty">Token::OpenParen</span> | <span class="ty">Token::OpenBracket</span> | <span class="ty">Token::OpenBrace</span>
+            | <span class="ty">Token::Dot</span> | <span class="ty">Token::Arrow</span> =&gt; 130,
+        _ =&gt; 0,
+    }
+}</code></pre>
+
+<h4><code>parse_prefix</code> &mdash; Atomic and Unary Expressions</h4>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_prefix</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">let</span> tok = <span class="kw">self</span>.<span class="fn">peek_token</span>();
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">current_span</span>();
+    <span class="kw">match</span> tok {
+        <span class="ty">Token::NumLiteral</span>(ref val) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Int</span>(val.<span class="fn">clone</span>(), span) }
+        <span class="ty">Token::StrLiteral</span>(ref val) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Str</span>(val.<span class="fn">clone</span>(), span) }
+        <span class="ty">Token::CharLiteral</span>(val) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Char</span>(val, span) }
+        <span class="ty">Token::True</span>  =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Bool</span>(<span class="kw">true</span>, span) }
+        <span class="ty">Token::False</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Bool</span>(<span class="kw">false</span>, span) }
+        <span class="ty">Token::Ident</span>(ref name) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Ident</span>(name.<span class="fn">clone</span>(), span) }
+        <span class="ty">Token::OpenParen</span> =&gt; { <span class="cm">/* parenthesized expression */</span> }
+        <span class="ty">Token::Minus</span>  =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Neg</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(120)), span) }
+        <span class="ty">Token::Bang</span>   =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Not</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(120)), span) }
+        <span class="ty">Token::Tilde</span>  =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::BitNot</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(120)), span) }
+        <span class="ty">Token::Amp</span>    =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::AddrOf</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(120)), span) }
+        <span class="ty">Token::At</span>     =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Deref</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(120)), span) }
+        <span class="ty">Token::Cast</span>   =&gt; { <span class="cm">/* cast(type, expr) */</span> }
+        _ =&gt; { <span class="kw">self</span>.<span class="fn">error</span>(<span class="str">"expected expression"</span>, <span class="kw">self</span>.<span class="fn">current_span</span>()); <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstExpr::Int</span>(<span class="str">"0"</span>.<span class="fn">into</span>(), span) }
+    }
+}</code></pre>
+
+<p>Unary operators (<code>-</code>, <code>!</code>, <code>~</code>, <code>&amp;</code>, <code>@</code>) all use binding power 120 for their operand &mdash; this is higher than all binary operators, so <code>-x * y</code> parses as <code>(-x) * y</code>, not <code>-(x * y)</code>.</p>
+
+<h4><code>parse_infix</code> &mdash; Binary Operators and Postfix Syntax</h4>
+
+<p>This method receives the already-parsed left-hand side and the binding power, then dispatches to the appropriate handler:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_infix</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, lhs: <span class="ty">AstExpr</span>, bp: <span class="ty">u8</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">let</span> op_span = <span class="kw">self</span>.<span class="fn">current_span</span>();
+    <span class="kw">let</span> tok = <span class="kw">self</span>.<span class="fn">peek_token</span>();
+    <span class="kw">match</span> tok {
+        <span class="cm">// Postfix: call, index, field access, struct init</span>
+        <span class="ty">Token::OpenParen</span>   =&gt; { <span class="cm">/* call: foo(args) */</span> }
+        <span class="ty">Token::OpenBracket</span> =&gt; { <span class="cm">/* index: a[i] */</span> }
+        <span class="ty">Token::OpenBrace</span>   =&gt; { <span class="cm">/* struct init: Point { x: 1, y: 2 } */</span> }
+        <span class="ty">Token::Dot</span>         =&gt; { <span class="cm">/* field: p.x */</span> }
+        <span class="ty">Token::Arrow</span>       =&gt; { <span class="cm">/* arrow: p->x */</span> }
+        <span class="cm">// Binary operators: all follow the same pattern</span>
+        <span class="ty">Token::Plus</span>  =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="kw">let</span> rhs = <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(bp + 1);
+                          <span class="ty">AstExpr::Binary</span>(<span class="ty">BinaryOp::Add</span>, <span class="ty">Box</span>::<span class="fn">new</span>(lhs), <span class="ty">Box</span>::<span class="fn">new</span>(rhs), op_span) }
+        <span class="cm">// ... all other binary ops follow the same pattern with bp + 1</span>
+        <span class="ty">Token::Eq</span>   =&gt; { <span class="cm">// Assignment is RIGHT-associative: use raw bp, not bp + 1</span>
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">let</span> rhs = <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(bp); <span class="cm">// no +1</span>
+            <span class="ty">AstExpr::Assign</span>(<span class="ty">Box</span>::<span class="fn">new</span>(lhs), <span class="ty">Box</span>::<span class="fn">new</span>(rhs), op_span)
+        }
+        _ =&gt; lhs,
+    }
+}</code></pre>
+
+<div class="callout warn">
+<strong>Left vs Right Associativity:</strong> For left-associative operators (<code>+</code>, <code>*</code>, <code>==</code>), the right-hand operand is parsed with <code>bp + 1</code>, meaning <code>1 + 2 + 3</code> becomes <code>((1 + 2) + 3)</code>. For right-associative <code>=</code>, the RHS is parsed with the same <code>bp</code>, so <code>x = y = 0</code> becomes <code>x = (y = 0)</code>.
+</div>
+
+<h3>Traced Example: Parsing <code>1 + 2 * 3</code></h3>
+
+<p>Let's trace the Pratt parser on the expression <code>1 + 2 * 3</code>. The token stream: <code>NumLiteral("1"), Plus, NumLiteral("2"), Star, NumLiteral("3")</code>.</p>
+
+<table class="file-table">
+<tr><th>Step</th><th>Call</th><th><code>min_bp</code></th><th>lhs</th><th>peek token</th><th>infix_bp</th><th>Action</th></tr>
+<tr><td>1</td><td><code>parse_expr()</code></td><td>&mdash;</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td>Calls <code>parse_expr_bp(0)</code></td></tr>
+<tr><td>2</td><td><code>parse_expr_bp(0)</code></td><td>0</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td>Calls <code>parse_prefix()</code> &rarr; <code>Int("1")</code></td></tr>
+<tr><td>3</td><td><code>parse_expr_bp(0)</code></td><td>0</td><td><code>Int("1")</code></td><td><code>Plus</code></td><td>100</td><td>100 &ge; 0 &rarr; call <code>parse_infix</code></td></tr>
+<tr><td>4</td><td><code>parse_infix</code> <code>(+, 100)</code></td><td>0</td><td><code>Int("1")</code></td><td><code>Plus</code></td><td>100</td><td>Advance past <code>+</code>, call <code>parse_expr_bp(101)</code></td></tr>
+<tr><td>5</td><td><code>parse_expr_bp(101)</code></td><td>101</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td><code>parse_prefix()</code> &rarr; <code>Int("2")</code></td></tr>
+<tr><td>6</td><td><code>parse_expr_bp(101)</code></td><td>101</td><td><code>Int("2")</code></td><td><code>Star</code></td><td>110</td><td>110 &ge; 101 &rarr; call <code>parse_infix</code></td></tr>
+<tr><td>7</td><td><code>parse_infix</code> <code>(*, 110)</code></td><td>101</td><td><code>Int("2")</code></td><td><code>Star</code></td><td>110</td><td>Advance, call <code>parse_expr_bp(111)</code></td></tr>
+<tr><td>8</td><td><code>parse_expr_bp(111)</code></td><td>111</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td><code>parse_prefix()</code> &rarr; <code>Int("3")</code></td></tr>
+<tr><td>9</td><td><code>parse_expr_bp(111)</code></td><td>111</td><td><code>Int("3")</code></td><td>EOF</td><td>0</td><td>0 &lt; 111 &rarr; break, return <code>Int("3")</code></td></tr>
+<tr><td>10</td><td><code>parse_infix</code> returns</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Returns <code>Binary(Mul, Int("2"), Int("3"))</code></td></tr>
+<tr><td>11</td><td><code>parse_expr_bp(101)</code></td><td>101</td><td><code>Mul(...)</code></td><td>EOF</td><td>0</td><td>0 &lt; 101 &rarr; break, return <code>Mul(...)</code></td></tr>
+<tr><td>12</td><td><code>parse_infix</code> returns</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Returns <code>Binary(Add, Int("1"), Binary(Mul, ...))</code></td></tr>
+</table>
+
+<p>Result: <code>1 + (2 * 3)</code> &mdash; correct!</p>
+
+<h3>Type Parsing: <code>parse_type()</code></h3>
+
+<p>Types in L1S form their own mini-language. The parser handles array, pointer, function, spec, and named types in one recursive method:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; parse_type</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">parse_type</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstType</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">current_span</span>();
+    <span class="cm">// [expr] type  &rarr;  array type</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::OpenBracket</span>) {
+        <span class="kw">let</span> size = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+        <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBracket</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+        <span class="kw">let</span> inner = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+        <span class="kw">return</span> <span class="ty">AstType::Array</span>(<span class="ty">Box</span>::<span class="fn">new</span>(size), <span class="ty">Box</span>::<span class="fn">new</span>(inner), span);
+    }
+    <span class="cm">// @type  &rarr;  pointer type</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::At</span>) {
+        <span class="kw">let</span> inner = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+        <span class="kw">return</span> <span class="ty">AstType::Ptr</span>(<span class="ty">Box</span>::<span class="fn">new</span>(inner), span);
+    }
+    <span class="cm">// Func&lt;ret, args...&gt;</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Func</span>) {
+        <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Lt</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+        <span class="kw">let</span> <span class="kw">mut</span> types = <span class="ty">Vec</span>::<span class="fn">new</span>();
+        types.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">parse_type</span>());
+        <span class="kw">while</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Comma</span>) { types.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">parse_type</span>()); }
+        <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Gt</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+        <span class="kw">let</span> ret = <span class="ty">Box</span>::<span class="fn">new</span>(types.<span class="fn">remove</span>(0));
+        <span class="kw">return</span> <span class="ty">AstType::Func</span>(types, ret, span);
+    }
+    <span class="cm">// spec Name  &rarr;  spec type</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Spec</span>) {
+        <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+        <span class="kw">return</span> <span class="ty">AstType::Spec</span>(name, span);
+    }
+    <span class="cm">// Primitive or named type</span>
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::Void</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::Void</span>, span) }
+        <span class="ty">Token::Bool</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::Bool</span>, span) }
+        <span class="ty">Token::I32</span>  =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::I32</span>, span) }
+        <span class="cm">// ... all other primitives</span>
+        <span class="ty">Token::Ident</span>(ref name) =&gt; { <span class="kw">let</span> name = name.<span class="fn">clone</span>(); <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstType::Named</span>(name, span) }
+        _ =&gt; { <span class="kw">self</span>.<span class="fn">error</span>(<span class="str">"expected type"</span>, span); <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::Void</span>, span) }
+    }
+}</code></pre>
+
+<p>The key design: <code>parse_type</code> is a single recursive method, not a hierarchy. This is possible because L1S types have simple prefix syntax (<code>@i32</code>, <code>[10]i32</code>, <code>Func&lt;i32, void&gt;</code>). The recursive calls handle nesting: <code>@[10]@i32</code> is a pointer to an array of 10 pointers to <code>i32</code>.</p>
+
+<h3>Testing the Parser</h3>
+
+<p>The test module uses a convenient <code>parse</code> helper that combines lexing and parsing:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse</span>(source: &amp;<span class="ty">str</span>) -&gt; (<span class="ty">AstProgram</span>, <span class="ty">Diagnostics</span>) {
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">Lexer</span>::<span class="fn">new</span>(source);
+    <span class="kw">let</span> (tokens, _) = lexer.<span class="fn">tokenize</span>();
+    <span class="kw">let</span> diag = <span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> parser = <span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+    <span class="kw">let</span> prog = parser.<span class="fn">parse_program</span>();
+    <span class="kw">let</span> diag = parser.<span class="fn">into_diagnostics</span>();
+    (prog, diag)
+}</code></pre>
+
+<p><strong>Function declarations:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_func_decl</span>() {
+    <span class="kw">let</span> src = <span class="str">"func main(i32, argc: i32, argv: @char) { return argc; }"</span>;
+    <span class="kw">let</span> (prog, diag) = <span class="fn">parse</span>(src);
+    <span class="fn">assert!</span>(!diag.<span class="fn">has_errors</span>());
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Func</span>(f) = &amp;prog.decls[0] {
+        <span class="fn">assert_eq!</span>(f.name, <span class="str">"main"</span>);
+        <span class="fn">assert_eq!</span>(f.params.<span class="fn">len</span>(), 2);
+        <span class="fn">assert_eq!</span>(f.params[0].name, <span class="str">"argc"</span>);
+        <span class="fn">assert_eq!</span>(f.params[1].name, <span class="str">"argv"</span>);
+    }
+}</code></pre>
+
+<p><strong>Expression precedence:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_expression_precedence</span>() {
+    <span class="kw">let</span> src = <span class="str">"func foo(void) { let x: i32 = 1 + 2 * 3; }"</span>;
+    <span class="kw">let</span> (prog, diag) = <span class="fn">parse</span>(src);
+    <span class="fn">assert!</span>(!diag.<span class="fn">has_errors</span>());
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Func</span>(f) = &amp;prog.decls[0] {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstStmt::VarDecl</span>(v) = &amp;f.body.stmts[0] {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="ty">AstExpr::Binary</span>(<span class="ty">BinaryOp::Add</span>, lhs, rhs, _)) = &amp;v.init {
+                <span class="fn">assert!</span>(<span class="fn">matches!</span>(lhs.<span class="fn">as_ref</span>(), <span class="ty">AstExpr::Int</span>(_, _)));
+                <span class="fn">assert!</span>(<span class="fn">matches!</span>(rhs.<span class="fn">as_ref</span>(), <span class="ty">AstExpr::Binary</span>(<span class="ty">BinaryOp::Mul</span>, _, _, _)));
+            }
+        }
+    }
+}</code></pre>
+
+<p><strong>Struct, enum, impl, and more:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_struct_decl</span>() {
+    <span class="kw">let</span> src = <span class="str">"struct Point { x: i32; y: i32; }"</span>;
+    <span class="kw">let</span> (prog, _) = <span class="fn">parse</span>(src);
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Struct</span>(s) = &amp;prog.decls[0] {
+        <span class="fn">assert_eq!</span>(s.name, <span class="str">"Point"</span>);
+        <span class="fn">assert_eq!</span>(s.fields[0].name, <span class="str">"x"</span>);
+    }
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_enum_with_noprefix</span>() {
+    <span class="kw">let</span> src = <span class="str">"enum Color [noprefix] { Red, Green }"</span>;
+    <span class="kw">let</span> (prog, _) = <span class="fn">parse</span>(src);
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Enum</span>(e) = &amp;prog.decls[0] {
+        <span class="fn">assert!</span>(e.noprefix);
+    }
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_func_type</span>() {
+    <span class="kw">let</span> src = <span class="str">"typedef F = Func&lt;i32, i32, i32&gt;;"</span>;
+    <span class="kw">let</span> (prog, _) = <span class="fn">parse</span>(src);
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Typedef</span>(t) = &amp;prog.decls[0] {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstType::Func</span>(params, _, _) = &amp;t.type_ {
+            <span class="fn">assert_eq!</span>(params.<span class="fn">len</span>(), 2); <span class="cm">// two args</span>
+        }
+    }
+}</code></pre>
+
+<p>To run the parser tests:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- parser</code></pre>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Infinite loops</strong>: Every <code>while</code> loop in the parser must guarantee progress. Always pair a guard counter with a force-advance on failure. Test with <code>cargo test -- --nocapture</code> to see panic messages.</li>
+<li><strong>Forgetting to advance</strong>: <code>check</code> doesn't consume. <code>match_token</code> does. Mixing them up causes infinite loops. The rule: use <code>match_token</code> for optional syntax, <code>check</code> for lookahead decisions, <code>expect</code> for required syntax.</li>
+<li><strong>Pratt binding power off-by-one</strong>: Left-associative ops use <code>bp + 1</code> for the RHS. Right-associative ops use <code>bp</code>. Getting this wrong silently produces wrong parse trees. Always test with <code>1 + 2 + 3</code> (should left-associate) and <code>x = y = 0</code> (should right-associate).</li>
+<li><strong>Error recovery swallowing tokens</strong>: When <code>unwrap_or_else</code> uses a synthetic value, the parser continues. But the next parse call might be confused by the missing token. The guard counter catches this. If a test hangs, check that the guard fires.</li>
+<li><strong>Debug with --nocapture</strong>: Add temporary <code>eprintln!("parsing stmt: {:?}", self.peek_token());</code> calls and run with <code>cargo test -- --nocapture</code> to trace parser state.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Adding a new statement or operator:</strong> You need to touch exactly these places: add a <code>Token</code> variant (if new syntax), add an <code>AstStmt</code> or <code>AstExpr</code> variant, add the parsing method, add an <code>infix_bp</code> entry (for operators), add dispatch in <code>parse_statement</code> or <code>parse_infix</code>.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="05-ast.html">&larr; Chapter 5</a> &ensp; Chapter 6: The Parser &ensp; <a href="07-types.html">Chapter 7 &rarr;</a></span>
+</div>
+
+</body>
+</html>

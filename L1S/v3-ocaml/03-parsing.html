@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parsing — Building a Compiler (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">OCaml Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3ocaml-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3ocaml-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>3 · Parsing</h2>
+
+<h3>The Problem</h3>
+
+<p>The lexer turned raw text into tokens. Now we need to turn those tokens into a tree — an abstract syntax tree (AST) — that captures the grammatical structure of the program. The parser is where the flat token stream becomes a hierarchical representation.</p>
+
+<div class="diagram">Tokens: [Func, Ident("main"), LParen, TyI32, RParen, LBrace,
+         Let, Ident("x"), Colon, TyI32, Eq, Int(42), Semicol,
+         Return, Ident("x"), Semicol, RBrace, Eof]
+
+AST:   FuncDecl "main"
+         ├─ RetType: TyI32
+         └─ Body:
+              ├─ Let "x" TyI32 (Int 42)
+              └─ Return (Var "x")</div>
+
+<p>We use a <em>recursive descent parser</em> — one function per grammar rule, each consuming tokens and building AST nodes. For expressions, we use <em>Pratt parsing</em>, which handles operator precedence through a table-driven approach that is remarkably elegant in OCaml.</p>
+
+<h3>The Grammar</h3>
+
+<p>Before writing code, we define the grammar. Here is our language in informal BNF:</p>
+
+<pre><code>program       ::= decl*
+
+decl          ::= func_decl
+func_decl     ::= "func" ident "(" param_list ")" type? block
+param_list    ::= (ident ":" type ("," ident ":" type)*)?
+block         ::= "{" stmt* "}"
+stmt          ::= let_stmt | if_stmt | while_stmt | return_stmt | expr_stmt
+let_stmt      ::= "let" ident ":" type "=" expr ";"
+if_stmt       ::= "if" "(" expr ")" block ("else" block)?
+while_stmt    ::= "while" "(" expr ")" block
+return_stmt   ::= "return" expr ";"
+expr_stmt     ::= expr ";"
+expr          ::= assignment
+assignment    ::= ident "=" expr | logical_or
+logical_or    ::= logical_and ("||" logical_and)*
+logical_and   ::= equality ("&amp;&amp;" equality)*
+equality      ::= comparison (("==" | "!=") comparison)*
+comparison    ::= term (("&lt;" | "&gt;" | "&lt;=" | "&gt;=") term)*
+term          ::= factor (("+" | "-") factor)*
+factor        ::= unary (("*" | "/") unary)*
+unary         ::= ("!" | "-") unary | call
+call          ::= primary ("(" arg_list ")")*
+arg_list      ::= expr ("," expr)*
+primary       ::= int | float | string | "true" | "false"
+                | ident | "(" expr ")" | "cast" "(" type "," expr ")"
+type          ::= "i32" | "i64" | "u32" | "u64" | "i8" | "u8"
+                | "bool" | "void" | "[" int "]" type | "@" type</code></pre>
+
+<p>This grammar encodes precedence through its layers. The deeper you go, the tighter the binding. <code>primary</code> is the tightest (parentheses, literals, identifiers), and <code>assignment</code> is the loosest. Each layer calls the next, so <code>1 + 2 * 3</code> parses as <code>1 + (2 * 3)</code> because <code>factor</code> (which handles <code>*</code> and <code>/</code>) is called from within <code>term</code> (which handles <code>+</code> and <code>-</code>).</p>
+
+<div class="callout info">
+<strong>Grammar layers and precedence</strong>
+<p>In traditional BNF, higher precedence means tighter binding, and you express it by nesting grammar rules. Multiplication binds tighter than addition, so <code>factor</code> is called from within <code>term</code>. This is the standard technique, and it works well for languages with a small number of precedence levels. For languages with many levels (like C with ~15 levels), Pratt parsing is cleaner — we use it here.</p>
+</div>
+
+<h3>Recursive Descent: The Top Level</h3>
+
+<p>The parser is a module with an inner <code>state</code> that tracks position in the token stream. Each function consumes as many tokens as its grammar rule requires and returns an AST node.</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>parser.ml — state and core utilities</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">state</span> = {
+  tokens: (<span class="ty">Token.t</span> * <span class="ty">Span.t</span>) array;
+  pos:    <span class="ty">int ref</span>;
+}
+
+<span class="kw">let</span> <span class="fn">make</span> tokens = { tokens; pos = <span class="fn">ref</span> <span class="num">0</span> }
+
+<span class="kw">let</span> <span class="fn">peek</span> s =
+  <span class="kw">if</span> !(s.pos) &gt;= <span class="fn">Array.length</span> s.tokens <span class="kw">then</span> <span class="fn">None</span>
+  <span class="kw">else</span> <span class="fn">Some</span> (<span class="fn">fst</span> s.tokens.(!(s.pos)))
+
+<span class="kw">let</span> <span class="fn">advance</span> s =
+  <span class="kw">let</span> tok = s.tokens.(!(s.pos)) <span class="kw">in</span>
+  s.pos := !(s.pos) + <span class="num">1</span>;
+  tok
+
+<span class="kw">let</span> <span class="fn">expect</span> s expected =
+  <span class="kw">let</span> tok, span = <span class="fn">advance</span> s <span class="kw">in</span>
+  <span class="kw">if</span> tok &lt;&gt; expected <span class="kw">then</span>
+    <span class="fn">failwith</span> (<span class="fn">Printf.sprintf</span> <span class="str">"expected %s at %d"</span>
+      (<span class="fn">Token.to_string</span> expected) span.start);
+  (tok, span)
+
+<span class="kw">let</span> <span class="fn">check</span> s tok =
+  <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+  | <span class="fn">Some</span> t <span class="kw">when</span> t = tok <span class="op">-&gt;</span> <span class="kw">true</span>
+  | <span class="op">_</span> <span class="op">-&gt;</span> <span class="kw">false</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/parser.rs — state and core utilities</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">Parser</span> {
+    tokens: <span class="ty">Vec</span>&lt;<span class="ty">Spanned</span>&gt;,
+    pos: <span class="ty">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Parser</span> {
+    <span class="kw">pub fn</span> <span class="fn">new</span>(tokens: <span class="ty">Vec</span>&lt;<span class="ty">Spanned</span>&gt;) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="self">Self</span> { tokens, pos: <span class="num">0</span> }
+    }
+
+    <span class="kw">fn</span> <span class="fn">peek</span>(&amp;self) <span class="op">-&gt;</span> <span class="ty">Option</span>&lt;&amp;<span class="ty">Token</span>&gt; {
+        <span class="kw">if</span> self.pos &gt;= self.tokens.<span class="fn">len</span>() { <span class="prelude">None</span> }
+        <span class="kw">else</span> { <span class="prelude">Some</span>(&amp;self.tokens[self.pos].<span class="num">0</span>) }
+    }
+
+    <span class="kw">fn</span> <span class="fn">advance</span>(&amp;mut self) <span class="op">-&gt;</span> <span class="ty">Spanned</span> {
+        <span class="kw">let</span> tok = self.tokens[self.pos].<span class="fn">clone</span>();
+        self.pos += <span class="num">1</span>;
+        tok
+    }
+
+    <span class="kw">fn</span> <span class="fn">expect</span>(&amp;mut self, expected: &amp;<span class="ty">Token</span>) <span class="op">-&gt;</span> <span class="ty">Spanned</span> {
+        <span class="kw">let</span> (tok, span) = self.<span class="fn">advance</span>();
+        <span class="kw">if</span> &amp;tok != expected {
+            <span class="macro">panic!</span>(<span class="str">"expected {:?} at {}"</span>, expected, span.start);
+        }
+        (tok, span)
+    }
+
+    <span class="kw">fn</span> <span class="fn">check</span>(&amp;self, tok: &amp;<span class="ty">Token</span>) <span class="op">-&gt;</span> <span class="ty">bool</span> {
+        self.<span class="fn">peek</span>() == <span class="prelude">Some</span>(tok)
+    }
+}</code></pre>
+  </div>
+</div>
+
+<p>The state is minimal: an array of tokens and a mutable position. The core functions — <code>peek</code>, <code>advance</code>, <code>expect</code>, <code>check</code> — are the parser's primitives. The entire parser is built on these four operations, much like the lexer was built on <code>peek</code> and <code>advance</code> at the character level.</p>
+
+<h3>Parsing Declarations</h3>
+
+<p>At the top level, a program is a sequence of declarations. Currently only function declarations exist, but the architecture is ready for more:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>parser.ml — top-level parsing</span></div>
+    <pre><code><span class="kw">let rec</span> <span class="fn">parse_program</span> s =
+  <span class="kw">let</span> <span class="kw">rec</span> <span class="fn">loop</span> acc =
+    <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+    | <span class="fn">Some</span> <span class="fn">Func</span> <span class="op">-&gt;</span>
+        <span class="kw">let</span> decl = <span class="fn">parse_func_decl</span> s <span class="kw">in</span>
+        <span class="fn">loop</span> (decl :: acc)
+    | <span class="fn">Some</span> <span class="fn">Eof</span> <span class="op">-&gt;</span>
+        <span class="fn">List.rev</span> acc
+    | <span class="fn">Some</span> tok <span class="op">-&gt;</span>
+        <span class="fn">failwith</span> (<span class="str">"unexpected token at top level"</span>)
+    | <span class="fn">None</span> <span class="op">-&gt;</span>
+        <span class="fn">List.rev</span> acc
+  <span class="kw">in</span>
+  <span class="fn">loop</span> []
+
+<span class="kw">and</span> <span class="fn">parse_func_decl</span> s =
+  <span class="kw">let</span> start_span = <span class="fn">snd</span> (<span class="fn">expect</span> s <span class="fn">Func</span>) <span class="kw">in</span>
+  <span class="kw">let</span> (_, name_span) = <span class="fn">advance</span> s <span class="kw">in</span>
+  <span class="kw">let</span> name = <span class="kw">match</span> <span class="fn">fst</span> (<span class="fn">advance</span> s) <span class="kw">with</span>
+    | <span class="fn">Ident</span> n <span class="op">-&gt;</span> n
+    | <span class="op">_</span> <span class="op">-&gt;</span> <span class="fn">failwith</span> <span class="str">"expected identifier"</span>
+  <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">LParen</span>;
+  <span class="kw">let</span> params = <span class="fn">parse_param_list</span> s <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">RParen</span>;
+  <span class="kw">let</span> ret_type = <span class="fn">parse_type_opt</span> s <span class="kw">in</span>
+  <span class="kw">let</span> body = <span class="fn">parse_block</span> s <span class="kw">in</span>
+  <span class="kw">let</span> end_span = <span class="fn">snd</span> body <span class="kw">in</span>
+  (<span class="fn">FuncDecl</span> { name; params; ret_type; body = <span class="fn">fst</span> body },
+   <span class="fn">Span.merge</span> start_span end_span)</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/parser.rs — top-level parsing</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">parse_program</span>(parser: &amp;mut <span class="ty">Parser</span>) <span class="op">-&gt;</span> <span class="ty">Vec</span>&lt;<span class="ty">SpannedDecl</span>&gt; {
+    <span class="kw">let mut</span> decls = <span class="fn">Vec::new</span>();
+    <span class="kw">loop</span> {
+        <span class="kw">match</span> parser.<span class="fn">peek</span>() {
+            <span class="prelude">Some</span>(<span class="fn">Token::Func</span>) <span class="op">=&gt;</span> decls.<span class="fn">push</span>(<span class="fn">parse_func_decl</span>(parser)),
+            <span class="prelude">Some</span>(<span class="fn">Token::Eof</span>) <span class="op">=&gt;</span> <span class="kw">break</span>,
+            <span class="prelude">Some</span>(tok) <span class="op">=&gt;</span> <span class="macro">panic!</span>(<span class="str">"unexpected token at top level: {:?}"</span>, tok),
+            <span class="prelude">None</span> <span class="op">=&gt;</span> <span class="kw">break</span>,
+        }
+    }
+    decls
+}
+
+<span class="kw">pub fn</span> <span class="fn">parse_func_decl</span>(parser: &amp;mut <span class="ty">Parser</span>) <span class="op">-&gt;</span> <span class="ty">SpannedDecl</span> {
+    <span class="kw">let</span> start_span = parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::Func</span>).<span class="num">1</span>;
+    <span class="kw">let</span> name = <span class="kw">match</span> parser.<span class="fn">advance</span>().<span class="num">0</span> {
+        <span class="fn">Token::Ident</span>(n) <span class="op">=&gt;</span> n,
+        <span class="op">_</span> <span class="op">=&gt;</span> <span class="macro">panic!</span>(<span class="str">"expected identifier"</span>),
+    };
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::LParen</span>);
+    <span class="kw">let</span> params = <span class="fn">parse_param_list</span>(parser);
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::RParen</span>);
+    <span class="kw">let</span> ret_type = <span class="fn">parse_type_opt</span>(parser);
+    <span class="kw">let</span> (body, end_span) = <span class="fn">parse_block</span>(parser);
+    (ast::<span class="fn">Decl::FuncDecl</span> { name, params, ret_type, body },
+     <span class="ty">Span</span>::<span class="fn">merge</span>(&amp;start_span, &amp;end_span))
+}</code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>Mutually recursive parsing functions</strong>
+<p>OCaml's <code>let rec ... and ...</code> syntax is essential here — parsing functions are naturally mutually recursive. <code>parse_program</code> calls <code>parse_func_decl</code>, which calls <code>parse_param_list</code>, <code>parse_type_opt</code>, and <code>parse_block</code>, which in turn calls <code>parse_stmt</code>, which calls <code>parse_expr</code>, and so on. The <code>and</code> keyword lets us define them all in a single mutually recursive group. This is far cleaner than forward declarations in C or arranging definitions in dependency order.</p>
+</div>
+
+<h3>Pratt Expression Parsing</h3>
+
+<p>Expressions are where parsing gets interesting. The classic approach — one function per precedence level — scales poorly. Pratt parsing (also called "top-down operator precedence") uses a table that maps each token to its binding power and a handler function. The result is compact, extensible, and beautiful.</p>
+
+<p>The idea is simple: every token has a <em>binding power</em> (precedence). A token with higher binding power "attracts" the expression on its right more strongly. The core Pratt loop reads a "prefix" expression, then repeatedly attempts to read more with an "infix" handler, stopping when the next token's binding power is too low.</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>parser.ml — Pratt expression parsing</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">binding_power</span> = <span class="kw">function</span>
+  | <span class="fn">Eq</span>       <span class="op">-&gt;</span> <span class="num">10</span>
+  | <span class="fn">EqEq</span> | <span class="fn">Neq</span>  <span class="op">-&gt;</span> <span class="num">20</span>
+  | <span class="fn">Lt</span> | <span class="fn">Gt</span> | <span class="fn">Leq</span> | <span class="fn">Geq</span> <span class="op">-&gt;</span> <span class="num">30</span>
+  | <span class="fn">Plus</span> | <span class="fn">Minus</span>  <span class="op">-&gt;</span> <span class="num">40</span>
+  | <span class="fn">Star</span> | <span class="fn">Slash</span>  <span class="op">-&gt;</span> <span class="num">50</span>
+  | <span class="op">_</span>            <span class="op">-&gt;</span> <span class="num">0</span>
+
+<span class="kw">let rec</span> <span class="fn">parse_expr</span> s min_bp =
+  <span class="kw">let</span> lhs = <span class="fn">parse_prefix</span> s <span class="kw">in</span>
+  <span class="fn">parse_postfix</span> s min_bp lhs
+
+<span class="kw">and</span> <span class="fn">parse_prefix</span> s =
+  <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+  | <span class="fn">Some</span> (<span class="fn">Int</span> _) <span class="op">-&gt;</span>
+      <span class="kw">let</span> <span class="fn">Int</span> n, span = <span class="fn">advance</span> s <span class="kw">in</span> (<span class="fn">IntLit</span> n, span)
+  | <span class="fn">Some</span> (<span class="fn">Float</span> _) <span class="op">-&gt;</span>
+      <span class="kw">let</span> <span class="fn">Float</span> f, span = <span class="fn">advance</span> s <span class="kw">in</span> (<span class="fn">FloatLit</span> f, span)
+  | <span class="fn">Some</span> (<span class="fn">Str</span> _) <span class="op">-&gt;</span>
+      <span class="kw">let</span> <span class="fn">Str</span> sval, span = <span class="fn">advance</span> s <span class="kw">in</span> (<span class="fn">StrLit</span> sval, span)
+  | <span class="fn">Some</span> <span class="fn">True</span>  <span class="op">-&gt;</span> <span class="kw">let</span> _, span = <span class="fn">advance</span> s <span class="kw">in</span> (<span class="fn">BoolLit</span> <span class="kw">true</span>,  span)
+  | <span class="fn">Some</span> <span class="fn">False</span> <span class="op">-&gt;</span> <span class="kw">let</span> _, span = <span class="fn">advance</span> s <span class="kw">in</span> (<span class="fn">BoolLit</span> <span class="kw">false</span>, span)
+  | <span class="fn">Some</span> (<span class="fn">Ident</span> _) <span class="op">-&gt;</span>
+      <span class="kw">let</span> <span class="fn">Ident</span> name, span = <span class="fn">advance</span> s <span class="kw">in</span> (<span class="fn">Var</span> name, span)
+  | <span class="fn">Some</span> <span class="fn">LParen</span> <span class="op">-&gt;</span>
+      <span class="kw">let</span> _, lspan = <span class="fn">advance</span> s <span class="kw">in</span>
+      <span class="kw">let</span> expr = <span class="fn">parse_expr</span> s <span class="num">0</span> <span class="kw">in</span>
+      <span class="kw">let</span> _, rspan = <span class="fn">expect</span> s <span class="fn">RParen</span> <span class="kw">in</span>
+      (expr, <span class="fn">Span.merge</span> lspan rspan)
+  | <span class="fn">Some</span> <span class="fn">Minus</span> <span class="op">-&gt;</span>
+      <span class="kw">let</span> _, span = <span class="fn">advance</span> s <span class="kw">in</span>
+      <span class="kw">let</span> rhs, rspan = <span class="fn">parse_expr</span> s <span class="num">60</span> <span class="kw">in</span>
+      (<span class="fn">Unary</span> (<span class="fn">Neg</span>, rhs), <span class="fn">Span.merge</span> span rspan)
+  | <span class="fn">Some</span> <span class="fn">Bang</span> <span class="op">-&gt;</span>
+      <span class="kw">let</span> _, span = <span class="fn">advance</span> s <span class="kw">in</span>
+      <span class="kw">let</span> rhs, rspan = <span class="fn">parse_expr</span> s <span class="num">60</span> <span class="kw">in</span>
+      (<span class="fn">Unary</span> (<span class="fn">Not</span>, rhs), <span class="fn">Span.merge</span> span rspan)
+  | <span class="fn">Some</span> <span class="fn">Cast</span> <span class="op">-&gt;</span>
+      <span class="fn">parse_cast</span> s
+  | <span class="op">_</span> <span class="op">-&gt;</span>
+      <span class="fn">failwith</span> <span class="str">"unexpected token in expression"</span>
+
+<span class="kw">and</span> <span class="fn">parse_postfix</span> s min_bp lhs =
+  <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+  | <span class="fn">Some</span> tok <span class="kw">when</span> <span class="fn">binding_power</span> tok &gt; min_bp <span class="op">-&gt;</span>
+      <span class="kw">let</span> (_, span) = <span class="fn">advance</span> s <span class="kw">in</span>
+      <span class="kw">let</span> rhs, rspan = <span class="fn">parse_expr</span> s (<span class="fn">binding_power</span> tok) <span class="kw">in</span>
+      <span class="kw">let</span> op = <span class="fn">tok_to_binop</span> tok <span class="kw">in</span>
+      <span class="kw">let</span> new_lhs = (<span class="fn">BinOp</span> (<span class="fn">fst</span> lhs, op, rhs),
+                     <span class="fn">Span.merge</span> (<span class="fn">snd</span> lhs) rspan) <span class="kw">in</span>
+      <span class="fn">parse_postfix</span> s min_bp new_lhs
+  | <span class="fn">Some</span> <span class="fn">LParen</span> <span class="op">-&gt;</span>
+      <span class="fn">parse_call</span> s lhs
+  | <span class="op">_</span> <span class="op">-&gt;</span> lhs</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/parser.rs — Pratt expression parsing</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">binding_power</span>(tok: &amp;<span class="ty">Token</span>) <span class="op">-&gt;</span> <span class="ty">u32</span> {
+    <span class="kw">match</span> tok {
+        <span class="fn">Token::Eq</span>             <span class="op">=&gt;</span> <span class="num">10</span>,
+        <span class="fn">Token::EqEq</span> | <span class="fn">Token::Neq</span> <span class="op">=&gt;</span> <span class="num">20</span>,
+        <span class="fn">Token::Lt</span>  | <span class="fn">Token::Gt</span>
+      | <span class="fn">Token::Leq</span> | <span class="fn">Token::Geq</span> <span class="op">=&gt;</span> <span class="num">30</span>,
+        <span class="fn">Token::Plus</span>  | <span class="fn">Token::Minus</span> <span class="op">=&gt;</span> <span class="num">40</span>,
+        <span class="fn">Token::Star</span>  | <span class="fn">Token::Slash</span> <span class="op">=&gt;</span> <span class="num">50</span>,
+        <span class="op">_</span> <span class="op">=&gt;</span> <span class="num">0</span>,
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">parse_expr</span>(parser: &amp;mut <span class="ty">Parser</span>, min_bp: <span class="ty">u32</span>) <span class="op">-&gt;</span> <span class="ty">SpannedExpr</span> {
+    <span class="kw">let mut</span> lhs = <span class="fn">parse_prefix</span>(parser);
+    <span class="kw">loop</span> {
+        <span class="kw">let</span> tok = <span class="kw">match</span> parser.<span class="fn">peek</span>() {
+            <span class="prelude">Some</span>(t) <span class="op">=&gt;</span> t.<span class="fn">clone</span>(),
+            <span class="prelude">None</span> <span class="op">=&gt;</span> <span class="kw">break</span>,
+        };
+        <span class="kw">if</span> <span class="fn">binding_power</span>(&amp;tok) &lt;= min_bp { <span class="kw">break</span>; }
+        <span class="kw">match</span> tok {
+            <span class="fn">Token::Eq</span> <span class="op">=&gt;</span> { parser.<span class="fn">advance</span>();
+                <span class="kw">let</span> (rhs, rspan) = <span class="fn">parse_expr</span>(parser, <span class="fn">binding_power</span>(&amp;tok) - <span class="num">1</span>);
+                lhs = (<span class="fn">Expr::Assign</span>(<span class="fn">Box::new</span>(lhs.<span class="num">0</span>), <span class="fn">Box::new</span>(rhs)),
+                       <span class="ty">Span</span>::<span class="fn">merge</span>(&amp;lhs.<span class="num">1</span>, &amp;rspan)); }
+            <span class="fn">Token::Plus</span> | <span class="fn">Token::Minus</span>
+          | <span class="fn">Token::Star</span> | <span class="fn">Token::Slash</span>
+          | <span class="fn">Token::EqEq</span> | <span class="fn">Token::Neq</span>
+          | <span class="fn">Token::Lt</span> | <span class="fn">Token::Gt</span>
+          | <span class="fn">Token::Leq</span> | <span class="fn">Token::Geq</span> <span class="op">=&gt;</span> { parser.<span class="fn">advance</span>();
+                <span class="kw">let</span> (rhs, rspan) = <span class="fn">parse_expr</span>(parser, <span class="fn">binding_power</span>(&amp;tok));
+                lhs = (<span class="fn">Expr::BinOp</span>(<span class="fn">Box::new</span>(lhs.<span class="num">0</span>), <span class="fn">tok_to_binop</span>(&amp;tok), <span class="fn">Box::new</span>(rhs)),
+                       <span class="ty">Span</span>::<span class="fn">merge</span>(&amp;lhs.<span class="num">1</span>, &amp;rspan)); }
+            <span class="fn">Token::LParen</span> <span class="op">=&gt;</span> { lhs = <span class="fn">parse_call</span>(parser, lhs); }
+            <span class="op">_</span> <span class="op">=&gt;</span> <span class="kw">break</span>,
+        }
+    }
+    lhs
+}</code></pre>
+  </div>
+</div>
+
+<p>The key insight of Pratt parsing is in <code>parse_postfix</code> (OCaml) and the loop in <code>parse_expr</code> (Rust): after reading a prefix expression, we look at the next token. If it is an infix operator with binding power greater than the current minimum, we consume it, parse the right-hand side with the operator's binding power as the new minimum, and loop. This creates the correct left-to-right, precedence-aware parse tree.</p>
+
+<p>Notice how <code>binding_power</code> is a pure function mapping tokens to integers. In OCaml, the <code>function</code> keyword creates an anonymous function with pattern matching on the argument. The result reads like a table — clean, concise, and exhaustive. Adding a new operator means adding a token constructor, a binding power entry, and a case in <code>tok_to_binop</code>.</p>
+
+<p>Here is the companion <code>tok_to_binop</code> function that completes the picture:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>parser.ml — tok_to_binop</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">tok_to_binop</span> = <span class="kw">function</span>
+  | <span class="fn">Plus</span>  <span class="op">-&gt;</span> <span class="fn">Add</span>
+  | <span class="fn">Minus</span> <span class="op">-&gt;</span> <span class="fn">Sub</span>
+  | <span class="fn">Star</span>  <span class="op">-&gt;</span> <span class="fn">Mul</span>
+  | <span class="fn">Slash</span> <span class="op">-&gt;</span> <span class="fn">Div</span>
+  | <span class="fn">EqEq</span>  <span class="op">-&gt;</span> <span class="fn">Eq</span>
+  | <span class="fn">Neq</span>   <span class="op">-&gt;</span> <span class="fn">Neq</span>
+  | <span class="fn">Lt</span>    <span class="op">-&gt;</span> <span class="fn">Lt</span>
+  | <span class="fn">Gt</span>    <span class="op">-&gt;</span> <span class="fn">Gt</span>
+  | <span class="fn">Leq</span>   <span class="op">-&gt;</span> <span class="fn">Leq</span>
+  | <span class="fn">Geq</span>   <span class="op">-&gt;</span> <span class="fn">Geq</span>
+  | <span class="op">_</span>     <span class="op">-&gt;</span> <span class="fn">failwith</span> <span class="str">"unexpected token as operator"</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/parser.rs — tok_to_binop</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">tok_to_binop</span>(tok: &amp;<span class="ty">Token</span>) <span class="op">-&gt;</span> <span class="ty">BinOp</span> {
+    <span class="kw">match</span> tok {
+        <span class="fn">Token::Plus</span>  <span class="op">=&gt;</span> <span class="fn">BinOp::Add</span>,
+        <span class="fn">Token::Minus</span> <span class="op">=&gt;</span> <span class="fn">BinOp::Sub</span>,
+        <span class="fn">Token::Star</span>  <span class="op">=&gt;</span> <span class="fn">BinOp::Mul</span>,
+        <span class="fn">Token::Slash</span> <span class="op">=&gt;</span> <span class="fn">BinOp::Div</span>,
+        <span class="fn">Token::EqEq</span>  <span class="op">=&gt;</span> <span class="fn">BinOp::Eq</span>,
+        <span class="fn">Token::Neq</span>   <span class="op">=&gt;</span> <span class="fn">BinOp::Neq</span>,
+        <span class="fn">Token::Lt</span>    <span class="op">=&gt;</span> <span class="fn">BinOp::Lt</span>,
+        <span class="fn">Token::Gt</span>    <span class="op">=&gt;</span> <span class="fn">BinOp::Gt</span>,
+        <span class="fn">Token::Leq</span>   <span class="op">=&gt;</span> <span class="fn">BinOp::Leq</span>,
+        <span class="fn">Token::Geq</span>   <span class="op">=&gt;</span> <span class="fn">BinOp::Geq</span>,
+        <span class="op">_</span> <span class="op">=&gt;</span> <span class="macro">panic!</span>(<span class="str">"unexpected token as operator: {:?}"</span>, tok),
+    }
+}</code></pre>
+  </div>
+</div>
+
+<p>This function converts between two levels of representation: the token-level operators (what the lexer produced) and the AST-level operators (what the semantic analyzer will use). The separation is clean — the token type is a parser concern, and the binop type is an AST concern. The <code>tok_to_binop</code> function is the bridge.</p>
+
+<h3>Parsing Blocks and Statements</h3>
+
+<p>Statements follow a straightforward pattern: peek at the next token, dispatch to the appropriate handler, or fall back to expression-statement:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>parser.ml — statements</span></div>
+    <pre><code><span class="kw">and</span> <span class="fn">parse_block</span> s =
+  <span class="kw">let</span> _, lspan = <span class="fn">expect</span> s <span class="fn">LBrace</span> <span class="kw">in</span>
+  <span class="kw">let</span> <span class="kw">rec</span> <span class="fn">loop</span> acc =
+    <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+    | <span class="fn">Some</span> <span class="fn">RBrace</span> <span class="op">-&gt;</span> <span class="fn">List.rev</span> acc
+    | <span class="fn">Some</span> <span class="fn">Eof</span>    <span class="op">-&gt;</span> <span class="fn">failwith</span> <span class="str">"unterminated block"</span>
+    | <span class="op">_</span> <span class="op">-&gt;</span>
+        <span class="kw">let</span> stmt = <span class="fn">parse_stmt</span> s <span class="kw">in</span>
+        <span class="fn">loop</span> (stmt :: acc)
+  <span class="kw">in</span>
+  <span class="kw">let</span> stmts = <span class="fn">loop</span> [] <span class="kw">in</span>
+  <span class="kw">let</span> _, rspan = <span class="fn">expect</span> s <span class="fn">RBrace</span> <span class="kw">in</span>
+  (stmts, <span class="fn">Span.merge</span> lspan rspan)
+
+<span class="kw">and</span> <span class="fn">parse_stmt</span> s =
+  <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+  | <span class="fn">Some</span> <span class="fn">Let</span>   <span class="op">-&gt;</span> <span class="fn">parse_let</span> s
+  | <span class="fn">Some</span> <span class="fn">If</span>    <span class="op">-&gt;</span> <span class="fn">parse_if</span> s
+  | <span class="fn">Some</span> <span class="fn">While</span> <span class="op">-&gt;</span> <span class="fn">parse_while</span> s
+  | <span class="fn">Some</span> <span class="fn">Return</span> <span class="op">-&gt;</span> <span class="fn">parse_return</span> s
+  | <span class="op">_</span> <span class="op">-&gt;</span>
+      <span class="kw">let</span> expr = <span class="fn">parse_expr</span> s <span class="num">0</span> <span class="kw">in</span>
+      <span class="fn">expect</span> s <span class="fn">Semicol</span>;
+      expr</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/parser.rs — statements</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">parse_block</span>(parser: &amp;mut <span class="ty">Parser</span>) <span class="op">-&gt;</span> <span class="ty">SpannedBlock</span> {
+    <span class="kw">let</span> (_, lspan) = parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::LBrace</span>);
+    <span class="kw">let mut</span> stmts = <span class="fn">Vec::new</span>();
+    <span class="kw">loop</span> {
+        <span class="kw">match</span> parser.<span class="fn">peek</span>() {
+            <span class="prelude">Some</span>(<span class="fn">Token::RBrace</span>) <span class="op">=&gt;</span> <span class="kw">break</span>,
+            <span class="prelude">Some</span>(<span class="fn">Token::Eof</span>) <span class="op">=&gt;</span> <span class="macro">panic!</span>(<span class="str">"unterminated block"</span>),
+            <span class="op">_</span> <span class="op">=&gt;</span> stmts.<span class="fn">push</span>(<span class="fn">parse_stmt</span>(parser)),
+        }
+    }
+    <span class="kw">let</span> (_, rspan) = parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::RBrace</span>);
+    (stmts, <span class="ty">Span</span>::<span class="fn">merge</span>(&amp;lspan, &amp;rspan))
+}
+
+<span class="kw">pub fn</span> <span class="fn">parse_stmt</span>(parser: &amp;mut <span class="ty">Parser</span>) <span class="op">-&gt;</span> <span class="ty">SpannedStmt</span> {
+    <span class="kw">match</span> parser.<span class="fn">peek</span>() {
+        <span class="prelude">Some</span>(<span class="fn">Token::Let</span>)   <span class="op">=&gt;</span> <span class="fn">parse_let</span>(parser),
+        <span class="prelude">Some</span>(<span class="fn">Token::If</span>)    <span class="op">=&gt;</span> <span class="fn">parse_if</span>(parser),
+        <span class="prelude">Some</span>(<span class="fn">Token::While</span>) <span class="op">=&gt;</span> <span class="fn">parse_while</span>(parser),
+        <span class="prelude">Some</span>(<span class="fn">Token::Return</span>) <span class="op">=&gt;</span> <span class="fn">parse_return</span>(parser),
+        <span class="op">_</span> <span class="op">=&gt;</span> {
+            <span class="kw">let</span> expr = <span class="fn">parse_expr</span>(parser, <span class="num">0</span>);
+            parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::Semicol</span>);
+            (<span class="fn">Stmt::Expr</span>(<span class="fn">Box::new</span>(expr.<span class="num">0</span>)), expr.<span class="num">1</span>)
+        }
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="callout info">
+<strong>Pattern matching as dispatch</strong>
+<p>The <code>parse_stmt</code> function is a textbook use of pattern matching as control flow. Each branch handles one statement kind. The default branch (expression statement) falls through to the expression parser. This is clean, linear, and extensible: adding a new statement kind means adding a new branch. The compiler's exhaustiveness checking means that if you ever refactor the statement type, the parser will tell you exactly which branches need updating.</p>
+</div>
+
+<h3>The Let Statement</h3>
+
+<p>As a concrete example, here is how we parse <code>let x: i32 = 42;</code>:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>parser.ml — let statement</span></div>
+    <pre><code><span class="kw">and</span> <span class="fn">parse_let</span> s =
+  <span class="kw">let</span> _, let_span = <span class="fn">expect</span> s <span class="fn">Let</span> <span class="kw">in</span>
+  <span class="kw">let</span> name = <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+    | <span class="fn">Some</span> (<span class="fn">Ident</span> n) <span class="op">-&gt;</span> <span class="kw">let</span> _, _ = <span class="fn">advance</span> s <span class="kw">in</span> n
+    | <span class="op">_</span> <span class="op">-&gt;</span> <span class="fn">failwith</span> <span class="str">"expected identifier after let"</span>
+  <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">Colon</span>;
+  <span class="kw">let</span> ty = <span class="fn">parse_type</span> s <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">Eq</span>;
+  <span class="kw">let</span> init, init_span = <span class="fn">parse_expr</span> s <span class="num">0</span> <span class="kw">in</span>
+  <span class="kw">let</span> _, semi_span = <span class="fn">expect</span> s <span class="fn">Semicol</span> <span class="kw">in</span>
+  (<span class="fn">Let</span> { name; ty; init }, <span class="fn">Span.merge</span> let_span semi_span)</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/parser.rs — let statement</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">parse_let</span>(parser: &amp;mut <span class="ty">Parser</span>) <span class="op">-&gt;</span> <span class="ty">SpannedStmt</span> {
+    <span class="kw">let</span> (_, let_span) = parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::Let</span>);
+    <span class="kw">let</span> name = <span class="kw">match</span> parser.<span class="fn">peek</span>() {
+        <span class="prelude">Some</span>(<span class="fn">Token::Ident</span>(n)) <span class="op">=&gt;</span> { parser.<span class="fn">advance</span>(); n.<span class="fn">clone</span>() }
+        <span class="op">_</span> <span class="op">=&gt;</span> <span class="macro">panic!</span>(<span class="str">"expected identifier after let"</span>),
+    };
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::Colon</span>);
+    <span class="kw">let</span> ty = <span class="fn">parse_type</span>(parser);
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::Eq</span>);
+    <span class="kw">let</span> (init, init_span) = <span class="fn">parse_expr</span>(parser, <span class="num">0</span>);
+    <span class="kw">let</span> (_, semi_span) = parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::Semicol</span>);
+    (<span class="fn">Stmt::Let</span> { name, ty, init: <span class="fn">Box::new</span>(init) },
+     <span class="ty">Span</span>::<span class="fn">merge</span>(&amp;let_span, &amp;semi_span))
+}</code></pre>
+  </div>
+</div>
+
+<p>Every parser function follows the same pattern: consume tokens in sequence, assemble the AST node, attach a merged span. The result is a tree where every node knows its source location.</p>
+
+<h3>The Parser Works Like a State Monad</h3>
+
+<p>If you squint, the parser functions look like they are threading state through a computation. Each function takes a <code>state</code> and returns a result plus a (potentially modified) state. The modification is via the <code>ref</code> cell, which makes it mutable rather than purely functional, but the structure is the same.</p>
+
+<p>In a purely functional setting, <code>parse_expr</code> would return <code>state -> expr * state</code>. This is the state monad pattern. We elide the full monadic structure for simplicity — mutable reference cells are pragmatic and idiomatic in OCaml when the state is simple and local. But the conceptual link is there: the parser is a stateful computation over the token stream, and each function transforms the state.</p>
+
+<div class="callout tip">
+<strong>Parser combinators</strong>
+<p>If this monadic structure appeals to you, investigate OCaml's parser combinator libraries (like <code>angstrom</code> or <code>mparse</code>). They make the state threading explicit and compose parsers from smaller parsers using operators. For this compiler, a hand-written recursive descent parser is the right balance of clarity and power, but combinators are a rich area to explore.</p>
+</div>
+
+<h3>Testing the Parser</h3>
+
+<p>We test the parser by feeding it token streams and inspecting the resulting AST:</p>
+
+<pre><code><span class="kw">let</span> source  = <span class="str">"func main(i32) { return 42; }"</span> <span class="kw">in</span>
+<span class="kw">let</span> tokens  = <span class="fn">Lexer.tokenize</span> source <span class="kw">in</span>
+<span class="kw">let</span> tokens  = <span class="fn">Array.of_list</span> tokens <span class="kw">in</span>
+<span class="kw">let</span> parser  = <span class="fn">Parser.make</span> tokens <span class="kw">in</span>
+<span class="kw">let</span> program = <span class="fn">Parser.parse_program</span> parser <span class="kw">in</span>
+<span class="fn">List.iter</span> (<span class="kw">fun</span> (decl, span) <span class="op">-&gt;</span>
+  <span class="fn">Printf.printf</span> <span class="str">"%s (%d-%d)\n"</span> (<span class="fn">Ast.string_of_decl</span> decl)
+    span.start span.stop
+) program</code></pre>
+
+<p>Output:</p>
+
+<pre><code>func main() -&gt; i32 { return 42; } (0-38)</code></pre>
+
+<h3>Parsing If and While Statements</h3>
+
+<p>Control flow statements follow the same pattern. Let us look at <code>parse_if</code> and <code>parse_while</code>:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>parser.ml — if and while</span></div>
+    <pre><code><span class="kw">and</span> <span class="fn">parse_if</span> s =
+  <span class="kw">let</span> _, if_span = <span class="fn">expect</span> s <span class="fn">If</span> <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">LParen</span>;
+  <span class="kw">let</span> cond, cspan = <span class="fn">parse_expr</span> s <span class="num">0</span> <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">RParen</span>;
+  <span class="kw">let</span> then_block, tspan = <span class="fn">parse_block</span> s <span class="kw">in</span>
+  <span class="kw">let</span> else_block, end_span =
+    <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+    | <span class="fn">Some</span> <span class="fn">Else</span> <span class="op">-&gt;</span>
+        <span class="kw">let</span> _, _ = <span class="fn">expect</span> s <span class="fn">Else</span> <span class="kw">in</span>
+        <span class="kw">let</span> block, espan = <span class="fn">parse_block</span> s <span class="kw">in</span>
+        (<span class="fn">Some</span> block, espan)
+    | <span class="op">_</span> <span class="op">-&gt;</span> (<span class="fn">None</span>, tspan)
+  <span class="kw">in</span>
+  (<span class="fn">If</span> { cond; then_block; else_block },
+   <span class="fn">Span.merge</span> if_span end_span)
+
+<span class="kw">and</span> <span class="fn">parse_while</span> s =
+  <span class="kw">let</span> _, wspan = <span class="fn">expect</span> s <span class="fn">While</span> <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">LParen</span>;
+  <span class="kw">let</span> cond, cspan = <span class="fn">parse_expr</span> s <span class="num">0</span> <span class="kw">in</span>
+  <span class="fn">expect</span> s <span class="fn">RParen</span>;
+  <span class="kw">let</span> body, bspan = <span class="fn">parse_block</span> s <span class="kw">in</span>
+  (<span class="fn">While</span> { cond; body },
+   <span class="fn">Span.merge</span> wspan bspan)</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/parser.rs — if and while</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">parse_if</span>(parser: &amp;mut <span class="ty">Parser</span>) <span class="op">-&gt;</span> <span class="ty">SpannedStmt</span> {
+    <span class="kw">let</span> (_, if_span) = parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::If</span>);
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::LParen</span>);
+    <span class="kw">let</span> (cond, _) = <span class="fn">parse_expr</span>(parser, <span class="num">0</span>);
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::RParen</span>);
+    <span class="kw">let</span> (then_block, tspan) = <span class="fn">parse_block</span>(parser);
+    <span class="kw">let</span> (else_block, end_span) = <span class="kw">match</span> parser.<span class="fn">peek</span>() {
+        <span class="prelude">Some</span>(<span class="fn">Token::Else</span>) <span class="op">=&gt;</span> {
+            parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::Else</span>);
+            <span class="kw">let</span> (block, espan) = <span class="fn">parse_block</span>(parser);
+            (<span class="prelude">Some</span>(block), espan)
+        }
+        <span class="op">_</span> <span class="op">=&gt;</span> (<span class="prelude">None</span>, tspan),
+    };
+    (<span class="fn">Stmt::If</span> { cond: <span class="fn">Box::new</span>(cond), then_block, else_block },
+     <span class="ty">Span</span>::<span class="fn">merge</span>(&amp;if_span, &amp;end_span))
+}
+
+<span class="kw">pub fn</span> <span class="fn">parse_while</span>(parser: &amp;mut <span class="ty">Parser</span>) <span class="op">-&gt;</span> <span class="ty">SpannedStmt</span> {
+    <span class="kw">let</span> (_, wspan) = parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::While</span>);
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::LParen</span>);
+    <span class="kw">let</span> (cond, _) = <span class="fn">parse_expr</span>(parser, <span class="num">0</span>);
+    parser.<span class="fn">expect</span>(&amp;<span class="fn">Token::RParen</span>);
+    <span class="kw">let</span> (body, bspan) = <span class="fn">parse_block</span>(parser);
+    (<span class="fn">Stmt::While</span> { cond: <span class="fn">Box::new</span>(cond), body },
+     <span class="ty">Span</span>::<span class="fn">merge</span>(&amp;wspan, &amp;bspan))
+}</code></pre>
+  </div>
+</div>
+
+<p>Notice the pattern: consume a keyword, consume a parenthesized expression, consume a block, optionally consume an else clause. The <code>option</code> type for <code>else_block</code> captures the grammatical optionality directly. In Rust, this is <code>Option&lt;Vec&lt;Stmt&gt;&gt;</code>; in OCaml, it is <code>stmt list option</code>. Both express the same idea.</p>
+
+<h3>Parsing Error Recovery</h3>
+
+<p>The current parser uses <code>failwith</code> on any error, which crashes the compiler on the first invalid token. A robust parser needs error recovery — skip tokens until a synchronization point (like <code>;</code> or <code>}</code>) and continue to find more errors.</p>
+
+<p>We leave this as an exercise, but the key insight is: at synchronization points, the parser knows what tokens it expects. If it encounters an unexpected token, it skips forward until it finds something it recognizes, reports the error, and resumes. The result is a parser that produces multiple errors per invocation, which is dramatically more useful than a parser that stops at the first mistake.</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>Exercise 3.1 — Add a ternary expression</strong>
+<p>Add support for the ternary expression <code>cond ? then_expr : else_expr</code>. You will need to add a token for <code>?</code>, add it to the binding power table, and implement the infix handler. The binding power should be lower than assignment. This exercises every layer of the Pratt parser.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.2 — Parse for loops</strong>
+<p>Add <code>for (init; cond; update) { body }</code> to the language. This requires a new statement kind, a new keyword, and a new parser function. Desugar the for loop into a while loop in the AST, or keep it as a first-class node — both are valid choices.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.3 — Error recovery</strong>
+<p>Implement error recovery in the parser. Define synchronization points (<code>;</code>, <code>}</code>, <code>)</code>, keywords). When the parser encounters an error, skip tokens until a synchronization point is found, report the error, and continue. The parser should return both a (potentially partial) AST and a list of errors.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.4 — Expression pretty-printer</strong>
+<p>Write a function <code>Ast.string_of_expr</code> that converts an expression AST node back into source text. This is called a "pretty-printer" and is useful for debugging — you can parse some code, then print it, and check that the output matches the input (modulo whitespace). Test it on expressions with various precedence levels to verify that your output adds parentheses correctly.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.5 — Compare with Appel's parser</strong>
+<p>Appel's <em>Modern Compiler Implementation in ML</em> uses a recursive descent parser with a slightly different approach to expressions. Compare his technique with Pratt parsing. What are the tradeoffs? Which is easier to extend? Which produces better error messages? There is no single answer — this is about understanding design space.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.6 — Parser as a state monad</strong>
+<p>Refactor the parser to be purely functional: instead of a mutable <code>pos ref</code>, have each function return <code>result * state</code>. Create a bind operator <code>&gt;&gt;=</code> to compose parser functions. This exercise connects the practical parser to the theoretical state monad and deepens your understanding of both.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.7 — Left recursion in Pratt parsing</strong>
+<p>Our Pratt parser handles left-associative operators correctly (the loop in <code>parse_postfix</code> produces a left-associative tree). Modify the parser to support right-associative operators like exponentiation (use <code>**</code> as the token). Right-associative operators need a binding power that is <em>lower</em> on the right side. Implement this by subtracting 1 from the binding power when recursing into the right operand.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.8 — Parse type annotations</strong>
+<p>Implement <code>parse_type</code> and <code>parse_type_opt</code> functions. <code>parse_type</code> should handle all the type forms: simple keywords (<code>i32</code>, <code>bool</code>), pointer types (<code>@Type</code>), and array types (<code>[N]Type</code>). This is a smaller recursive descent parser nested inside the main parser.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 3.9 — Dangling else problem</strong>
+<p>Our if-statement grammar has the classic "dangling else" ambiguity: in <code>if (a) if (b) { ... } else { ... }</code>, which <code>if</code> does the <code>else</code> belong to? Our parser resolves this by matching <code>else</code> with the nearest unmatched <code>if</code> (the standard resolution). Verify this by writing a test case. Then implement an alternative: require braces around if-bodies in certain cases to disambiguate.</p>
+</div>
+
+<div class="chapter-nav">
+  <a href="02-lexing.html" class="prev">2 · Lexing</a>
+  <a href="04-ast.html" class="next">4 · AST</a>
+</div>
+
+</body>
+</html>

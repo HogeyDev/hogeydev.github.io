@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 1: Pipeline Overview &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="00-setup.html">&larr; Chapter 0</a> &ensp; Chapter 1: Pipeline Overview &ensp; <a href="02-span.html">Chapter 2 &rarr;</a></span>
+</div>
+
+<h2 id="pipeline">1 &ensp; Pipeline Overview</h2>
+
+<h3>The Big Picture</h3>
+
+<p>A compiler is not a monolithic blob. It is a <strong>pipeline</strong> &mdash; a series of discrete phases, each consuming the output of the previous phase and producing input for the next. This modular design means each phase can be developed, tested, and understood in isolation.</p>
+
+<p>The L1S compiler has <strong>eight phases</strong> that transform source text into a runnable executable:</p>
+
+<div class="diagram">
+<span class="box">Source</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">1. Lexer</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">2. Parser</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">3. Type Checker</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">4. IR Builder</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">5. Optimizer</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">6. Code Generator</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">7. Assembler</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">8. Linker</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--green);color:var(--green);">Executable</span>
+</div>
+
+<p>Phases 1&ndash;6 are implemented in Rust (inside the compiler binary). Phases 7&ndash;8 delegate to external tools (<code>nasm</code> and <code>cc</code>).</p>
+
+<h3>Phase 1: Lexer &mdash; Source &rarr; Tokens</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; Lexer phase</span></div>
+<pre><code><span class="kw">let</span> <span class="kw">mut</span> lexer = lexer::<span class="ty">Lexer</span>::<span class="fn">new</span>(&amp;source);
+<span class="kw">let</span> (tokens, _lex_errors) = lexer.<span class="fn">tokenize</span>();</code></pre>
+
+<p>The lexer reads the raw source string character by character and groups them into <strong>tokens</strong>. Comments and whitespace are discarded. Each token carries a <code>Span</code> (byte offset, line, column) so error messages can reference precise locations.</p>
+
+<p><strong>Input:</strong> A <code>&amp;str</code> containing the program source text.</p>
+<p><strong>Output:</strong> <code>Vec&lt;SpannedToken&gt;</code> &mdash; a flat list of all tokens in file order, ending with <code>Token::Eof</code>.</p>
+<p><strong>Errors:</strong> <code>Vec&lt;LexError&gt;</code> &mdash; currently collected but not reported. The lexer never panics on bad input.</p>
+
+<div class="callout info">
+<strong>Lex errors are silently collected</strong>. The <code>_lex_errors</code> variable is currently ignored. Future versions of the compiler will integrate them into the diagnostics system. Even so, the lexer still records them &mdash; error recovery is built into its design.
+</div>
+
+<h3>Phase 2: Parser &mdash; Tokens &rarr; AST</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; Parser phase</span></div>
+<pre><code><span class="kw">let</span> diag = diag::<span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+<span class="kw">let</span> <span class="kw">mut</span> parser = parser::<span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+<span class="kw">let</span> <span class="kw">mut</span> prog = parser.<span class="fn">parse_program</span>();
+<span class="kw">let</span> <span class="kw">mut</span> diag = parser.<span class="fn">into_diagnostics</span>();
+
+<span class="kw">if</span> diag.<span class="fn">has_errors</span>() {
+    diag.<span class="fn">print_all</span>();
+    <span class="fn">std::process::exit</span>(1);
+}</code></pre>
+
+<p>The parser consumes the token stream and builds an <strong>Abstract Syntax Tree (AST)</strong>. It uses recursive-descent parsing with a Pratt parser for expressions. If the input is syntactically invalid (e.g., missing semicolon, unbalanced braces), the parser records errors in the diagnostics system and prints them before aborting.</p>
+
+<p><strong>Input:</strong> <code>Vec&lt;SpannedToken&gt;</code> from the lexer.</p>
+<p><strong>Output:</strong> A <code>Program</code> AST node (the root of the tree).</p>
+<p><strong>Errors:</strong> If the parser finds syntax errors, the program exits with code 1 after printing all error messages. No further phases run.</p>
+
+<div class="callout warn">
+<strong>Fatal vs. non-fatal</strong>: Unlike the lexer, parser errors are fatal. If the source has a syntax error, there is no meaningful AST to pass to later phases. The compiler stops here.
+</div>
+
+<h3>Phase 3: Type Checker &mdash; Raw AST &rarr; Typed AST</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; Type checker phase</span></div>
+<pre><code><span class="kw">let</span> <span class="kw">mut</span> types = types::<span class="ty">TypeArena</span>::<span class="fn">new</span>();
+<span class="kw">let</span> <span class="kw">mut</span> symbols = symbol::<span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+<span class="kw">let</span> <span class="kw">mut</span> tc = typeck::<span class="ty">TypeChecker</span>::<span class="fn">new</span>(&amp;<span class="kw">mut</span> types, &amp;<span class="kw">mut</span> symbols, &amp;<span class="kw">mut</span> diag);
+tc.<span class="fn">check_program</span>(&amp;<span class="kw">mut</span> prog);
+
+<span class="kw">let</span> annotations = tc.annotations.<span class="fn">clone</span>();
+<span class="kw">let</span> has_errors = tc.diag.<span class="fn">has_errors</span>();
+<span class="fn">drop</span>(tc);
+
+<span class="kw">if</span> has_errors {
+    diag.<span class="fn">print_all</span>();
+    <span class="fn">std::process::exit</span>(1);
+}</code></pre>
+
+<p>The type checker walks the AST and verifies semantic correctness. It resolves names using the <code>SymbolTable</code>, infers and checks types using the <code>TypeArena</code>, and annotates every expression node with its resolved type. This is where errors like "type mismatch" and "undefined variable" are caught.</p>
+
+<p><strong>Input:</strong> A <code>Program</code> AST with unresolved names and types.</p>
+<p><strong>Output:</strong> The same AST is mutated in-place, with type annotations attached. The <code>annotations</code> map (cloned out of the type checker before it is dropped) is used by later phases.</p>
+<p><strong>Errors:</strong> Type errors are fatal; the compiler exits before code generation.</p>
+
+<div class="callout info">
+<strong>Ownership handoff</strong>: The type checker owns the <code>TypeArena</code>, <code>SymbolTable</code>, and <code>Diagnostics</code> during its lifetime. After <code>drop(tc)</code>, the annotations are extracted for the IR builder, and the remaining diagnostics object is reused for later phases.
+</div>
+
+<h3>Phase 4: IR Builder &mdash; AST &rarr; IR</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; IR builder phase</span></div>
+<pre><code><span class="kw">let</span> builder = ir_build::<span class="ty">IrBuilder</span>::<span class="fn">new</span>(&amp;types, &amp;annotations, &amp;<span class="kw">mut</span> diag);
+<span class="kw">let</span> <span class="kw">mut</span> ir_module = builder.<span class="fn">build</span>(&amp;prog);</code></pre>
+
+<p>The IR builder <strong>lowers</strong> the AST into a lower-level <strong>Intermediate Representation (IR)</strong>. The IR uses basic blocks, virtual registers, and a small set of instruction types. This is where structured control flow (<code>if</code>, <code>while</code>) becomes explicit jumps and branches, and where expressions are decomposed into sequences of simple operations.</p>
+
+<p><strong>Input:</strong> A typed <code>Program</code> AST + type annotations.</p>
+<p><strong>Output:</strong> An <code>ir::Module</code> containing functions, each made of basic blocks with IR instructions.</p>
+
+<h3>Phase 5: Optimizer &mdash; IR &rarr; Optimized IR</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; Optimizer phase</span></div>
+<pre><code>ir_opt::<span class="fn">optimize</span>(&amp;<span class="kw">mut</span> ir_module);</code></pre>
+
+<p>The optimizer runs a series of simple but effective optimization passes on the IR:</p>
+<ul>
+  <li><strong>Constant folding</strong>: Evaluate compile-time constant expressions (e.g., <code>2 + 3</code> &rarr; <code>5</code>)</li>
+  <li><strong>Dead code elimination</strong>: Remove instructions whose results are never used</li>
+  <li><strong>Copy propagation</strong>: Replace uses of a copy with the original value</li>
+  <li><strong>Unreachable block removal</strong>: Delete basic blocks that cannot be reached from any entry point</li>
+</ul>
+
+<p><strong>Input:</strong> An <code>ir::Module</code> with unoptimized IR.</p>
+<p><strong>Output:</strong> The same <code>ir::Module</code> mutated in-place, now with cleaner/faster IR.</p>
+
+<h3>Phase 6: Code Generator &mdash; IR &rarr; Assembly</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; Codegen phase</span></div>
+<pre><code><span class="kw">let</span> <span class="kw">mut</span> codegen = codegen::<span class="ty">Codegen</span>::<span class="fn">new</span>(&amp;types);
+<span class="kw">let</span> asm = codegen.<span class="fn">generate</span>(&amp;ir_module);</code></pre>
+
+<p>This phase performs two crucial tasks internally. First, the <strong>register allocator</strong> (<code>regalloc.rs</code>) maps the virtual registers in the IR to physical x86-64 registers (or spills them to the stack). Then, the <strong>code generator</strong> (<code>codegen.rs</code>) emits NASM-syntax x86-64 assembly text, including function prologues/epilogues, instruction selection, and the ABI-defined calling convention.</p>
+
+<p><strong>Input:</strong> An optimized <code>ir::Module</code> with virtual registers.</p>
+<p><strong>Output:</strong> A <code>String</code> containing complete NASM assembly source code.</p>
+
+<h3>Phase 7: Assembler &mdash; Assembly &rarr; Object File</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; Assembler (nasm)</span></div>
+<pre><code><span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+    .<span class="fn">args</span>(&amp;[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, <span class="str">"-o"</span>, &amp;o_path, &amp;asm_path])
+    .<span class="fn">status</span>()
+    .<span class="fn">unwrap_or_else</span>(|e| {
+        <span class="fn">eprintln!</span>(<span class="str">"error invoking assembler: {}"</span>, e);
+        <span class="fn">std::process::exit</span>(1);
+    });
+
+<span class="kw">if</span> !status.<span class="fn">success</span>() {
+    <span class="fn">std::process::exit</span>(1);
+}</code></pre>
+
+<p>The compiler shells out to <code>nasm</code> with the <code>-f elf64</code> flag to produce a 64-bit ELF object file. If <code>nasm</code> fails (bad assembly syntax, missing instructions), the compiler exits with code 1.</p>
+
+<p><strong>Input:</strong> A <code>.asm</code> file on disk (NASM syntax).</p>
+<p><strong>Output:</strong> A <code>.o</code> file (ELF64 relocatable object file).</p>
+
+<h3>Phase 8: Linker &mdash; Object &rarr; Executable</h3>
+
+<div class="code-header"><span>src/main.rs &mdash; Linker (cc)</span></div>
+<pre><code><span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+    .<span class="fn">args</span>(&amp;[<span class="str">"-o"</span>, &amp;bin_path, &amp;o_path, <span class="str">"-no-pie"</span>])
+    .<span class="fn">status</span>()
+    .<span class="fn">unwrap_or_else</span>(|e| {
+        <span class="fn">eprintln!</span>(<span class="str">"error invoking linker: {}"</span>, e);
+        <span class="fn">std::process::exit</span>(1);
+    });
+
+<span class="kw">if</span> !status.<span class="fn">success</span>() {
+    <span class="fn">std::process::exit</span>(1);
+}
+
+<span class="kw">let</span> _ = fs::<span class="fn">remove_file</span>(&amp;o_path);
+
+<span class="fn">println!</span>(<span class="str">"wrote {}"</span>, bin_path);</code></pre>
+
+<p>The compiler uses <code>cc</code> (typically GCC or Clang) as a linker. The <code>-no-pie</code> flag produces a position-dependent executable, which avoids complications with position-independent code in the generated assembly. After linking, the intermediate <code>.o</code> file is deleted, and the executable path is printed.</p>
+
+<p><strong>Input:</strong> A <code>.o</code> ELF object file.</p>
+<p><strong>Output:</strong> A statically-linked ELF executable ready to run.</p>
+
+<h3>Complete Data Flow</h3>
+
+<p>Here is the full annotated <code>main.rs</code>, showing every line of the pipeline:</p>
+
+<div class="code-header"><span>src/main.rs &mdash; Complete driver (lines 22-109)</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// ---- Argument parsing (lines 23-32) ----</span>
+    <span class="kw">let</span> args: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = <span class="fn">env::args</span>().<span class="fn">collect</span>();
+    <span class="kw">if</span> args.<span class="fn">len</span>() &lt; 2 {
+        <span class="fn">eprintln!</span>(<span class="str">"usage: ignis &lt;file.is&gt; [-o &lt;output&gt;]"</span>);
+        <span class="fn">std::process::exit</span>(1);
+    }
+    <span class="kw">let</span> source = <span class="fn">fs::read_to_string</span>(&amp;args[1]).<span class="fn">unwrap_or_else</span>(|e| {
+        <span class="fn">eprintln!</span>(<span class="str">"error reading {}: {}"</span>, args[1], e);
+        <span class="fn">std::process::exit</span>(1);
+    });
+
+    <span class="cm">// ---- Phase 1: Lexer (lines 34-35) ----</span>
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = lexer::<span class="ty">Lexer</span>::<span class="fn">new</span>(&amp;source);
+    <span class="kw">let</span> (tokens, _lex_errors) = lexer.<span class="fn">tokenize</span>();
+
+    <span class="cm">// ---- Phase 2: Parser (lines 37-45) ----</span>
+    <span class="kw">let</span> diag = diag::<span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> parser = parser::<span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+    <span class="kw">let</span> <span class="kw">mut</span> prog = parser.<span class="fn">parse_program</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> diag = parser.<span class="fn">into_diagnostics</span>();
+    <span class="kw">if</span> diag.<span class="fn">has_errors</span>() {
+        diag.<span class="fn">print_all</span>();
+        <span class="fn">std::process::exit</span>(1);
+    }
+
+    <span class="cm">// ---- Phase 3: Type Checker (lines 47-59) ----</span>
+    <span class="kw">let</span> <span class="kw">mut</span> types = types::<span class="ty">TypeArena</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> symbols = symbol::<span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> tc = typeck::<span class="ty">TypeChecker</span>::<span class="fn">new</span>(&amp;<span class="kw">mut</span> types, &amp;<span class="kw">mut</span> symbols, &amp;<span class="kw">mut</span> diag);
+    tc.<span class="fn">check_program</span>(&amp;<span class="kw">mut</span> prog);
+    <span class="kw">let</span> annotations = tc.annotations.<span class="fn">clone</span>();
+    <span class="kw">let</span> has_errors = tc.diag.<span class="fn">has_errors</span>();
+    <span class="fn">drop</span>(tc);
+    <span class="kw">if</span> has_errors {
+        diag.<span class="fn">print_all</span>();
+        <span class="fn">std::process::exit</span>(1);
+    }
+
+    <span class="cm">// ---- Phase 4: IR Builder (lines 60-61) ----</span>
+    <span class="kw">let</span> builder = ir_build::<span class="ty">IrBuilder</span>::<span class="fn">new</span>(&amp;types, &amp;annotations, &amp;<span class="kw">mut</span> diag);
+    <span class="kw">let</span> <span class="kw">mut</span> ir_module = builder.<span class="fn">build</span>(&amp;prog);
+
+    <span class="cm">// ---- Phase 5: Optimizer (line 63) ----</span>
+    ir_opt::<span class="fn">optimize</span>(&amp;<span class="kw">mut</span> ir_module);
+
+    <span class="cm">// ---- Phase 6: Code Generator (lines 65-66) ----</span>
+    <span class="kw">let</span> <span class="kw">mut</span> codegen = codegen::<span class="ty">Codegen</span>::<span class="fn">new</span>(&amp;types);
+    <span class="kw">let</span> asm = codegen.<span class="fn">generate</span>(&amp;ir_module);
+
+    <span class="cm">// ---- Output path (lines 68-73) ----</span>
+    <span class="kw">let</span> bin_path = <span class="kw">if</span> args.<span class="fn">len</span>() &gt; 2 &amp;&amp; args[2] == <span class="str">"-o"</span> {
+        args[3].<span class="fn">clone</span>()
+    } <span class="kw">else</span> {
+        <span class="kw">let</span> input = <span class="ty">Path</span>::<span class="fn">new</span>(&amp;args[1]);
+        input.<span class="fn">with_extension</span>(<span class="str">""</span>).<span class="fn">to_string_lossy</span>().<span class="fn">to_string</span>()
+    };
+    <span class="kw">let</span> asm_path = <span class="fn">format!</span>(<span class="str">"{}.asm"</span>, bin_path);
+    <span class="kw">let</span> o_path = <span class="fn">format!</span>(<span class="str">"{}.o"</span>, bin_path);
+
+    <span class="cm">// ---- Write assembly to disk (lines 78-81) ----</span>
+    <span class="fn">fs::write</span>(&amp;asm_path, &amp;asm).<span class="fn">unwrap_or_else</span>(|e| { <span class="cm">/* ... */</span> });
+
+    <span class="cm">// ---- Phase 7: Assembler (lines 83-93) ----</span>
+    <span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, <span class="str">"-o"</span>, &amp;o_path, &amp;asm_path])
+        .<span class="fn">status</span>();
+    <span class="cm">// Exit check omitted for brevity ...</span>
+
+    <span class="cm">// ---- Phase 8: Linker (lines 95-105) ----</span>
+    <span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-o"</span>, &amp;bin_path, &amp;o_path, <span class="str">"-no-pie"</span>])
+        .<span class="fn">status</span>();
+
+    <span class="cm">// ---- Cleanup (lines 107-109) ----</span>
+    <span class="kw">let</span> _ = fs::<span class="fn">remove_file</span>(&amp;o_path);
+    <span class="fn">println!</span>(<span class="str">"wrote {}"</span>, bin_path);
+}</code></pre>
+
+<h3>File Table: Modules and Their Phases</h3>
+
+<table class="file-table">
+<tr><th>File</th><th>Phase</th><th>Produces</th><th>Depends On</th></tr>
+<tr><td><code>src/span.rs</code></td><td>Foundation</td><td><code>Span</code> struct</td><td>&mdash;</td></tr>
+<tr><td><code>src/token.rs</code></td><td>Foundation</td><td><code>Token</code>, <code>SpannedToken</code></td><td><code>span</code></td></tr>
+<tr><td><code>src/diag.rs</code></td><td>Foundation</td><td><code>Diagnostics</code></td><td><code>span</code></td></tr>
+<tr><td><code>src/lexer.rs</code></td><td>1. Lexer</td><td><code>Vec&lt;SpannedToken&gt;</code></td><td><code>span</code>, <code>token</code></td></tr>
+<tr><td><code>src/parser.rs</code></td><td>2. Parser</td><td><code>ast::Program</code></td><td><code>token</code>, <code>ast</code>, <code>diag</code></td></tr>
+<tr><td><code>src/ast.rs</code></td><td>Data</td><td>AST node types</td><td><code>span</code>, <code>token</code></td></tr>
+<tr><td><code>src/types.rs</code></td><td>Foundation</td><td><code>TypeArena</code></td><td>&mdash;</td></tr>
+<tr><td><code>src/symbol.rs</code></td><td>Data</td><td><code>SymbolTable</code></td><td>&mdash;</td></tr>
+<tr><td><code>src/typeck.rs</code></td><td>3. Type Checker</td><td>Annotated AST</td><td><code>ast</code>, <code>types</code>, <code>symbol</code>, <code>diag</code></td></tr>
+<tr><td><code>src/ir.rs</code></td><td>Data</td><td>IR types (<code>Module</code>, <code>Function</code>, etc.)</td><td>&mdash;</td></tr>
+<tr><td><code>src/ir_build.rs</code></td><td>4. IR Builder</td><td><code>ir::Module</code></td><td><code>ast</code>, <code>ir</code>, <code>types</code></td></tr>
+<tr><td><code>src/ir_opt.rs</code></td><td>5. Optimizer</td><td>Optimized <code>ir::Module</code></td><td><code>ir</code></td></tr>
+<tr><td><code>src/abi.rs</code></td><td>Data</td><td>Calling convention info</td><td>&mdash;</td></tr>
+<tr><td><code>src/regalloc.rs</code></td><td>6a. Reg Alloc</td><td>Register assignments</td><td><code>ir</code>, <code>abi</code></td></tr>
+<tr><td><code>src/codegen.rs</code></td><td>6b. Code Gen</td><td>NASM assembly <code>String</code></td><td><code>ir</code>, <code>regalloc</code>, <code>abi</code></td></tr>
+<tr><td><code>src/main.rs</code></td><td>Driver</td><td>Orchestrates all phases</td><td>All of the above</td></tr>
+</table>
+
+<h3>Traced Example: A Program Through the Pipeline</h3>
+
+<p>Let's trace a tiny program through every phase. Starting source:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) { <span class="kw">return</span> 42; }</code></pre>
+
+<p><strong>Phase 1 &mdash; Lexer</strong> produces these tokens:</p>
+<div class="diagram" style="text-align:left;">
+Func Ident("main") OpenParen I32 CloseParen OpenBrace Return NumLiteral("42") Semicolon CloseBrace Eof
+</div>
+
+<p><strong>Phase 2 &mdash; Parser</strong> builds this AST:</p>
+<div class="diagram" style="text-align:left;">
+Program<br>
+&nbsp;&nbsp;Function: "main", params=[], return_type=i32<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Body: Block<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Return( NumLiteral(42) )
+</div>
+
+<p><strong>Phase 3 &mdash; Type Checker</strong> validates that <code>42</code> is a valid integer literal, annotates the expression with type <code>i32</code>, and confirms <code>main</code> has the correct signature.</p>
+
+<p><strong>Phase 4 &mdash; IR Builder</strong> lowers to IR:</p>
+<div class="diagram" style="text-align:left;">
+function main() {<br>
+&nbsp;&nbsp;entry:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;%0 = const 42<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ret %0<br>
+}
+</div>
+
+<p><strong>Phase 5 &mdash; Optimizer</strong> (no changes here &mdash; this program is already optimal).</p>
+
+<p><strong>Phase 6 &mdash; Code Generator</strong> produces NASM assembly (simplified):</p>
+<pre><code>section .text
+<span class="kw">global</span> main
+main:
+    push    rbp
+    mov     rbp, rsp
+    mov     eax, 42
+    pop     rbp
+    ret</code></pre>
+
+<p><strong>Phase 7 &mdash; Assembler</strong> runs <code>nasm -f elf64</code>, producing <code>main.o</code>.</p>
+
+<p><strong>Phase 8 &mdash; Linker</strong> runs <code>cc -o main main.o -no-pie</code>, producing the executable <code>main</code>.</p>
+
+<p>Running it:</p>
+<pre><code><span style="color:var(--fg2)">$</span> ./main
+<span style="color:var(--fg2)">$</span> echo $?
+42</code></pre>
+
+<h3>Error Handling Throughout the Pipeline</h3>
+
+<p>Each phase handles errors differently:</p>
+
+<table class="file-table">
+<tr><th>Phase</th><th>Error Strategy</th><th>Stops Pipeline?</th></tr>
+<tr><td>Lexer</td><td>Records errors, continues lexing</td><td>No (but errors are currently ignored)</td></tr>
+<tr><td>Parser</td><td>Records diagnostic, aborts with exit(1)</td><td>Yes</td></tr>
+<tr><td>Type Checker</td><td>Records diagnostic, aborts with exit(1)</td><td>Yes</td></tr>
+<tr><td>IR Builder</td><td>Panics on internal errors (should not happen after type check)</td><td>Yes</td></tr>
+<tr><td>Optimizer</td><td>No errors (sound transformations)</td><td>N/A</td></tr>
+<tr><td>Code Generator</td><td>Panics on internal errors</td><td>Yes</td></tr>
+<tr><td>Assembler</td><td>Exits with code 1 if nasm fails</td><td>Yes</td></tr>
+<tr><td>Linker</td><td>Exits with code 1 if cc fails</td><td>Yes</td></tr>
+</table>
+
+<div class="callout tip">
+<strong>Defensive design</strong>: Earlier phases should catch all user-facing errors (syntax, type). Later phases (IR builder, codegen) assume well-formed input and use <code>unwrap</code>/<code>panic</code> for internal invariants. If a user hits a panic in a later phase, it is a compiler bug, not a user error.
+</div>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+  <li><strong>One phase at a time</strong>: When debugging, isolate which phase is failing. A parse error prevents type checking. A type error prevents codegen. Check errors at the earliest phase first.</li>
+  <li><strong>Missing tool in PATH</strong>: If <code>nasm</code> or <code>cc</code> is missing, the compiler exits with <code>error invoking assembler/linker</code>. Verify with <code>which nasm</code> and <code>which cc</code>.</li>
+  <li><strong>Incremental testing</strong>: Each phase can be tested independently. The lexer tests run without the parser, the parser tests run on hand-written token streams, and so on.</li>
+  <li><strong>Examine intermediate output</strong>: To see what a phase produces, add a temporary <code>println!</code> or write the output to a file. The assembly file (<code>*.asm</code>) is always written to disk &mdash; inspect it to understand codegen's output.</li>
+</ol>
+
+<div class="callout info">
+<strong>Passes vs. phases</strong>: A "phase" is a major stage of the pipeline (e.g., lexer, parser). A "pass" is a single traversal of the IR or AST. The type checker may make multiple passes over the AST. The optimizer runs multiple passes over the IR. Don't confuse the two concepts.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="00-setup.html">&larr; Chapter 0</a> &ensp; Chapter 1: Pipeline Overview &ensp; <a href="02-span.html">Chapter 2 &rarr;</a></span>
+</div>
+
+</body>
+</html>

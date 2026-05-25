@@ -1,0 +1,7 @@
+func inc(i32, x: i32) { return x + 1; }
+func double(i32, x: i32) { return x * 2; }
+func main(i32) {
+    let a: i32 = inc(10);
+    let b: i32 = double(a);
+    return b;
+}

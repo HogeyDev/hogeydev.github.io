@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Text and Spans — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h1>Chapter 01: Text and Spans</h1>
+
+<p class="subtitle">Where in the source did this error happen?</p>
+
+<div class="callout info">
+  <strong>What you'll learn in this chapter:</strong> How to represent positions in source code, why byte offsets are the right internal representation, how to convert to human-readable line:column pairs, and how to render compiler error messages with underlines.
+</div>
+
+<h2>The Problem</h2>
+
+<p>Consider this program:</p>
+
+<pre><code><span class="kw">func</span> main(i32) {
+  <span class="kw">return</span> 42 + &quot;hello&quot;;
+}</code></pre>
+
+<p>There's a type error: you can't add an integer and a string. The compiler needs to tell the programmer <em>where</em> the error is. Vague messages like "type error at line 2" are frustrating. A good compiler pinpoints the exact location:</p>
+
+<div class="diagram">
+<pre><code>error[E0001]: type mismatch: cannot add `i32` and `[i8]`
+  &rarr; src/main.l1:2:10
+   |
+ 2 |   return 42 + "hello";
+   |          ^^^^^^^^^^^^ i32 + [i8]</code></pre>
+</div>
+
+<p>Every character in that error message — the filename, the line number, the column, the underlines — comes from position tracking. Before we write a single line of lexer or parser code, we need to build the infrastructure for answering "where is this?"</p>
+
+<h2>Representing Positions</h2>
+
+<p>There are two common ways to identify a location in a source file:</p>
+
+<table class="file-table">
+  <tr>
+    <th>Approach</th>
+    <th>Example</th>
+    <th>Pros</th>
+    <th>Cons</th>
+  </tr>
+  <tr>
+    <td>Line:Column</td>
+    <td><code>2:10</code></td>
+    <td>Human-readable, familiar from every editor</td>
+    <td>Expensive to compute with, ambiguous with tabs</td>
+  </tr>
+  <tr>
+    <td>Byte offset</td>
+    <td><code>27</code></td>
+    <td>Cheap, unambiguous, O(1) operations</td>
+    <td>Needs conversion for human display</td>
+  </tr>
+</table>
+
+<p>Internally, compilers almost always use <strong>byte offsets</strong>. A byte offset is just a <code>usize</code>: the number of bytes from the start of the source file to a given character. Operations like "does this span contain that position?" become a single integer comparison. Walking forward or backward is pointer-like arithmetic.</p>
+
+<p>Line:column pairs are computed on demand for error messages. This keeps the critical path fast and the internal representation simple.</p>
+
+<h2>Span</h2>
+
+<p>A <code>Span</code> represents a region of source text from a start offset to an end offset:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/span.rs</span></div>
+    <pre><code><span class="cm">/// A region of source text identified by byte offsets.</span>
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">Copy</span>, <span class="ty">PartialEq</span>, <span class="ty">Eq</span>, <span class="ty">Hash</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Span</span> {
+    <span class="cm">/// Byte offset of the first character (0-based).</span>
+    <span class="kw">pub</span> start: <span class="ty">usize</span>,
+    <span class="cm">/// Byte offset of the first character <em>after</em> the span.</span>
+    <span class="kw">pub</span> end: <span class="ty">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Span</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(start: <span class="ty">usize</span>, end: <span class="ty">usize</span>) -&gt; <span class="kw">Self</span> {
+        <span class="kw">debug_assert!</span>(start &lt;= end);
+        <span class="kw">Self</span> { start, end }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">len</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">usize</span> {
+        <span class="kw">self</span>.end - <span class="kw">self</span>.start
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">contains</span>(&amp;<span class="kw">self</span>, offset: <span class="ty">usize</span>) -&gt; <span class="kw">bool</span> {
+        <span class="kw">self</span>.start &lt;= offset &amp;&amp; offset &lt; <span class="kw">self</span>.end
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">merge</span>(&amp;<span class="kw">self</span>, other: &amp;<span class="ty">Span</span>) -&gt; <span class="ty">Span</span> {
+        <span class="ty">Span</span>::<span class="fn">new</span>(
+            <span class="kw">self</span>.start.<span class="fn">min</span>(other.start),
+            <span class="kw">self</span>.end.<span class="fn">max</span>(other.end),
+        )
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>span.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">span</span> = {
+  start: <span class="ty">int</span>;  <span class="cm">(* byte offset, 0-based *)</span>
+  end_:   <span class="ty">int</span>;  <span class="cm">(* first byte after the span *)</span>
+}
+
+<span class="kw">let</span> make_span start end_ = { start; end_ }
+
+<span class="kw">let</span> span_len s = s.end_ - s.start
+
+<span class="kw">let</span> span_contains s offset =
+  s.start &lt;= offset &amp;&amp; offset &lt; s.end_
+
+<span class="kw">let</span> merge_spans a b =
+  { start = <span class="kw">min</span> a.start b.start;
+    end_  = <span class="kw">max</span> a.end_ b.end_ }</code></pre>
+  </div>
+</div>
+
+<p>The <code>end</code> field uses the "one past the end" convention, which is standard across Rust (slices use it, iterators use it, the standard library uses it). This means <code>end - start</code> is the length, and you can represent empty spans (useful for inserting at a point or marking locations of synthetic nodes).</p>
+
+<p>We derive <code>Copy</code> because <code>Span</code> is a tiny value type — two <code>usize</code>s, 16 bytes on 64-bit. Passing it around by value is cheaper than by reference.</p>
+
+<h2>SourceFile</h2>
+
+<p>A <code>Span</code> alone isn't enough. Given an offset like <code>27</code>, we need to know: which file? What's on that line? The <code>SourceFile</code> struct holds the original source text and the line-start index:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/source_file.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="kw">crate</span>::span::<span class="ty">Span</span>;
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">SourceFile</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> src: <span class="ty">String</span>,
+    <span class="cm">/// Byte offset of the start of each line.</span>
+    line_starts: <span class="kw">Vec</span>&lt;<span class="ty">usize</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">SourceFile</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(name: <span class="ty">String</span>, src: <span class="ty">String</span>) -&gt; <span class="kw">Self</span> {
+        <span class="kw">let</span> line_starts = <span class="kw">Self</span>::<span class="fn">compute_line_starts</span>(&amp;src);
+        <span class="kw">Self</span> { name, src, line_starts }
+    }
+
+    <span class="kw">fn</span> <span class="fn">compute_line_starts</span>(src: &amp;<span class="kw">str</span>) -&gt; <span class="kw">Vec</span>&lt;<span class="ty">usize</span>&gt; {
+        <span class="kw">let</span> <span class="kw">mut</span> starts = <span class="kw">vec!</span>[0];
+        <span class="kw">for</span> (i, ch) <span class="kw">in</span> src.<span class="fn">char_indices</span>() {
+            <span class="kw">if</span> ch == <span class="sc">'\n'</span> {
+                starts.<span class="fn">push</span>(i + ch.<span class="fn">len_utf8</span>());
+            }
+        }
+        starts
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">line_col</span>(&amp;<span class="kw">self</span>, offset: <span class="ty">usize</span>) -&gt; (<span class="ty">usize</span>, <span class="ty">usize</span>) {
+        <span class="kw">let</span> line = <span class="kw">match</span> <span class="kw">self</span>.line_starts.<span class="fn">binary_search</span>(&amp;offset) {
+            <span class="ty">Ok</span>(i) =&gt; i + 1,
+            <span class="ty">Err</span>(i) =&gt; i,
+        };
+        <span class="kw">let</span> col = offset - <span class="kw">self</span>.line_starts[line - 1];
+        (line, col)
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">get_line</span>(&amp;<span class="kw">self</span>, line: <span class="ty">usize</span>) -&gt; &amp;<span class="kw">str</span> {
+        <span class="kw">let</span> start = <span class="kw">self</span>.line_starts[line - 1];
+        <span class="kw">let</span> end = <span class="kw">if</span> line &lt; <span class="kw">self</span>.line_starts.<span class="fn">len</span>() {
+            <span class="kw">self</span>.line_starts[line]
+        } <span class="kw">else</span> {
+            <span class="kw">self</span>.src.<span class="fn">len</span>()
+        };
+        &amp;<span class="kw">self</span>.src[start..end.<span class="fn">saturating_sub</span>(<span class="num">1</span>)]
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>source_file.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">source_file</span> = {
+  name: <span class="ty">string</span>;
+  src: <span class="ty">string</span>;
+  line_starts: <span class="ty">int</span> array;
+}
+
+<span class="kw">let</span> compute_line_starts src =
+  <span class="kw">let</span> starts = <span class="kw">ref</span> [0] <span class="kw">in</span>
+  <span class="kw">let</span> i = <span class="kw">ref</span> 0 <span class="kw">in</span>
+  <span class="kw">String</span>.iter (<span class="kw">fun</span> c -&gt;
+    <span class="kw">if</span> c = <span class="sc">'\n'</span> <span class="kw">then</span> starts := (!i + 1) :: !starts;
+    <span class="kw">incr</span> i
+  ) src;
+  <span class="ty">Array</span>.of_list (<span class="kw">List</span>.rev !starts)
+
+<span class="kw">let</span> make_source_file name src =
+  { name; src; line_starts = compute_line_starts src }
+
+<span class="kw">let</span> line_col sf offset =
+  <span class="kw">let</span> i = <span class="kw">Array</span>.binary_search sf.line_starts offset <span class="kw">in</span>
+  <span class="kw">let</span> line = i + 1 <span class="kw">in</span>
+  <span class="kw">let</span> col = offset - sf.line_starts.(i) <span class="kw">in</span>
+  (line, col)</code></pre>
+  </div>
+</div>
+
+<p>The <code>line_starts</code> array is computed once when the source file is loaded. We use binary search (<code>binary_search</code> on <code>Vec</code>) to find which line contains a given offset. This is O(log L) where L is the number of lines — negligible for any realistic source file.</p>
+
+<div class="callout tip">
+  <strong>Why binary search and not a linear scan?</strong> In most compilers, you'll convert far more offsets to line:column during error reporting than there are lines in the source. A linear scan from the start would be O(L) per lookup. Binary search makes it O(log L). For a 1000-line file, that's 10 comparisons instead of up to 1000.
+</div>
+
+<h2>Why Byte Offsets?</h2>
+
+<p>You might wonder: why not just store line and column everywhere? It seems more convenient. Here's why compilers use offsets internally:</p>
+
+<ol>
+  <li><strong>Efficiency.</strong> Incrementing a <code>usize</code> when advancing through source text is one instruction. Updating line:column requires checking for newlines, tracking column width, handling tabs — that's branching logic on every character.</li>
+  <li><strong>Unambiguous slicing.</strong> A <code>Span { start: 12, end: 17 }</code> clearly identifies a slice of text: <code>&amp;source[12..17]</code>. Line:column ranges require recomputing offsets to extract text.</li>
+  <li><strong>Arithmetic.</strong> "Does this span contain that position?" is <code>start &lt;= offset &amp;&amp; offset &lt; end</code>. With line:column, you need a lexicographic comparison.</li>
+  <li><strong>Span merging.</strong> Given two spans, the merged span is <code>min(start)..max(end)</code>. Clean and fast.</li>
+  <li><strong>Interchange.</strong> Many tools (debug info, source maps, DWARF) use byte offsets. Converting early avoids repeated conversions.</li>
+</ol>
+
+<p>The rule of thumb: <em>store offsets, display lines</em>.</p>
+
+<h2>Error Rendering</h2>
+
+<p>Now we have everything we need to render beautiful error messages. The core function takes a <code>SourceFile</code>, a <code>Span</code>, and a message, and produces the annotated output:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/diagnostics.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="kw">crate</span>::source_file::<span class="ty">SourceFile</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::span::<span class="ty">Span</span>;
+
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Diagnostic</span> {
+    <span class="kw">pub</span> message: <span class="ty">String</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Diagnostic</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">render</span>(&amp;<span class="kw">self</span>, source: &amp;<span class="ty">SourceFile</span>) -&gt; <span class="ty">String</span> {
+        <span class="kw">let</span> (line, col) = source.<span class="fn">line_col</span>(<span class="kw">self</span>.span.start);
+        <span class="kw">let</span> source_line = source.<span class="fn">get_line</span>(line);
+        <span class="kw">let</span> underline = <span class="sc">" "</span>.<span class="fn">repeat</span>(col)
+            + &amp;<span class="sc">"^"</span>.<span class="fn">repeat</span>(<span class="kw">self</span>.span.<span class="fn">len</span>().<span class="fn">max</span>(<span class="num">1</span>));
+
+        <span class="kw">format!</span>(
+            <span class="str">"error: {}\n  &rarr; {}:{}:{}\n   |\n {} | {}\n   | {}\n"</span>,
+            <span class="kw">self</span>.message,
+            source.name,
+            line,
+            col,
+            line,
+            source_line,
+            underline,
+        )
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>diagnostics.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">diagnostic</span> = {
+  message: <span class="ty">string</span>;
+  span: <span class="ty">Span</span>.span;
+}
+
+<span class="kw">let</span> render_diagnostic diag source =
+  <span class="kw">let</span> line, col = <span class="ty">SourceFile</span>.line_col source diag.span.start <span class="kw">in</span>
+  <span class="kw">let</span> source_line = <span class="ty">SourceFile</span>.get_line source line <span class="kw">in</span>
+  <span class="kw">let</span> underline = <span class="ty">String</span>.make col <span class="sc">' '</span> ^
+                  <span class="ty">String</span>.make (<span class="kw">max</span> (diag.span.end_ - diag.span.start) 1) <span class="sc">'^'</span> <span class="kw">in</span>
+  <span class="kw">Printf</span>.sprintf {|<span class="kw">error</span>: %s
+  &rarr; %s:%d:%d
+   |
+ %d | %s
+   | %s
+|} diag.message source.name line col line source_line underline</code></pre>
+  </div>
+</div>
+
+<p>Applied to our type error example, this produces:</p>
+
+<div class="diagram">
+<pre><code><span class="kw">error</span>: type mismatch: cannot add `i32` and `[i8]`
+  &rarr; src/main.l1:2:10
+   |
+ 2 |   <span class="kw">return</span> 42 + &quot;hello&quot;;
+   |          ^^^^^^^^^^^^ i32 + [i8]</code></pre>
+</div>
+
+<p>We compute the underline length from the span's byte length. For a single-character token like <code>+</code>, the underline is one <code>^</code> character. For a multi-token expression, it spans the full range. The <code>max(1)</code> ensures even a zero-width span produces a visible marker.</p>
+
+<div class="callout warn">
+  <strong>Tab warning:</strong> Our <code>line_col</code> function uses byte offset directly as the column number. This works great for ASCII text but gives wrong column numbers for tabs (which occupy 1 byte but visually take multiple columns) and multi-byte Unicode characters. A production compiler would track visual column width or expand tabs. For our language, we'll assume spaces-only indentation.
+</div>
+
+<h2>Integrating Spans into the Pipeline</h2>
+
+<p>Every token and every AST node carries a span:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/token.rs</span></div>
+    <pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Token</span> {
+    <span class="kw">pub</span> kind: <span class="ty">TokenKind</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+}
+
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">TokenKind</span> {
+    <span class="ty">Keyword</span>(<span class="ty">Keyword</span>),
+    <span class="ty">Ident</span>(<span class="ty">String</span>),
+    <span class="ty">IntLit</span>(i64),
+    <span class="ty">Plus</span>,
+    <span class="ty">Minus</span>,
+    <span class="ty">Star</span>,
+    <span class="ty">Slash</span>,
+    <span class="cm">// ... more variants</span>
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>token.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">token</span> = {
+  kind: <span class="ty">token_kind</span>;
+  span: <span class="ty">Span</span>.span;
+}
+
+<span class="kw">type</span> <span class="ty">token_kind</span> =
+  | <span class="ty">Keyword</span> of keyword
+  | <span class="ty">Ident</span> of string
+  | <span class="ty">IntLit</span> of int64
+  | <span class="ty">Plus</span>
+  | <span class="ty">Minus</span>
+  | <span class="ty">Star</span>
+  | <span class="ty">Slash</span></code></pre>
+  </div>
+</div>
+
+<p>When the lexer creates a token, it records the span. When the parser encounters an error at a token, it reports the token's span. When the semantic analyzer finds a type error, it reports the expression's span (which it got from the parser, which got it from the lexer). The span travels through the entire pipeline, always available for error reporting.</p>
+
+<div class="diagram">
+<pre><code>Source text:   <span class="kw">return</span> 42;
+               ^^^^^^ ^^^
+               |      |
+               |      IntLit { span: 7..9 }
+               |
+               Keyword(Return) { span: 2..8 }
+
+  Span flows through:
+  Lexer ──&gt; Parser ──&gt; Semantic ──&gt; Diagnostics</code></pre>
+</div>
+
+<h2>Exercise: Tracing Through an Error</h2>
+
+<p>Let's trace through a complete error scenario. Consider this program saved in <code>src/main.l1</code>:</p>
+
+<pre><code><span class="kw">func</span> main(i32) {
+  <span class="kw">return</span> 1 + <span class="kw">true</span>;
+}</code></pre>
+
+<p>When the semantic analyzer encounters <code>1 + true</code>, it finds the expression's span (let's say <code>21..28</code>). It calls <code>source.line_col(21)</code>, which binary-searches <code>line_starts</code>:</p>
+
+<div class="diagram">
+<pre><code>line_starts = [0, 20, 37, 39]
+offset = 21
+
+binary_search(21):
+  idx 2: line_starts[2] = 37 &gt; 21  (too high)
+  idx 1: line_starts[1] = 20 &lt;= 21 &amp;&amp; 21 &lt; 37  (found!)
+  line = 1 + 1 = 2
+  col = 21 - 20 = 1
+
+Result: line 2, column 1</code></pre>
+</div>
+
+<p>Wait — column 1? That's pointing at the space before <code>return</code>. But we want column 10 (the start of <code>1 + true</code>). Ah — our offset 21 is off. Let's recount:</p>
+
+<pre><code><span class="kw">func</span> main(i32) {\n  <span class="kw">return</span> 1 + <span class="kw">true</span>;\n}
+0         1         2         3
+0123456789012345678901234567890123456789</code></pre>
+
+<p><code>1 + true</code> starts at offset 28 (0-indexed). So <code>source.line_col(28)</code> gives:</p>
+
+<pre><code>binary_search(28):
+  line_starts = [0, 20, 37]
+  28 is between 20 and 37, so Err(2) &rarr; line = 2
+  col = 28 - 20 = 8
+
+Result: line 2, column 8</code></pre>
+
+<p>Column 8 is where <code>1</code> is. Now the error message works correctly.</p>
+
+<p>This is why we test. Off-by-one errors in position tracking produce confusing error messages that point at the wrong place. Always verify your <code>line_col</code> logic with a few test cases.</p>
+
+<h2>What Spans Enable</h2>
+
+<p>Good span infrastructure opens up powerful features:</p>
+
+<ul>
+  <li><strong>Multi-span errors:</strong> Point at both the use of an undefined variable and a similar name that <em>is</em> defined: <code>"did you mean 'foobar'?"</code> with an arrow pointing at the definition.</li>
+  <li><strong>Note attachments:</strong> "note: 'foo' defined here" with a secondary span.</li>
+  <li><strong>Warnings with suggestions:</strong> "warning: unused variable 'x'" pointing at the declaration with a "help: prefix with _" suggestion.</li>
+  <li><strong>IDE integration:</strong> Language servers use spans to implement go-to-definition, find-references, and inline diagnostics.</li>
+</ul>
+
+<p>We won't implement all of these, but the foundation is the same: <code>Span</code> and <code>SourceFile</code>.</p>
+
+<h2>Exercises</h2>
+
+<div class="exercise">
+  <h3>Exercise 1.1: Implement Span in Your Compiler</h3>
+  <p>Create a <code>src/span.rs</code> file with the <code>Span</code> struct and its methods. Add the <code>SourceFile</code> struct to <code>src/source_file.rs</code>. Write a test that creates a source file, computes line starts, and verifies that <code>line_col</code> returns correct values for several positions.</p>
+  <pre><code><span class="kw">fn</span> test_line_col() {
+    <span class="kw">let</span> sf = <span class="ty">SourceFile</span>::<span class="fn">new</span>(
+        <span class="str">"test.l1"</span>.<span class="fn">to_string</span>(),
+        <span class="str">"func main(i32) {\n  return 42;\n}\n"</span>.<span class="fn">to_string</span>(),
+    );
+    <span class="kw">assert_eq!</span>(sf.<span class="fn">line_col</span>(<span class="num">0</span>), (<span class="num">1</span>, <span class="num">0</span>));
+    <span class="kw">assert_eq!</span>(sf.<span class="fn">line_col</span>(<span class="num">20</span>), (<span class="num">2</span>, <span class="num">0</span>));
+    <span class="kw">assert_eq!</span>(sf.<span class="fn">line_col</span>(<span class="num">28</span>), (<span class="num">2</span>, <span class="num">8</span>));
+}</code></pre>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 1.2: Add Column Tracking to line_col</h3>
+  <p>Modify <code>line_col</code> to return 1-based columns instead of 0-based. Adjust the <code>render</code> function in <code>Diagnostic</code> accordingly. Most compilers use 1-based columns for display because editors do.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 1.3: Handle Tabs in Column Calculation</h3>
+  <p>Add a field to <code>SourceFile</code> that tracks the visual column width of each character (1 for regular chars, 4 or 8 for tabs). Modify <code>line_col</code> to return a "visual column" that accounts for tab expansion. Write a test with a source file containing tabs and verify the columns.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 1.4: Colorized Error Output</h3>
+  <p>Extend the <code>render</code> function to add ANSI color codes. Use red for "error:", cyan or yellow for the filename:line:col, and bright white for the underline. Test it by rendering an error to a terminal.</p>
+  <pre><code><span class="kw">fn</span> render_colored(&amp;<span class="kw">self</span>, source: &amp;<span class="ty">SourceFile</span>) -&gt; <span class="ty">String</span> {
+    <span class="cm">// Use \x1b[31m for red, \x1b[0m for reset, etc.</span>
+}</code></pre>
+  <p>Note: only emit colors when the output is a terminal (check <code>atty::is(atty::Stream::Stderr)</code> or equivalent).</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 1.5: Multi-Span Diagnostic</h3>
+  <p>Extend the <code>Diagnostic</code> struct to support a list of <code>(Span, String)</code> "notes" — secondary spans with labels. When rendering, show each note below the main error with its own underline and label. For example:</p>
+  <pre><code><span class="kw">error</span>: cannot find value `x` in this scope
+  &rarr; src/main.l1:2:10
+   |
+ 2 |   <span class="kw">return</span> x;
+   |          ^ not found
+   |
+   = note: `x` is defined here:
+  &rarr; src/main.l1:1:14
+   |
+ 1 | <span class="kw">func</span> main(i32, x: i32) {
+   |                ^ defined here</code></pre>
+</div>
+
+<h2>What's Next</h2>
+
+<p>Now that we can track positions in source text, we can start the real work of compilation. The first phase of the pipeline is the <strong>lexer</strong>: breaking raw source text into a stream of meaningful tokens. With spans attached to every token, we'll be able to report precise error locations from the very first phase.</p>
+
+<p>That's the subject of <a href="02-lexing.html">Chapter 2: Lexing</a>.</p>
+
+<div class="chapter-nav">
+  <a href="00-introduction.html" class="prev">Previous: Introduction</a>
+  <a href="02-lexing.html" class="next">Next: Lexing</a>
+</div>
+
+</body>
+</html>

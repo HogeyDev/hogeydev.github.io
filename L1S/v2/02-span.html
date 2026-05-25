@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 2: Source Locations &mdash; Span &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="01-pipeline.html">&larr; Chapter 1</a> &ensp; Chapter 2: Source Locations &mdash; Span &ensp; <a href="03-tokens.html">Chapter 3 &rarr;</a></span>
+</div>
+
+<h2 id="span">2 &ensp; Source Locations &mdash; Span</h2>
+
+<h3>Why Every Token Needs a Location</h3>
+
+<p>When a compiler reports an error, it must tell the programmer exactly where the problem is. A message like "type mismatch" is useless; <code>"type mismatch at line 14:23"</code> is actionable. This requirement means that <strong>every token and every AST node must carry its source location</strong>&mdash;the position in the original source file where it came from.</p>
+
+<p>Source locations serve two purposes:</p>
+<ul>
+<li><strong>Error reporting</strong>: Pointing to the exact region of code that caused the error.</li>
+<li><strong>Debug info</strong>: Mapping generated code back to source lines (DWARF, line tables).</li>
+</ul>
+
+<p>Even a compiler that never produces errors (theoretically impossible) needs source locations for debugging output. They are the foundation of the entire diagnostic system.</p>
+
+<h3>Representing a Source Location</h3>
+
+<p>There are several common approaches to representing source locations:</p>
+
+<ul>
+<li><strong>Byte offsets only</strong> (e.g., <code>start: usize, end: usize</code>). Minimum information needed to extract the relevant source text. Used by many compilers internally. Fast, compact, but not human-readable.</li>
+<li><strong>Line and column only</strong>. Human-readable, but ambiguous if the same text appears on multiple lines. Cannot reliably extract the source snippet without reprocessing.</li>
+<li><strong>Byte offsets + line/col</strong> (the most common approach). Stores both machine-oriented offsets and human-oriented line/column numbers. Slightly larger struct but avoids recomputing line/col from offsets (which requires scanning the source).</li>
+<li><strong>File + offset</strong>. For multi-file compilers, you also need a file ID or path.</li>
+</ul>
+
+<p>Ignis uses the third approach: store byte offsets for machine use and line/col for display. This is the same design as rustc's <code>Span</code> (though rustc adds file IDs for incremental compilation).</p>
+
+<h3>Design Decisions for Span</h3>
+
+<p>A few questions every compiler designer must answer about source locations:</p>
+
+<p><strong>0-based vs 1-based?</strong> Line and column numbers are conventionalized as 1-based in virtually every editor and compiler. The first character of the first line is <code>line 1, col 1</code>. Byte offsets remain 0-based because they are array indices into the source string.</p>
+
+<p><strong>Start and end, or start and length?</strong> Storing <code>start</code> and <code>end</code> is simpler for slicing and error highlighting (you just do <code>&amp;source[span.start..span.end]</code>). Storing <code>start</code> and <code>length</code> is slightly more compact. Ignis uses start/end.</p>
+
+<p><strong>What about multi-file programs?</strong> L1S is currently a single-file compiler. If multi-file support were added, the <code>Span</code> would need a file ID field. The rest of the pipeline would be unaffected because spans are opaque&mdash;they are created by the lexer and consumed by the diagnostic system.</p>
+
+<p><strong>Copy vs move semantics?</strong> Source locations are tiny (four integers) and are copied constantly. The span type should be <code>Copy</code> to avoid unnecessary clone calls.</p>
+
+<h3>The Span Struct in Ignis</h3>
+
+<p>Ignis bundles these four values into a <code>Span</code> struct. Here is how the general pattern of a source location plays out in Ignis:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; the Span struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Span</span> {
+    <span class="kw">pub</span> start: <span class="ty">usize</span>,   <span class="cm">// byte offset of the first character</span>
+    <span class="kw">pub</span> end: <span class="ty">usize</span>,     <span class="cm">// byte offset past the last character</span>
+    <span class="kw">pub</span> line: <span class="ty">u32</span>,      <span class="cm">// 1-based line number</span>
+    <span class="kw">pub</span> col: <span class="ty">u32</span>,       <span class="cm">// 1-based column number</span>
+}</code></pre>
+
+<p>Each field has a precise role:</p>
+<ul>
+<li><code>start</code> and <code>end</code> are byte offsets into the source string. The substring <code>&amp;source[span.start..span.end]</code> gives you the exact source text for error underlining.</li>
+<li><code>line</code> and <code>col</code> are for human-readable messages. They are 1-based, matching common editor convention. <code>line: 1, col: 1</code> means "the very first character of the file."</li>
+</ul>
+
+<div class="callout tip">
+<strong>Why u32 for line/col?</strong> A file would need to be 4 billion lines or columns long to overflow a u32. usize for offsets is necessary because strings can be arbitrarily large on 64-bit systems. Using a smaller type for line/col keeps the struct compact (16 bytes vs 24 or 32).
+</div>
+
+<h3>Construction and Constants</h3>
+
+<p>The general pattern for creating spans is through constructors. Ignis provides two: one for real positions and one for synthetic/"unknown" positions:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; constructors</span></div>
+<pre><code><span class="kw">impl</span> <span class="ty">Span</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(start: <span class="ty">usize</span>, end: <span class="ty">usize</span>, line: <span class="ty">u32</span>, col: <span class="ty">u32</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Span</span> { start, end, line, col }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">dummy</span>() -&gt; <span class="ty">Self</span> {
+        <span class="ty">Span</span> { start: 0, end: 0, line: 0, col: 0 }
+    }
+}</code></pre>
+
+<p><code>Span::new</code> is the workhorse constructor, called by the lexer every time it emits a token. <code>Span::dummy</code> is useful for built-in or synthetic AST nodes that don't correspond to any source text&mdash;for example, implicit return values or compiler-generated temporaries. A dummy span has all zeros, which is distinguishable from any real span (real spans start at <code>line &ge; 1, col &ge; 1</code>).</p>
+
+<div class="callout warn">
+<strong>Never display a dummy span.</strong> Code that prints spans should check for dummy and display something like "&lt;built-in&gt;" instead of "0:0". Ignis currently does not have this check, so a bug that leaks a dummy span would display as the confusing "0:0".
+</div>
+
+<h3>Merging Spans: The <code>merge</code> Function</h3>
+
+<p>When constructing a larger AST node from smaller pieces, you often want the span of the whole node to cover all its children. For example, a binary expression <code>a + b</code> should have a span starting at <code>a</code> and ending at <code>b</code>, so error messages about the whole expression can underline both operands and the operator.</p>
+
+<p>This is called <strong>span merging</strong>, and it is a common utility:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; merge</span></div>
+<pre><code>    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">merge</span>(a: <span class="ty">Span</span>, b: <span class="ty">Span</span>) -&gt; <span class="ty">Span</span> {
+        <span class="kw">let</span> start = a.start.<span class="fn">min</span>(b.start);
+        <span class="kw">let</span> end = a.end.<span class="fn">max</span>(b.end);
+        <span class="kw">let</span> line = a.line.<span class="fn">min</span>(b.line);
+        <span class="kw">let</span> col = <span class="kw">if</span> a.line &lt; b.line { a.col } <span class="kw">else</span> { a.col.<span class="fn">min</span>(b.col) };
+        <span class="ty">Span</span> { start, end, line, col }
+    }</code></pre>
+
+<p>The logic:</p>
+<ul>
+<li><code>start</code> = the minimum of the two start offsets (earliest byte).</li>
+<li><code>end</code> = the maximum of the two end offsets (latest byte).</li>
+<li><code>line</code> = the minimum line number (earliest line).</li>
+<li><code>col</code> = uses the column from the span on the earlier line, or the minimum column if both are on the same line.</li>
+</ul>
+
+<p>This produces a span that covers both <code>a</code> and <code>b</code> and points to the beginning of the combined region. The column heuristic ensures that when merging two spans on different lines, the merged span shows the beginning of the construct (line 1's column) rather than a random later column.</p>
+
+<h3>Why Not Point to the Source Directly?</h3>
+
+<p>A common question is: why store byte offsets and line/col at all? Why not store a <code>&amp;str</code> slice directly (a pointer + length into the source)?</p>
+
+<p>The answer is <strong>lifetime complexity</strong>. A span is used pervasively throughout the compiler&mdash;in tokens, AST nodes, error messages, and the diagnostic printer. If spans borrowed the source string, every data structure that contains a span would need a lifetime parameter, making the code dramatically more complex. By storing concrete integers, spans are self-contained, <code>Copy</code>, and lifetime-free. The diagnostic printer can reconstruct the source text by indexing into the original <code>String</code> using the byte offsets.</p>
+
+<h3>Display Format</h3>
+
+<p>Spans are displayed in the standard <code>line:col</code> format familiar from every compiler:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; Display impl</span></div>
+<pre><code><span class="kw">impl</span> <span class="ty">fmt</span>::<span class="ty">Display</span> <span class="kw">for</span> <span class="ty">Span</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> <span class="ty">fmt</span>::<span class="ty">Formatter</span>&lt;'_&gt;) -&gt; <span class="ty">fmt</span>::<span class="ty">Result</span> {
+        <span class="fn">write!</span>(f, <span class="str">"{}:{}"</span>, <span class="kw">self</span>.line, <span class="kw">self</span>.col)
+    }
+}</code></pre>
+
+<p>This means <code>println!("{}", span)</code> prints <code>14:23</code>, which matches the format used by GCC, Clang, and rustc. The byte offsets are not displayed in user-facing messages but are used internally for source slicing in the diagnostic printer.</p>
+
+<h3>Derived Traits</h3>
+
+<p>The span type derives several traits to make it ergonomic to use throughout the compiler:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; derived traits</span></div>
+<pre><code><span class="pp">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">Copy</span>, <span class="ty">PartialEq</span>, <span class="ty">Eq</span>, <span class="ty">Hash</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Span</span> { <span class="cm">/* ... */</span> }</code></pre>
+
+<ul>
+<li><strong><code>Debug</code></strong>: Enables <code>{:?}</code> formatting for debugging.</li>
+<li><strong><code>Clone</code>, <code>Copy</code></strong>: Span is a small POD type (four integers). Making it <code>Copy</code> avoids explicit <code>.clone()</code> calls everywhere.</li>
+<li><strong><code>PartialEq</code>, <code>Eq</code></strong>: Lets you compare spans, useful in tests and for deduplication.</li>
+<li><strong><code>Hash</code></strong>: Enables using spans in hash-based data structures (e.g., caching results keyed by source location).</li>
+</ul>
+
+<div class="callout tip">
+<strong>Copy vs Clone for spans.</strong> Because a Span is just 4 integers (16 bytes on 64-bit), copying it is cheaper than a pointer chase for a heap-allocated equivalent. Some compilers use an interned span table (store all spans in an arena and pass indices), but that complexity is unnecessary at this scale. Copy semantics are the right call for a toy compiler.
+</div>
+
+<h3>How Spans Flow Through the Pipeline</h3>
+
+<p>Spans are created in the lexer and flow through every subsequent phase:</p>
+
+<ol>
+<li><strong>Lexer</strong> creates a <code>Span</code> for each token by recording <code>pos</code>, <code>line</code>, <code>col</code> before consuming the token and again after.</li>
+<li><strong>Parser</strong> attaches spans to AST nodes. It calls <code>Span::merge</code> to construct spans for composite nodes (e.g., a binary expression's span covers both operands and the operator).</li>
+<li><strong>Type checker</strong> uses spans from AST nodes when producing type error diagnostics.</li>
+<li><strong>Codegen</strong> does not use spans directly, but the diagnostic printer uses them to extract source lines for error messages.</li>
+</ol>
+
+<p>In short, a span is created once by the lexer and read-only throughout the rest of the compiler. This immutability is important: spans can be freely shared and copied without worrying about ownership or aliasing.</p>
+
+<h3>Testing Span</h3>
+
+<p>Span's logic is simple enough that tests are straightforward. Here is how the general pattern of testing a value type plays out in Ignis:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; tests</span></div>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_new</span>() {
+    <span class="kw">let</span> s = <span class="ty">Span</span>::<span class="fn">new</span>(10, 20, 5, 3);
+    <span class="fn">assert_eq!</span>(s.start, 10);
+    <span class="fn">assert_eq!</span>(s.end, 20);
+    <span class="fn">assert_eq!</span>(s.line, 5);
+    <span class="fn">assert_eq!</span>(s.col, 3);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_dummy</span>() {
+    <span class="kw">let</span> s = <span class="ty">Span</span>::<span class="fn">dummy</span>();
+    <span class="fn">assert_eq!</span>(s.start, 0);
+    <span class="fn">assert_eq!</span>(s.end, 0);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_merge</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(5, 10, 2, 3);
+    <span class="kw">let</span> b = <span class="ty">Span</span>::<span class="fn">new</span>(15, 25, 4, 7);
+    <span class="kw">let</span> m = <span class="ty">Span</span>::<span class="fn">merge</span>(a, b);
+    <span class="fn">assert_eq!</span>(m.start, 5);  <span class="cm">// min of 5, 15</span>
+    <span class="fn">assert_eq!</span>(m.end, 25);   <span class="cm">// max of 10, 25</span>
+    <span class="fn">assert_eq!</span>(m.line, 2);   <span class="cm">// min of 2, 4</span>
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_merge_same_line</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(5, 10, 2, 3);
+    <span class="kw">let</span> b = <span class="ty">Span</span>::<span class="fn">new</span>(12, 18, 2, 8);
+    <span class="kw">let</span> m = <span class="ty">Span</span>::<span class="fn">merge</span>(a, b);
+    <span class="fn">assert_eq!</span>(m.start, 5);
+    <span class="fn">assert_eq!</span>(m.end, 18);
+    <span class="fn">assert_eq!</span>(m.line, 2);  <span class="cm">// same line</span>
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_display</span>() {
+    <span class="kw">let</span> s = <span class="ty">Span</span>::<span class="fn">new</span>(0, 0, 3, 14);
+    <span class="fn">assert_eq!</span>(<span class="fn">format!</span>(<span class="str">"{}"</span>, s), <span class="str">"3:14"</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_copy</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(1, 2, 1, 1);
+    <span class="kw">let</span> b = a;  <span class="cm">// copy, not move</span>
+    <span class="fn">assert_eq!</span>(a, b);  <span class="cm">// both still valid</span>
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_merge_reverse_order</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(20, 30, 5, 10);
+    <span class="kw">let</span> b = <span class="ty">Span</span>::<span class="fn">new</span>(5, 15, 2, 1);
+    <span class="kw">let</span> m = <span class="ty">Span</span>::<span class="fn">merge</span>(a, b);
+    <span class="fn">assert_eq!</span>(m.start, 5);   <span class="cm">// b is earlier</span>
+    <span class="fn">assert_eq!</span>(m.end, 30);    <span class="cm">// a ends later</span>
+    <span class="cm">// Result: 5..30, line 2</span>
+}</code></pre>
+
+<p>The tests cover construction, dummy creation, merge (both same-line and cross-line), display formatting, copy semantics, and order-independence of merge. Running them:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- span</code></pre>
+
+<h3>Common Pitfalls with Source Locations</h3>
+
+<ol>
+<li><strong>Off-by-one in byte offsets</strong>: The <code>end</code> offset should be the byte <em>after</em> the last character, so that <code>&amp;source[start..end]</code> extracts a contiguous slice. If end points to the last character, the slice is one byte short.</li>
+<li><strong>Mixing 0-based and 1-based</strong>: Easy to accidentally display 0-based line numbers. Always initialize line/col to 1.</li>
+<li><strong>Forgetting to update line on newlines</strong>: The column must reset to 1 after a newline, not just keep incrementing.</li>
+<li><strong>Merge asymmetry</strong>: Make sure <code>Span::merge(a, b) == Span::merge(b, a)</code> for all valid inputs. The Ignis implementation is symmetric because it uses <code>min</code>/<code>max</code>.</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="01-pipeline.html">&larr; Chapter 1</a> &ensp; Chapter 2: Source Locations &mdash; Span &ensp; <a href="03-tokens.html">Chapter 3 &rarr;</a></span>
+</div>
+
+</body>
+</html>

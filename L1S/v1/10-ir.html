@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 10: Intermediate Representation &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="09-typeck.html">&larr; Chapter 9</a> &ensp; Chapter 10: Intermediate Representation &ensp; <a href="11-irbuild.html">Chapter 11 &rarr;</a></span>
+</div>
+
+<h2 id="ir">10 &ensp; Intermediate Representation</h2>
+
+<h3>Why an Intermediate Representation?</h3>
+
+<p>A compiler could translate AST directly to assembly. But that conflates two concerns: <em>what the program does</em> and <em>how the machine does it</em>. An Intermediate Representation (IR) sits between the AST and codegen, providing:</p>
+
+<ol>
+<li><strong>Machine independence</strong>: The same IR can be compiled to x86-64, ARM, or any backend.</li>
+<li><strong>Clear semantics</strong>: Every IR instruction has a single, well-defined meaning, unlike AST nodes which bundle multiple concerns.</li>
+<li><strong>Optimization</strong>: Transformations like constant folding and dead code elimination are easier on a flat instruction list than on a tree.</li>
+<li><strong>SSA form</strong>: The IR uses Static Single Assignment (via phis), which makes data-flow analysis straightforward.</li>
+</ol>
+
+<p>L1S uses a <strong>basic-block IR</strong> similar to LLVM's: a function is a graph of basic blocks, each containing a sequence of instructions terminated by a jump, branch, or return.</p>
+
+<div class="diagram" style="text-align:left;">
+<strong>Pipeline position of IR:</strong><br><br>
+<span class="box">AST</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Type Checker</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--orange);color:var(--orange);">IR Builder</span>
+<span class="arrow">&rarr;</span>
+<span class="box">IR Opt</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Codegen</span>
+</div>
+
+<h3>Core Types: VReg, IrBlockId, StringId</h3>
+
+<p>The IR uses three index-like handle types, each wrapping a <code>u32</code>:</p>
+
+<div class="code-header"><span>src/ir.rs &mdash; Handle types</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">VReg</span>(<span class="kw">pub</span> <span class="ty">u32</span>);       <span class="cm">// Virtual register: %0, %1, %2, ...</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrBlockId</span>(<span class="kw">pub</span> <span class="ty">u32</span>);  <span class="cm">// Basic block: bb0, bb1, bb2, ...</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">StringId</span>(<span class="kw">pub</span> <span class="ty">u32</span>);    <span class="cm">// String pool index</span></code></pre>
+
+<p>Each has a <code>Display</code> implementation for readable IR dump output:</p>
+
+<pre><code><span class="cm">// VReg displays as %0, %1, ...</span>
+<span class="kw">impl</span> <span class="ty">fmt::Display</span> <span class="kw">for</span> <span class="ty">VReg</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> <span class="ty">fmt::Formatter</span>) -&gt; <span class="ty">fmt::Result</span> {
+        <span class="fn">write!</span>(f, <span class="str">"&#37;{}"</span>, <span class="kw">self</span>.<span class="num">0</span>)   <span class="cm">// e.g., %3</span>
+    }
+}
+
+<span class="cm">// IrBlockId displays as bb0, bb1, ...</span>
+<span class="kw">impl</span> <span class="ty">fmt::Display</span> <span class="kw">for</span> <span class="ty">IrBlockId</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> <span class="ty">fmt::Formatter</span>) -&gt; <span class="ty">fmt::Result</span> {
+        <span class="fn">write!</span>(f, <span class="str">"bb{}"</span>, <span class="kw">self</span>.<span class="num">0</span>)  <span class="cm">// e.g., bb1</span>
+    }
+}</code></pre>
+
+<h3>Module, Function, and Block Structure</h3>
+
+<p>The top-level container is <code>IrModule</code>, holding functions, globals, and a string pool:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrModule</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> functions: <span class="ty">Vec</span>&lt;<span class="ty">IrFunction</span>&gt;,
+    <span class="kw">pub</span> globals: <span class="ty">Vec</span>&lt;<span class="ty">IrGlobal</span>&gt;,
+    <span class="kw">pub</span> strings: <span class="ty">Vec</span>&lt;<span class="ty">IrString</span>&gt;,
+}</code></pre>
+
+<p>An <code>IrFunction</code> contains a vector of basic blocks, with an explicit entry block pointer:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrFunction</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> return_type: <span class="ty">TypeId</span>,
+    <span class="kw">pub</span> params: <span class="ty">Vec</span>&lt;<span class="ty">IrParam</span>&gt;,
+    <span class="kw">pub</span> blocks: <span class="ty">Vec</span>&lt;<span class="ty">IrBlock</span>&gt;,
+    <span class="kw">pub</span> num_vregs: <span class="ty">u32</span>,
+    <span class="kw">pub</span> entry_block: <span class="ty">IrBlockId</span>,
+}</code></pre>
+
+<p>Each parameter is assigned a virtual register:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrParam</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">TypeId</span>,
+    <span class="kw">pub</span> vreg: <span class="ty">VReg</span>,
+}</code></pre>
+
+<p>An <code>IrBlock</code> is the core unit: a sequence of instructions, optionally with phi nodes, ending with a terminator:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrBlock</span> {
+    <span class="kw">pub</span> id: <span class="ty">IrBlockId</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> phis: <span class="ty">Vec</span>&lt;<span class="ty">IrPhi</span>&gt;,
+    <span class="kw">pub</span> instrs: <span class="ty">Vec</span>&lt;<span class="ty">IrInstr</span>&gt;,
+    <span class="kw">pub</span> terminator: <span class="ty">IrTerminator</span>,
+}</code></pre>
+
+<h3>IrInstr &mdash; Every Instruction Variant</h3>
+
+<p>There are 36 instruction variants, organized into five categories. The first operand is always the destination virtual register (except for <code>Store</code> and <code>MemCopy</code>):</p>
+
+<div class="code-header"><span>src/ir.rs &mdash; Full IrInstr enum</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">IrInstr</span> {
+    <span class="cm">// === Memory ===</span>
+    <span class="fn">Alloc</span>(<span class="ty">VReg</span>, <span class="ty">TypeId</span>),       <span class="cm">// Allocate stack slot</span>
+    <span class="fn">Load</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>),          <span class="cm">// Load value from pointer</span>
+    <span class="fn">Store</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>),         <span class="cm">// Store value to pointer</span>
+    <span class="fn">MovImm</span>(<span class="ty">VReg</span>, <span class="ty">u64</span>, <span class="ty">TypeId</span>), <span class="cm">// Move immediate constant into register</span>
+
+    <span class="cm">// === Arithmetic (3-address, dst = lhs op rhs) ===</span>
+    <span class="fn">Add</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),    <span class="cm">// dst = lhs + rhs</span>
+    <span class="fn">Sub</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),    <span class="cm">// dst = lhs - rhs</span>
+    <span class="fn">Mul</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),    <span class="cm">// dst = lhs * rhs</span>
+    <span class="fn">SDiv</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),   <span class="cm">// dst = lhs / rhs (signed)</span>
+    <span class="fn">UDiv</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),   <span class="cm">// dst = lhs / rhs (unsigned)</span>
+    <span class="fn">SRem</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),   <span class="cm">// dst = lhs % rhs (signed)</span>
+    <span class="fn">URem</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),   <span class="cm">// dst = lhs % rhs (unsigned)</span>
+    <span class="fn">And</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &amp; rhs (bitwise)</span>
+    <span class="fn">Or</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),      <span class="cm">// dst = lhs | rhs (bitwise)</span>
+    <span class="fn">Xor</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs ^ rhs (bitwise)</span>
+    <span class="fn">Shl</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &lt;&lt; rhs</span>
+    <span class="fn">Shr</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &gt;&gt; rhs (arithmetic/signed)</span>
+    <span class="fn">Ushr</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),    <span class="cm">// dst = lhs &gt;&gt; rhs (logical/unsigned)</span>
+
+    <span class="cm">// === Unary ===</span>
+    <span class="fn">Neg</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>),           <span class="cm">// dst = -src (arithmetic negation)</span>
+    <span class="fn">Not</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>),           <span class="cm">// dst = !src (logical not, bool only)</span>
+    <span class="fn">BitNot</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>),        <span class="cm">// dst = ~src (bitwise not)</span>
+
+    <span class="cm">// === Comparison (all produce a bool) ===</span>
+    <span class="fn">Eq</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),      <span class="cm">// dst = lhs == rhs</span>
+    <span class="fn">Ne</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),      <span class="cm">// dst = lhs != rhs</span>
+    <span class="fn">Slt</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &lt; rhs (signed)</span>
+    <span class="fn">Sgt</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &gt; rhs (signed)</span>
+    <span class="fn">Sle</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &lt;= rhs (signed)</span>
+    <span class="fn">Sge</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &gt;= rhs (signed)</span>
+    <span class="fn">Ult</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &lt; rhs (unsigned)</span>
+    <span class="fn">Ugt</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &gt; rhs (unsigned)</span>
+    <span class="fn">Ule</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &lt;= rhs (unsigned)</span>
+    <span class="fn">Uge</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>),     <span class="cm">// dst = lhs &gt;= rhs (unsigned)</span>
+
+    <span class="cm">// === Conversion ===</span>
+    <span class="fn">Zext</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">TypeId</span>),  <span class="cm">// Zero-extend to wider type</span>
+    <span class="fn">Sext</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">TypeId</span>),  <span class="cm">// Sign-extend to wider type</span>
+    <span class="fn">Trunc</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">TypeId</span>), <span class="cm">// Truncate to narrower type</span>
+    <span class="fn">PtrToInt</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">TypeId</span>), <span class="cm">// Bitcast pointer to integer</span>
+    <span class="fn">IntToPtr</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">TypeId</span>), <span class="cm">// Bitcast integer to pointer</span>
+
+    <span class="cm">// === Aggregate / Bulk Memory ===</span>
+    <span class="fn">Gep</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">u64</span>), <span class="cm">// Get element pointer (base, index, stride)</span>
+    <span class="fn">MemCopy</span>(<span class="ty">VReg</span>, <span class="ty">VReg</span>, <span class="ty">u64</span>),  <span class="cm">// Copy memory (dst ptr, src ptr, size)</span>
+
+    <span class="cm">// === Call ===</span>
+    <span class="fn">Call</span>(<span class="ty">VReg</span>, <span class="ty">String</span>, <span class="ty">Vec</span>&lt;<span class="ty">VReg</span>&gt;), <span class="cm">// Call function (dest, name, args)</span>
+}</code></pre>
+
+<h3>Semantic Categories Explained</h3>
+
+<p><strong>Memory instructions</strong> (<code>Alloc</code>, <code>Load</code>, <code>Store</code>, <code>MovImm</code>): These manage the interaction between values and memory. <code>Alloc</code> reserves stack space; <code>Load</code>/<code>Store</code> transfer values between registers and memory; <code>MovImm</code> loads a compile-time constant.</p>
+
+<p><strong>Arithmetic</strong> (<code>Add</code>, <code>Sub</code>, <code>Mul</code>, etc.): Three-address operations where the first vreg is the destination and the remaining two are sources. The signed/unsigned split for division and remainder matters because x86-64 has different instructions (<code>idiv</code> vs. <code>div</code>).</p>
+
+<p><strong>Comparison</strong> (<code>Eq</code>, <code>Slt</code>, <code>Ult</code>, etc.): Each comparison produces a boolean (0 or 1) in the destination register. The signed/unsigned variants reflect different x86-64 condition codes (<code>setl</code> vs. <code>setb</code>).</p>
+
+<p><strong>Conversion</strong> (<code>Zext</code>, <code>Sext</code>, <code>Trunc</code>): These change the bit width of a value. <code>Zext</code> zero-extends (for unsigned types), <code>Sext</code> sign-extends (for signed types), <code>Trunc</code> truncates to a narrower type. <code>PtrToInt</code>/<code>IntToPtr</code> are reinterpretation casts.</p>
+
+<p><strong>Gep and MemCopy</strong>: <code>Gep</code> computes a pointer to an array element: <code>dest = base + index * stride</code>. It is a pointer arithmetic instruction, not a load/store. <code>MemCopy</code> copies a fixed-size block of memory (for struct assignment).</p>
+
+<h3>IrTerminator &mdash; How Blocks End</h3>
+
+<p>Every basic block ends with exactly one terminator. There are only three:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">IrTerminator</span> {
+    <span class="fn">Jump</span>(<span class="ty">IrBlockId</span>),                    <span class="cm">// Unconditional jump to target block</span>
+    <span class="fn">Branch</span>(<span class="ty">VReg</span>, <span class="ty">IrBlockId</span>, <span class="ty">IrBlockId</span>), <span class="cm">// Branch on condition</span>
+    <span class="fn">Return</span>(<span class="ty">VReg</span>),                        <span class="cm">// Return value from function</span>
+}</code></pre>
+
+<ul>
+<li><strong>Jump</strong>: Always goes to the target block. Used for straight-line control flow (e.g., skip over else branch).</li>
+<li><strong>Branch</strong>: If condition vreg is non-zero, go to the first (true) block; otherwise go to the second (false) block. Used for <code>if</code> and <code>while</code>.</li>
+<li><strong>Return</strong>: Exit the function with the given vreg as the return value. A void function returns <code>%0</code> (a dummy zero).</li>
+</ul>
+
+<h3>SSA and Phi Nodes</h3>
+
+<p>The IR is in SSA form: every virtual register is defined exactly once. When different control flow paths produce different values for the same variable, an <code>IrPhi</code> node selects the correct one based on which predecessor block we arrived from:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrPhi</span> {
+    <span class="kw">pub</span> dest: <span class="ty">VReg</span>,
+    <span class="kw">pub</span> type_: <span class="ty">TypeId</span>,
+    <span class="kw">pub</span> sources: <span class="ty">Vec</span>&lt;(<span class="ty">VReg</span>, <span class="ty">IrBlockId</span>)&gt;,
+}</code></pre>
+
+<p>Semantically: <code>%3 = phi(bb0: %1, bb1: %2)</code> means "if the previous block was <code>bb0</code>, <code>%3 = %1</code>; if from <code>bb1</code>, <code>%3 = %2</code>." The codegen pass implements this by ensuring both predecessors place their value in the same physical location (register or stack slot).</p>
+
+<h3>The <code>dest()</code> Method</h3>
+
+<p>Most instructions produce a result in a destination vreg. The <code>dest()</code> method provides a uniform way to query this for optimization passes:</p>
+
+<div class="code-header"><span>src/ir.rs &mdash; dest() method</span></div>
+<pre><code><span class="kw">impl</span> <span class="ty">IrInstr</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">dest</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">VReg</span> {
+        <span class="kw">match</span> <span class="kw">self</span> {
+            <span class="ty">IrInstr::Alloc</span>(d, _)
+            | <span class="ty">IrInstr::Load</span>(d, _)
+            | <span class="ty">IrInstr::Add</span>(d, _, _) | <span class="ty">IrInstr::Sub</span>(d, _, _)
+            | <span class="ty">IrInstr::Mul</span>(d, _, _) | <span class="ty">IrInstr::SDiv</span>(d, _, _)
+            | <span class="ty">IrInstr::UDiv</span>(d, _, _) | <span class="ty">IrInstr::SRem</span>(d, _, _)
+            | <span class="ty">IrInstr::URem</span>(d, _, _) | <span class="ty">IrInstr::And</span>(d, _, _)
+            | <span class="ty">IrInstr::Or</span>(d, _, _) | <span class="ty">IrInstr::Xor</span>(d, _, _)
+            | <span class="ty">IrInstr::Shl</span>(d, _, _) | <span class="ty">IrInstr::Shr</span>(d, _, _)
+            | <span class="ty">IrInstr::Ushr</span>(d, _, _) | <span class="ty">IrInstr::Neg</span>(d, _)
+            | <span class="ty">IrInstr::Not</span>(d, _) | <span class="ty">IrInstr::BitNot</span>(d, _)
+            | <span class="ty">IrInstr::Eq</span>(d, _, _) | <span class="ty">IrInstr::Ne</span>(d, _, _)
+            | <span class="ty">IrInstr::Slt</span>(d, _, _) | <span class="ty">IrInstr::Sgt</span>(d, _, _)
+            | <span class="ty">IrInstr::Sle</span>(d, _, _) | <span class="ty">IrInstr::Sge</span>(d, _, _)
+            | <span class="ty">IrInstr::Ult</span>(d, _, _) | <span class="ty">IrInstr::Ugt</span>(d, _, _)
+            | <span class="ty">IrInstr::Ule</span>(d, _, _) | <span class="ty">IrInstr::Uge</span>(d, _, _)
+            | <span class="ty">IrInstr::Zext</span>(d, _, _) | <span class="ty">IrInstr::Sext</span>(d, _, _)
+            | <span class="ty">IrInstr::Trunc</span>(d, _, _) | <span class="ty">IrInstr::PtrToInt</span>(d, _, _)
+            | <span class="ty">IrInstr::IntToPtr</span>(d, _, _) | <span class="ty">IrInstr::Gep</span>(d, _, _, _)
+            | <span class="ty">IrInstr::Call</span>(d, _, _) | <span class="ty">IrInstr::MovImm</span>(d, _, _) =&gt; *d,
+            <span class="ty">IrInstr::Store</span>(_, _) | <span class="ty">IrInstr::MemCopy</span>(_, _, _) =&gt; {
+                <span class="fn">panic!</span>(<span class="str">"Store/MemCopy has no dest"</span>)
+            }
+        }
+    }
+}</code></pre>
+
+<p>This is used by optimization passes (e.g., dead code elimination) and register allocation to find all definitions without matching on every variant.</p>
+
+<h3>IrGlobal, IrString, IrConstant</h3>
+
+<p>Globals are named static variables at the module level:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrGlobal</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">TypeId</span>,
+    <span class="kw">pub</span> init: <span class="ty">Option</span>&lt;<span class="ty">IrConstant</span>&gt;,
+}</code></pre>
+
+<p>Strings are pooled to avoid duplicates and stored as raw byte arrays:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrString</span> {
+    <span class="kw">pub</span> id: <span class="ty">StringId</span>,
+    <span class="kw">pub</span> value: <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt;,
+}
+
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">IrConstant</span> {
+    <span class="fn">Int</span>(<span class="ty">u64</span>, <span class="ty">TypeId</span>),   <span class="cm">// Integer constant with type</span>
+    <span class="fn">String</span>(<span class="ty">StringId</span>),   <span class="cm">// Reference to pooled string</span>
+    <span class="fn">Zero</span>(<span class="ty">TypeId</span>),       <span class="cm">// Zero-initialized value of given type</span>
+}</code></pre>
+
+<h3>Example IR Dump</h3>
+
+<p>Here is what the IR looks like for a simple program. The IR builder produces this structure, and a hypothetical printer would output:</p>
+
+<div class="diagram" style="text-align:left;">
+<strong>Source:</strong> <code>func main(i32) { return 1+2; }</code><br><br>
+<strong>IR output:</strong><br><br>
+<span style="color:var(--orange);">function</span> main(i32) {<br>
+<span style="padding-left:1.5rem;color:var(--fg2);">// entry: bb0</span><br>
+<span style="padding-left:1.5rem;color:var(--red);">bb0</span> <span style="color:var(--fg2);">(entry):</span><br>
+<span style="padding-left:3rem;color:var(--purple);">%0</span> = <span style="color:var(--blue);">Alloc</span> i32              <span style="color:var(--fg2);">// allocate return slot (unused)</span><br>
+<span style="padding-left:3rem;color:var(--purple);">%1</span> = <span style="color:var(--blue);">MovImm</span> <span class="num">1</span> : i32          <span style="color:var(--fg2);">// load constant 1</span><br>
+<span style="padding-left:3rem;color:var(--purple);">%2</span> = <span style="color:var(--blue);">MovImm</span> <span class="num">2</span> : i32          <span style="color:var(--fg2);">// load constant 2</span><br>
+<span style="padding-left:3rem;color:var(--purple);">%3</span> = <span style="color:var(--blue);">Add</span> %1, %2                 <span style="color:var(--fg2);">// %3 = 1 + 2</span><br>
+<span style="padding-left:2rem;color:var(--blue);">Return</span> %3                       <span style="color:var(--fg2);">// return %3 (value 3)</span><br>
+}</div>
+
+<p>Even this trivial example shows the IR at work: the expression <code>1+2</code> is decomposed into three instructions, each with a single, clear meaning. An optimizer could constant-fold this to <code>MovImm %3, 3</code> and eliminate <code>%1</code> and <code>%2</code>.</p>
+
+<h3>Testing the IR</h3>
+
+<p>The IR test suite covers construction of every data structure:</p>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_vreg_new</span>() {
+    <span class="kw">let</span> r = <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">5</span>);
+    <span class="fn">assert_eq!</span>(r.<span class="fn">index</span>(), <span class="num">5</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_vreg_display</span>() {
+    <span class="fn">assert_eq!</span>(<span class="fn">format!</span>(<span class="str">"{}"</span>, <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">3</span>)), <span class="str">"%3"</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_ir_module</span>() {
+    <span class="kw">let</span> m = <span class="ty">IrModule</span> {
+        name: <span class="str">"test"</span>.<span class="fn">into</span>(), functions: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        globals: <span class="ty">Vec</span>::<span class="fn">new</span>(), strings: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+    };
+    <span class="fn">assert_eq!</span>(m.name, <span class="str">"test"</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_ir_function</span>() {
+    <span class="kw">let</span> f = <span class="ty">IrFunction</span> {
+        name: <span class="str">"main"</span>.<span class="fn">into</span>(), return_type: <span class="ty">TypeId</span>::<span class="fn">new</span>(<span class="num">0</span>),
+        params: <span class="ty">Vec</span>::<span class="fn">new</span>(), blocks: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        num_vregs: <span class="num">0</span>, entry_block: <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">0</span>),
+    };
+    <span class="fn">assert_eq!</span>(f.name, <span class="str">"main"</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_instr_dest</span>() {
+    <span class="kw">let</span> add = <span class="ty">IrInstr::Add</span>(<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">0</span>), <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">1</span>), <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">2</span>));
+    <span class="fn">assert_eq!</span>(add.<span class="fn">dest</span>(), <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">0</span>));
+
+    <span class="kw">let</span> call = <span class="ty">IrInstr::Call</span>(<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">3</span>), <span class="str">"foo"</span>.<span class="fn">into</span>(), <span class="fn">vec!</span>[<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">1</span>)]);
+    <span class="fn">assert_eq!</span>(call.<span class="fn">dest</span>(), <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">3</span>));
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_branch_terminator</span>() {
+    <span class="kw">let</span> t = <span class="ty">IrTerminator::Branch</span>(<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">0</span>), <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">1</span>), <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">2</span>));
+    <span class="kw">match</span> t {
+        <span class="ty">IrTerminator::Branch</span>(c, a, b) =&gt; {
+            <span class="fn">assert_eq!</span>(c, <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">0</span>));
+            <span class="fn">assert_eq!</span>(a, <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">1</span>));
+            <span class="fn">assert_eq!</span>(b, <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">2</span>));
+        }
+        _ =&gt; <span class="fn">panic!</span>(<span class="str">"expected Branch"</span>),
+    }
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_phi_node</span>() {
+    <span class="kw">let</span> phi = <span class="ty">IrPhi</span> {
+        dest: <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">0</span>), type_: <span class="ty">TypeId</span>::<span class="fn">new</span>(<span class="num">0</span>),
+        sources: <span class="fn">vec!</span>[(<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">1</span>), <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">0</span>)),
+                          (<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">2</span>), <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">1</span>))],
+    };
+    <span class="fn">assert_eq!</span>(phi.sources.<span class="fn">len</span>(), <span class="num">2</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_ir_constant</span>() {
+    <span class="kw">let</span> c = <span class="ty">IrConstant::Int</span>(<span class="num">42</span>, <span class="ty">TypeId</span>::<span class="fn">new</span>(<span class="num">0</span>));
+    <span class="kw">match</span> c {
+        <span class="ty">IrConstant::Int</span>(v, _) =&gt; <span class="fn">assert_eq!</span>(v, <span class="num">42</span>),
+        _ =&gt; <span class="fn">panic!</span>(<span class="str">"expected Int"</span>),
+    }
+}</code></pre>
+
+<p>To run IR tests:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- ir
+</code></pre>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+<li><strong>Store/MemCopy have no destination</strong>: Unlike every other instruction, <code>Store</code> and <code>MemCopy</code> do not produce a value. The <code>dest()</code> method panics on these. Optimization passes must handle this case explicitly.</li>
+<li><strong>Signed vs. unsigned comparisons</strong>: Using <code>Slt</code> when <code>Ult</code> is intended will give wrong results for negative numbers (e.g., <code>-1 as u32</code> &gt; <code>1 as u32</code> in unsigned, but <code>-1 &lt; 1</code> in signed). The type checker must preserve signedness through to the IR.</li>
+<li><strong>Missing phis for SSA correctness</strong>: If multiple control flow paths assign to the same variable, a phi node is required. The IR builder must insert phis at join points (e.g., after if/else).</li>
+<li><strong>VReg numbering mismatch</strong>: <code>num_vregs</code> in <code>IrFunction</code> must be greater than the highest vreg index. Off-by-one errors here cause register allocation to miss the last register.</li>
+</ol>
+
+<div class="callout info">
+<strong>Why 36 instruction variants?</strong> This is a minimal set that can express all of L1S's language features while mapping cleanly to x86-64 instructions. In contrast, LLVM has hundreds of instruction opcodes. The simplicity of L1S's IR makes it easy to reason about and transform, at the cost of some expressiveness.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="09-typeck.html">&larr; Chapter 9</a> &ensp; Chapter 10: Intermediate Representation &ensp; <a href="11-irbuild.html">Chapter 11 &rarr;</a></span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 17: Conclusion &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="16-diag.html">&larr; Chapter 16</a> &ensp; Chapter 17: Conclusion</span>
+</div>
+
+<h2 id="conclusion">17 &ensp; Conclusion</h2>
+
+<h3>What You've Built</h3>
+
+<p>You've built a complete compiler that takes L1S source code and produces a working x86-64 executable. The compiler spans every stage of the classic compilation pipeline, from reading raw source text to emitting NASM assembly and invoking the assembler and linker.</p>
+
+<p>Let's reflect on what each module does and how the pieces fit together.</p>
+
+<h3>Files at a Glance</h3>
+
+<table class="file-table">
+<tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+<tr><td><code>main.rs</code></td><td>110</td><td>Compiler driver: orchestrates all stages, parses CLI args, invokes nasm &amp; cc</td></tr>
+<tr><td><code>span.rs</code></td><td>95</td><td>Source location (byte offset, line, column); merge, display, dummy</td></tr>
+<tr><td><code>token.rs</code></td><td>&mdash;</td><td>Token enum with all variants, keyword_token dispatch</td></tr>
+<tr><td><code>lexer.rs</code></td><td>&mdash;</td><td>Lexer: CharIndices-based, error-recovering, full string/char/number support</td></tr>
+<tr><td><code>ast.rs</code></td><td>&mdash;</td><td>AST nodes: Program, Func, Stmt, Expr, Type, Pattern</td></tr>
+<tr><td><code>parser.rs</code></td><td>&mdash;</td><td>Recursive-descent Pratt parser with error recovery</td></tr>
+<tr><td><code>diag.rs</code></td><td>261</td><td>Diagnostics system: Severity, Diagnostic (builder), Diagnostics (collector), rustc-style formatting</td></tr>
+<tr><td><code>types.rs</code></td><td>418</td><td>TypeArena: interned type system with size/align queries, struct/enum support</td></tr>
+<tr><td><code>symbol.rs</code></td><td>&mdash;</td><td>Symbol table with scopes, name resolution</td></tr>
+<tr><td><code>typeck.rs</code></td><td>&mdash;</td><td>Type checker: bidirectional type inference, unification, annotations</td></tr>
+<tr><td><code>ir.rs</code></td><td>326</td><td>IR data structures: VReg, IrBlock, IrInstr, IrTerminator, IrModule</td></tr>
+<tr><td><code>ir_build.rs</code></td><td>&mdash;</td><td>IR builder: AST to IR lowering with basic block construction</td></tr>
+<tr><td><code>ir_opt.rs</code></td><td>&mdash;</td><td>IR optimizer: dead code elimination, constant folding, block merging</td></tr>
+<tr><td><code>abi.rs</code></td><td>32</td><td>ABI helpers: type_size, type_align, stack_align (delegates to TypeArena)</td></tr>
+<tr><td><code>regalloc.rs</code></td><td>92</td><td>StackAllocator: assigns each VReg a stack slot offset, computes frame size</td></tr>
+<tr><td><code>codegen.rs</code></td><td>330</td><td>NASM code generation: .text, .rodata, .data sections</td></tr>
+</table>
+
+<p>All 16 Rust source files total well over 2,000 lines of working compiler code. The compiler's <code>mod</code> declarations in <code>main.rs</code> show the complete dependency graph:</p>
+
+<pre><code><span class="kw">mod</span> span;
+<span class="kw">mod</span> token;
+<span class="kw">mod</span> diag;
+<span class="kw">mod</span> lexer;
+<span class="kw">mod</span> ast;
+<span class="kw">mod</span> parser;
+<span class="kw">mod</span> types;
+<span class="kw">mod</span> symbol;
+<span class="kw">mod</span> typeck;
+<span class="kw">mod</span> ir;
+<span class="kw">mod</span> ir_build;
+<span class="kw">mod</span> ir_opt;
+<span class="kw">mod</span> abi;
+<span class="kw">mod</span> regalloc;
+<span class="kw">mod</span> codegen;</code></pre>
+
+<h3>Pipeline Recap</h3>
+
+<p>The compilation pipeline flows through 9 distinct stages:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>L1S Compilation Pipeline:</strong><br><br>
+<pre style="text-align:left;background:var(--bg3);border:none;padding:0.75rem;margin:0;">
+<span style="color:var(--orange)">Source (.is)</span>
+  │
+  ▼ 1. <span style="color:var(--blue)">Lexer</span> (src/lexer.rs)
+  │   Characters → Tokens
+  │   Error recovery: records bad chars, keeps going
+  ▼ 2. <span style="color:var(--blue)">Parser</span> (src/parser.rs)
+  │   Tokens → AST
+  │   Recursive descent + Pratt for expressions
+  ▼ 3. <span style="color:var(--blue)">Type Checker</span> (src/typeck.rs)
+  │   AST → Typed AST
+  │   Bidirectional inference, unification
+  ▼ 4. <span style="color:var(--blue)">IR Builder</span> (src/ir_build.rs)
+  │   Typed AST → IR (basic blocks, vregs)
+  │   Lowers structured control flow to branches
+  ▼ 5. <span style="color:var(--blue)">IR Optimizer</span> (src/ir_opt.rs)
+  │   IR → Optimized IR
+  │   Dead code elimination, constant folding
+  ▼ 6. <span style="color:var(--blue)">Register Allocator</span> (src/regalloc.rs)
+  │   Assigns stack slots to virtual registers
+  │   Computes total stack frame size
+  ▼ 7. <span style="color:var(--blue)">Code Generator</span> (src/codegen.rs)
+  │   IR → NASM Assembly (.asm)
+  │   x86-64, SysV ABI
+  ▼ 8. <span style="color:var(--blue)">Assembler</span> (nasm -f elf64)
+  │   .asm → ELF64 Object File (.o)
+  ▼ 9. <span style="color:var(--blue)">Linker</span> (cc -no-pie)
+      .o → Executable binary
+      Links C runtime, produces runnable program</pre>
+</div>
+
+<p>Each stage consumes the output of the previous stage and produces input for the next. The pipeline is linear &mdash; there are no back-edges for optimization feedback, though the IR optimizer does perform multiple passes over the IR in place.</p>
+
+<h3>What Makes L1S Special</h3>
+
+<ul>
+<li><strong>Simplicity over performance</strong>: The compiler prioritizes clear, readable code over optimization. The register allocator is a naive stack-based approach, yet it produces working code.</li>
+<li><strong>Error resilience</strong>: Both the lexer and parser continue after errors, maximizing the number of issues reported per compilation.</li>
+<li><strong>rustc-style diagnostics</strong>: The error messages include source snippets with underline carets and notes, providing a developer-friendly experience.</li>
+<li><strong>Real x86-64 code</strong>: This is not a toy VM or bytecode interpreter &mdash; L1S generates real assembly that runs directly on the CPU.</li>
+<li><strong>Self-contained</strong>: The entire compiler is under 2,500 lines of Rust, with zero dependencies beyond the standard library and external tools (NASM, cc).</li>
+</ul>
+
+<h3>Future Directions</h3>
+
+<p>L1S is a teaching compiler, but there are many directions you could take it:</p>
+
+<h4>1. Register Allocation Improvements</h4>
+<p>The current <code>StackAllocator</code> spills every virtual register to the stack. A graph-coloring register allocator (like Chaitin's algorithm) would keep values in physical registers, dramatically reducing memory traffic. The IR already has the framework for liveness analysis via <code>VReg</code> and basic blocks.</p>
+
+<h4>2. Optimization Passes</h4>
+<p>The <code>ir_opt</code> module is minimal. You could add:</p>
+<ul>
+<li><strong>Constant propagation</strong>: Replace <code>MovImm</code> + arithmetic with folded results.</li>
+<li><strong>Common subexpression elimination</strong>: Reuse computation results.</li>
+<li><strong>Loop invariant code motion</strong>: Hoist computations out of loops.</li>
+<li><strong>Tail call optimization</strong>: Convert <code>return func()</code> to a jump.</li>
+</ul>
+
+<h4>3. More Type Inference</h4>
+<p>The current type checker uses bidirectional inference but requires explicit type annotations in many places. Adding Hindley-Milner type inference (or even full unification with let-polymorphism) would make the language much more expressive.</p>
+
+<h4>4. Standard Library</h4>
+<p>L1S currently has no standard library. Building one with I/O, memory allocation, string manipulation, and data structures would make it practical for real programs. Since L1S can call external C functions via <code>extern</code>, you can wrap libc functions.</p>
+
+<h4>5. Self-Hosting</h4>
+<p>The ultimate milestone: write an L1S compiler in L1S itself. This requires adding enough features (strings, file I/O, arrays, structs with methods) to make the compiler source code translatable. Self-hosting is the definitive proof that a language is "real."</p>
+
+<h4>6. Other Targets</h4>
+<p>The code generator is the only architecture-specific component. With a different backend, L1S could target ARM64 (Apple Silicon, Raspberry Pi), RISC-V, or WebAssembly. The IR is largely architecture-neutral.</p>
+
+<h4>7. Incremental Compilation</h4>
+<p>For large projects, recompiling everything on every change is wasteful. A module system with separate compilation and caching would make iteration faster.</p>
+
+<h3>Final Words</h3>
+
+<p>Building a compiler is one of the most rewarding projects in software engineering. It touches every part of computer science: formal languages, data structures, algorithms, architecture, and systems programming. L1S gives you a complete, working compiler that you can study, modify, and extend.</p>
+
+<p>The code is deliberately kept small and readable. Every module is independent enough to be understood in isolation, yet interconnected enough to form a real pipeline. If you've followed along through all 17 chapters, you now understand how a high-level programming language is translated into machine code.</p>
+
+<p>The journey from <code>fn main() { return 42; }</code> to a running executable involves lexing, parsing, type checking, IR construction, optimization, register allocation, code generation, assembly, and linking. L1S does all of this in about 2,500 lines of Rust.</p>
+
+<p>What will you build next?</p>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="16-diag.html">&larr; Chapter 16</a> &ensp; Chapter 17: Conclusion</span>
+</div>
+
+</body>
+</html>

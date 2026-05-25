@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 13: Register Allocation &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="12-iropt.html">&larr; Chapter 12</a> &ensp; Chapter 13: Register Allocation &ensp; <a href="14-codegen.html">Chapter 14 &rarr;</a></span>
+</div>
+
+<h2 id="regalloc">13 &ensp; Register Allocation</h2>
+
+<h3>The Register Allocation Problem</h3>
+
+<p><strong>Register allocation</strong> is the problem of mapping an unlimited number of virtual registers to a fixed set of physical CPU registers. The IR builder freely creates as many vregs as it needs &mdash; a single function might use hundreds. But x86-64 has only 16 general-purpose registers (and many are reserved for specific purposes: stack pointer, frame pointer, etc.).</p>
+
+<p>When there aren't enough physical registers to hold all live values simultaneously, some values must be <strong>spilled</strong> to the stack. Spilling means storing a value to memory when the register is needed for something else, then loading it back when it's needed again. Every spill adds memory traffic, so good register allocation minimizes spills.</p>
+
+<div class="diagram">
+<span class="box" style="border-color:var(--purple);">Unlimited vregs<br>%0, %1, %2, ... %N</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--green);">Register<br>Allocator</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--cyan);">16 physical regs<br>rax, rbx, rcx, ...</span>
+<br><br>
+<span class="arrow">&darr;</span>
+<span class="box" style="border-color:var(--red);">Spill slots on stack<br>[rbp-8], [rbp-16], ...</span>
+</div>
+
+<h3>Design Space: Allocation Strategies</h3>
+
+<p>Register allocation is a well-studied NP-complete problem (it's equivalent to graph coloring). Real compilers use a variety of heuristics:</p>
+
+<ul>
+<li><strong>Graph coloring</strong>: Build an interference graph where edges connect vregs that are simultaneously live. Color the graph with K colors (K = number of registers). If coloring fails, spill a node and retry. Used by GCC, LLVM (-O2). Optimal but complex.</li>
+<li><strong>Linear scan</strong>: Sort live ranges by their start point. Scan forward, assigning registers. When a register is needed and none is free, spill the vreg whose next use is farthest. Used by LuaJIT, many JIT compilers. Fast, good results.</li>
+<li><strong>Spill everything</strong>: Every vreg gets its own stack slot. No interference analysis, no coloring, no scanning. Trivially correct, O(1) per vreg. Maximum memory traffic, but the codegen is straightforward: every instruction reads operands from the stack and writes results to the stack.</li>
+</ul>
+
+<div class="callout warn">
+<strong>Tradeoff</strong>: Graph coloring produces the best code but is the hardest to implement and debug. Linear scan is a good middle ground. Spill-everything is the simplest correct allocator &mdash; it's what you write when you want a working compiler quickly and performance is secondary.
+</div>
+
+<h3>Ignis: The Spill-Everything StackAllocator</h3>
+
+<p>Ignis uses the <strong>spill-everything</strong> approach. Every vreg &mdash; whether it's a local variable, a temporary computation result, or a parameter &mdash; gets its own dedicated slot on the stack. The allocator never attempts to keep values in registers across instructions. Instead, it assigns each vreg a fixed offset from the stack base pointer (<code>rbp</code>).</p>
+
+<p>The allocator is called <code>StackAllocator</code> (in <code>src/regalloc.rs</code>, just 92 lines):</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">StackAllocator</span> {
+    <span class="kw">pub</span> slot_map: <span class="ty">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="ty">i64</span>&gt;,  <span class="cm">; vreg &rArr; stack offset</span>
+    <span class="kw">pub</span> stack_size: <span class="ty">i64</span>,                 <span class="cm">; total frame size (negative, growing down)</span>
+}</code></pre>
+
+<p>The algorithm is dead simple:</p>
+
+<ol>
+<li>Walk every instruction in the function.</li>
+<li>For every vreg that is defined (as a destination), allocate a stack slot.</li>
+<li>For every parameter vreg, allocate a stack slot.</li>
+<li>For every phi-node destination vreg, allocate a stack slot.</li>
+<li>Align the total stack size to 16 bytes (x86-64 ABI requirement).</li>
+</ol>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">allocate</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="ty">IrFunction</span>) {
+    <span class="cm">// Parameters get slots</span>
+    <span class="kw">for</span> param <span class="kw">in</span> &amp;func.params {
+        <span class="kw">self</span>.<span class="fn">make_slot</span>(param.vreg, param.type_);
+    }
+
+    <span class="cm">// Instructions: Alloc explicitly requests a slot; other instrs get</span>
+    <span class="cm">// a slot for their destination vreg</span>
+    <span class="kw">for</span> block <span class="kw">in</span> &amp;func.blocks {
+        <span class="kw">for</span> instr <span class="kw">in</span> &amp;block.instrs {
+            <span class="kw">match</span> instr {
+                <span class="ty">IrInstr::Alloc</span>(vreg, type_) =&gt; {
+                    <span class="kw">self</span>.<span class="fn">make_slot</span>(*vreg, *type_);
+                }
+                <span class="ty">IrInstr::Store</span>(_, _) | <span class="ty">IrInstr::MemCopy</span>(_, _, _) =&gt; {}
+                instr =&gt; {
+                    <span class="kw">let</span> dest = instr.<span class="fn">dest</span>();
+                    <span class="kw">self</span>.<span class="fn">make_slot</span>(dest, <span class="ty">TypeId</span>::<span class="fn">new</span>(11));
+                }
+            }
+        }
+        <span class="cm">// Phi nodes get slots</span>
+        <span class="kw">for</span> phi <span class="kw">in</span> &amp;block.phis {
+            <span class="kw">self</span>.<span class="fn">make_slot</span>(phi.dest, phi.type_);
+        }
+    }
+
+    <span class="cm">// 16-byte alignment</span>
+    <span class="kw">self</span>.stack_size = <span class="kw">self</span>.stack_size &amp; !15;
+}</code></pre>
+
+<p>Slot allocation is just a counter decremented by 8 bytes each time:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">make_slot</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, vreg: <span class="ty">VReg</span>, _type_: <span class="ty">TypeId</span>) {
+    <span class="kw">if</span> !<span class="kw">self</span>.slot_map.<span class="fn">contains_key</span>(&amp;vreg) {
+        <span class="kw">self</span>.stack_size -= 8;       <span class="cm">; grow stack downward</span>
+        <span class="kw">self</span>.slot_map.<span class="fn">insert</span>(vreg, <span class="kw">self</span>.stack_size);
+    }
+}</code></pre>
+
+<p>Every slot is 8 bytes regardless of the actual type. This wastes space for <code>i8</code> or <code>bool</code> values (which need only 1 byte) but keeps the layout simple and aligned.</p>
+
+<h3>Stack Frame Layout</h3>
+
+<p>After allocation, each vreg maps to a fixed offset from <code>rbp</code>. The stack frame grows downward (toward lower addresses):</p>
+
+<pre><code>        Higher addresses
+        +------------------+
+rbp &rArr; | saved rbp        |  (pushed by prologue)
+        +------------------+
+rbp-8   | slot for %0      |  (first allocated)
+        +------------------+
+rbp-16  | slot for %1      |  (second allocated)
+        +------------------+
+rbp-24  | slot for %2      |
+        +------------------+
+        | ...              |
+rsp &rArr; +------------------+
+        Lower addresses</code></pre>
+
+<p>The codegen phase uses the slot offset to emit memory operand addresses like <code>[rbp-8]</code>, <code>[rbp-16]</code>, etc.</p>
+
+<h3>Traced Example: Before and After Allocation</h3>
+
+<p>Consider the optimized IR from Chapter 12:</p>
+
+<pre><code>bb0 (entry):
+  %0 = Alloc i32
+  %3 = MovImm 5
+  Store %3, %0
+  %4 = Alloc i32
+  %5 = Load %0
+  %6 = MovImm 4
+  %7 = Mul %5, %6
+  Store %7, %4
+  %9 = Load %4
+  Return %9</code></pre>
+
+<p>The <code>StackAllocator</code> walks this function and assigns:</p>
+
+<table class="file-table">
+<tr><th>VReg</th><th>Reason</th><th>Slot Offset</th></tr>
+<tr><td>%0</td><td><code>Alloc</code> instruction</td><td><code>rbp-8</code></td></tr>
+<tr><td>%3</td><td>destination of <code>MovImm</code></td><td><code>rbp-16</code></td></tr>
+<tr><td>%4</td><td><code>Alloc</code> instruction</td><td><code>rbp-24</code></td></tr>
+<tr><td>%5</td><td>destination of <code>Load</code></td><td><code>rbp-32</code></td></tr>
+<tr><td>%6</td><td>destination of <code>MovImm</code></td><td><code>rbp-40</code></td></tr>
+<tr><td>%7</td><td>destination of <code>Mul</code></td><td><code>rbp-48</code></td></tr>
+<tr><td>%9</td><td>destination of <code>Load</code></td><td><code>rbp-56</code></td></tr>
+</table>
+
+<p>Total frame size: 64 bytes (56 rounded up to next 16-byte boundary). The function prologue will allocate this much stack space:</p>
+
+<pre><code><span class="cm">; x86-64 prologue</span>
+push  rbp
+mov   rbp, rsp
+sub   rsp, 64       <span class="cm">; allocate 64 bytes for spills</span></code></pre>
+
+<p>Each IR instruction is then lowered to use memory operands:</p>
+
+<pre><code><span class="cm">; %3 = MovImm 5</span>
+mov   qword [rbp-16], 5
+
+<span class="cm">; Store %3, %0   (write to variable slot)</span>
+mov   rax, [rbp-16]
+mov   [rbp-8], rax
+
+<span class="cm">; %5 = Load %0  (read from variable slot)</span>
+mov   rax, [rbp-8]
+mov   [rbp-32], rax
+
+<span class="cm">; %6 = MovImm 4</span>
+mov   qword [rbp-40], 4
+
+<span class="cm">; %7 = Mul %5, %6</span>
+mov   rax, [rbp-32]
+mov   rbx, [rbp-40]
+mul   rbx
+mov   [rbp-48], rax
+
+<span class="cm">; Store %7, %4</span>
+mov   rax, [rbp-48]
+mov   [rbp-24], rax
+
+<span class="cm">; %9 = Load %4</span>
+mov   rax, [rbp-24]
+mov   [rbp-56], rax
+
+<span class="cm">; Return %9</span>
+mov   rax, [rbp-56]
+ret</code></pre>
+
+<p>Every value goes through memory. This is correct but slow &mdash; a good allocator would keep frequently used values in registers.</p>
+
+<h3>Why Spill-Everything is (Sometimes) OK</h3>
+
+<p>Despite its obvious inefficiency, the spill-everything strategy has real advantages:</p>
+
+<ol>
+<li><strong>Correct by construction</strong>: No interference analysis, no liveness tracking, no spilling decisions. Every vreg always has a home. The allocator cannot produce wrong code.</li>
+<li><strong>Deterministic</strong>: The allocation depends only on the order vregs are encountered, not on heuristics or graph structure. The same IR always produces the same stack layout.</li>
+<li><strong>Zero register pressure management</strong>: Since every value lives on the stack, there's never a moment where a register is needed but none is free. The codegen never needs to think about spilling during instruction selection.</li>
+<li><strong>Simple codegen</strong>: Every instruction becomes a "load from stack, operate, store to stack" pattern. The code generator is a straightforward translation without register management.</li>
+</ol>
+
+<p>The cost is performance. Every arithmetic operation requires at least two memory operations (load operands, store result). On modern x86-64 CPUs with good caching, this is often not as bad as it sounds &mdash; the stack slots stay in L1 cache, so the memory traffic is fast. But it's still slower than keeping values in registers.</p>
+
+<h3>What's Missing: Proper Register Allocation</h3>
+
+<p>To move beyond spill-everything, a compiler needs:</p>
+
+<ul>
+<li><strong>Liveness analysis</strong>: For each vreg, determine the set of program points where its value is still needed. Two vregs whose live ranges don't overlap can share a register.</li>
+<li><strong>Register coalescing</strong>: When a <code>Store</code> is immediately followed by a <code>Load</code> of the same vreg, the store and load can be eliminated if the value stays in a register.</li>
+<li><strong>Graph coloring or linear scan</strong>: An algorithm that assigns physical registers to vregs, spilling only when necessary.</li>
+</ul>
+
+<p>Ignis's <code>StackAllocator</code> is intentionally minimal. It is the simplest correct allocator and serves as a foundation that could be extended with liveness analysis and a proper coloring pass.</p>
+
+<div class="callout tip">
+<strong>Improving the allocator</strong>: A straightforward upgrade path is to add <strong>linear scan</strong>. First add liveness analysis (compute live ranges for each vreg via dataflow). Then sort live ranges by start point and scan forward, assigning registers until you run out, then spill. This would eliminate most memory traffic while keeping the allocator under 200 lines.
+</div>
+
+<h3>Testing the Allocator</h3>
+
+<p>Testing a spill-everything allocator is straightforward: allocate a known IR function and verify that every vreg gets a slot and that the stack size is correctly computed:</p>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_allocate_allocs</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> func = <span class="fn">make_test_func</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> alloc = <span class="ty">StackAllocator</span>::<span class="fn">new</span>();
+    alloc.<span class="fn">allocate</span>(&amp;func);
+    <span class="fn">assert_eq!</span>(alloc.slot_map.<span class="fn">len</span>(), 2);   <span class="cm">; 2 vregs got slots</span>
+    <span class="fn">assert!</span>(alloc.stack_size &lt; 0);           <span class="cm">; stack grows down</span>
+    <span class="fn">assert_eq!</span>(alloc.stack_size % 16, 0);    <span class="cm">; 16-byte aligned</span>
+}</code></pre>
+
+<p>The key invariants to test: every vreg in the function has a slot, no two vregs share the same slot, and the total stack size is 16-byte aligned.</p>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="12-iropt.html">&larr; Chapter 12</a> &ensp; Chapter 13: Register Allocation &ensp; <a href="14-codegen.html">Chapter 14 &rarr;</a></span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 11: Lowering to IR &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="10-ir.html">&larr; Chapter 10</a> &ensp; Chapter 11: Lowering to IR &ensp; <a href="12-iropt.html">Chapter 12 &rarr;</a></span>
+</div>
+
+<h2 id="lowering">11 &ensp; Lowering to IR</h2>
+
+<h3>What is Lowering?</h3>
+
+<p><strong>Lowering</strong> is the translation from a high-level representation (the AST) to a low-level representation (the IR). The AST is a tree that mirrors the grammar of the source language: expressions nest inside expressions, statements contain sub-statements, and control flow is implicit in the nesting. The IR is a flat, explicit instruction stream organized into basic blocks. Every expression becomes a sequence of <strong>IR instructions</strong> operating on <strong>virtual registers</strong>. Control flow constructs like <code>if</code>, <code>while</code>, and <code>for</code> get translated into <strong>basic blocks</strong> with explicit jumps and branches.</p>
+
+<p>This is where the compiler stops thinking like a parser and starts thinking like a machine.</p>
+
+<div class="diagram">
+<span class="box">AST (tree)</span>
+<span class="arrow">&rarr;</span>
+<span class="box">IrBuilder</span>
+<span class="arrow">&rarr;</span>
+<span class="box">IR (flat, blocks + vregs)</span>
+</div>
+
+<p>The key transformation: a deeply nested AST expression like <code>a + b * 3</code> becomes a <strong>linear sequence</strong> of IR instructions, each computing one operation and writing its result to a fresh virtual register:</p>
+
+<pre><code><span class="cm">; AST: a + b * 3</span>
+<span class="cm">; Lowered IR:</span>
+%0 = Mul %b, %3       <span class="cm">; b * 3</span>
+%1 = Add %a, %0       <span class="cm">; a + (b * 3)</span></code></pre>
+
+<h3>Virtual Registers: Unlimited Naming</h3>
+
+<p>A <strong>virtual register</strong> (vreg) is a name for a value that doesn't correspond to any physical CPU register. The IR can create as many vregs as it needs. Each instruction produces a value in a new vreg. The later <strong>register allocation</strong> phase maps these unlimited vregs onto the 16 real x86-64 registers, spilling to the stack when necessary.</p>
+
+<p>In Ignis, a vreg is a small wrapper around a <code>u32</code> index:</p>
+
+<pre><code><span class="kw">struct</span> <span class="ty">VReg</span>(<span class="ty">u32</span>);</code></pre>
+
+<p>Displayed as <code>%0</code>, <code>%1</code>, etc. Each <code>IrFunction</code> tracks <code>num_vregs</code> &mdash; a running counter incremented every time <code>alloc_vreg_in</code> is called. This gives every value in the function a unique name.</p>
+
+<h3>Basic Blocks and Terminators</h3>
+
+<p>A <strong>basic block</strong> is a straight-line sequence of instructions with no branches in and no branches out (except at the end). Every block ends with a <strong>terminator</strong> &mdash; one of:</p>
+
+<ul>
+<li><strong>Jump</strong>: unconditional branch to another block.</li>
+<li><strong>Branch</strong>: conditional branch to one of two blocks based on a vreg.</li>
+<li><strong>Return</strong>: exit the function, returning a vreg value.</li>
+</ul>
+
+<p>This design means control flow is <em>explicit</em>. Instead of an AST <code>if</code> node that wraps its branches as children, the IR has:</p>
+
+<pre><code>bb0 (entry):
+  %0 = ...              <span class="cm">; compute condition</span>
+  Branch %0, bb1, bb2   <span class="cm">; if %0, go to bb1, else bb2</span>
+
+bb1 (if.then):
+  ...
+  Jump bb3              <span class="cm">; merge</span>
+
+bb2 (if.else):
+  ...
+  Jump bb3
+
+bb3 (if.end):
+  ...</code></pre>
+
+<h3>Design Space: SSA vs. Linear IR</h3>
+
+<p>There are two major families of IR:</p>
+
+<ul>
+<li><strong>SSA (Static Single Assignment)</strong>: Every vreg is assigned exactly once. Phi nodes merge values at control-flow joins. SSA enables powerful optimizations (GVN, sparse conditional constant propagation) because def-use chains are implicit. The cost: phi nodes complicate codegen, and construction requires inserting phi placements.</li>
+<li><strong>Linear IR (non-SSA)</strong>: Vregs can be assigned multiple times. No phi nodes. Simpler to build and emit code for. The cost: optimizations require explicit dataflow analysis.</li>
+</ul>
+
+<p>Ignis uses a <strong>linear non-SSA IR</strong>. Vregs are allocated sequentially (a new one per instruction destination), but they can also be reused by <code>Store</code>/<code>Load</code> pairs to model mutable variables. This is the simplest IR that can still express all programs and be lowered to x86-64.</p>
+
+<div class="callout info">
+<strong>Why not SSA?</strong> SSA would require phi-node insertion and SSA destruction during codegen. For a teaching compiler, the extra complexity is not worth the optimization benefits. Ignis keeps the IR simple and pushes complexity into optional optimization passes.
+</div>
+
+<h3>Ignis: The IrBuilder</h3>
+
+<p>Ignis's <code>IrBuilder</code> (in <code>src/ir_build.rs</code>) walks the AST and emits IR instructions into basic blocks. It is the bridge between the type-checked AST and the flat IR module.</p>
+
+<h4>Structure</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrBuilder</span>&lt;'a&gt; {
+    module: <span class="ty">IrModule</span>,            <span class="cm">// the IR module being built</span>
+    types: &amp;<span class="ty">TypeArena</span>,           <span class="cm">// type information from typeck</span>
+    annotations: &amp;<span class="ty">HashMap</span>&lt;<span class="ty">Span</span>, <span class="ty">TypeId</span>&gt;,  <span class="cm">// type annotations on expressions</span>
+    current_func: <span class="ty">Option</span>&lt;<span class="ty">IrFunction</span>&gt;,
+    current_block: <span class="ty">Option</span>&lt;<span class="ty">IrBlockId</span>&gt;, <span class="cm">// where to emit next instruction</span>
+    next_vreg: <span class="ty">u32</span>,               <span class="cm">// counter for fresh vregs</span>
+    next_block: <span class="ty">u32</span>,
+    vars: <span class="ty">Vec</span>&lt;<span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">VReg</span>&gt;&gt;,  <span class="cm">// lexical scope chain</span>
+}</code></pre>
+
+<p>The <code>current_block</code> field is critical: it tracks which block will receive the next emitted instruction. When control flow forks (e.g., an <code>if</code> statement), the builder switches <code>current_block</code> to the new block, emits instructions there, then sets its terminator.</p>
+
+<h4>The Entry Point: <code>build()</code></h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">build</span>(<span class="kw">mut</span> <span class="kw">self</span>, prog: &amp;<span class="ty">AstProgram</span>) -&gt; <span class="ty">IrModule</span> {
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;prog.decls {
+        <span class="kw">match</span> decl {
+            <span class="ty">AstDecl::Func</span>(f) =&gt; <span class="kw">self</span>.<span class="fn">build_func</span>(f),
+            <span class="ty">AstDecl::StaticVar</span>(sv) =&gt; <span class="kw">self</span>.<span class="fn">build_global</span>(sv),
+            _ =&gt; {}
+        }
+    }
+    <span class="kw">self</span>.module
+}</code></pre>
+
+<p>It iterates over declarations, calling <code>build_func</code> for functions and <code>build_global</code> for globals. Struct and enum declarations are type-level only and produce no IR.</p>
+
+<h4>Lowering Variables: Alloc + Store + Load</h4>
+
+<p>Variables are lowered using a three-instruction pattern that models memory:</p>
+
+<ul>
+<li><strong><code>Alloc %v, T</code></strong>: Reserve a stack slot for variable <code>v</code> of type <code>T</code>.</li>
+<li><strong><code>Store %src, %dst</code></strong>: Write a value to a variable's slot.</li>
+<li><strong><code>Load %dst, %src</code></strong>: Read a value from a variable's slot.</li>
+</ul>
+
+<p>Every variable declaration is lowered to an <code>Alloc</code> for its slot, then an optional <code>Store</code> for the initializer. Every variable reference becomes a <code>Load</code> from the variable's slot. This mirrors how real machines work: local variables live in stack memory, and reading/writing them requires explicit memory operations.</p>
+
+<pre><code><span class="cm">// Source: let x: i32 = 42;</span>
+%0 = Alloc i32        <span class="cm">; reserve slot for x</span>
+%1 = MovImm 42        <span class="cm">; materialize constant</span>
+Store %1, %0          <span class="cm">; x = 42</span>
+
+<span class="cm">// Source: x + 1</span>
+%2 = Load %0          <span class="cm">; read x</span>
+%3 = MovImm 1
+%4 = Add %2, %3       <span class="cm">; x + 1</span></code></pre>
+
+<h4>Lowering Control Flow: If</h4>
+
+<p>An <code>if</code> statement introduces three or four blocks:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">build_if</span>(...) {
+    <span class="kw">let</span> cond = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, &amp;i.cond);
+    <span class="kw">let</span> then_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"if.then"</span>);
+    <span class="kw">let</span> merge_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"if.end"</span>);
+    <span class="kw">let</span> else_bb = <span class="kw">if</span> has_else {
+        <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"if.else"</span>)
+    } <span class="kw">else</span> { merge_bb };
+
+    <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Branch</span>(cond, then_bb, else_target));
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(then_bb);
+    <span class="kw">self</span>.<span class="fn">build_block_in</span>(func, &amp;i.then_block);
+    <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+        <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(merge_bb));
+    }
+
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(ref else_branch) = i.else_branch { ... }
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(merge_bb);
+}</code></pre>
+
+<p>Key detail: after building the <code>then</code> body, we check <code>self.current_block.is_some()</code>. If the then-block ended with a <code>return</code> statement, <code>current_block</code> would have been set to <code>None</code> (since no instructions can follow a return). In that case, we skip the Jump to merge.</p>
+
+<h4>Lowering Control Flow: While</h4>
+
+<p>A <code>while</code> loop uses three blocks in a cycle:</p>
+
+<pre><code>bb0:                    <span class="cm">; before loop</span>
+  Jump bb1              <span class="cm">; jump to header</span>
+
+bb1 (while.header):     <span class="cm">; check condition</span>
+  %0 = ...              <span class="cm">; compute condition</span>
+  Branch %0, bb2, bb3   <span class="cm">; if true, enter body; else exit</span>
+
+bb2 (while.body):
+  ...
+  Jump bb1              <span class="cm">; back to header</span>
+
+bb3 (while.exit):</code></pre>
+
+<p>The header block is the key innovation: it both evaluates the condition and serves as the target for the backward jump at the end of the body. This avoids duplicating the condition evaluation.</p>
+
+<h4>Lowering Control Flow: For</h4>
+
+<p>A <code>for</code> loop expands to five blocks &mdash; the most complex control flow pattern:</p>
+
+<pre><code>bb0 (for.init):     <span class="cm">; initializer expression</span>
+  ...
+  Jump bb1
+
+bb1 (for.header):   <span class="cm">; condition check</span>
+  %0 = ...          <span class="cm">; condition</span>
+  Branch %0, bb2, bb4
+
+bb2 (for.body):     <span class="cm">; loop body</span>
+  ...
+  Jump bb3
+
+bb3 (for.update):   <span class="cm">; update expression</span>
+  ...
+  Jump bb1          <span class="cm">; back to header</span>
+
+bb4 (for.exit):</code></pre>
+
+<h4>Lowering Expressions</h4>
+
+<p>Each expression type maps to one or more IR instructions. The pattern is always: build sub-expressions (which produce vregs), allocate a new vreg for the result, emit an instruction that computes into it, and return the vreg.</p>
+
+<p><strong>Integer literals</strong> become <code>MovImm</code>:</p>
+<pre><code>%0 = MovImm 42</code></pre>
+
+<p><strong>Binary operators</strong> build both sides, then emit the op:</p>
+<pre><code><span class="cm">; a + b</span>
+%0 = Load %a_slot
+%1 = Load %b_slot
+%2 = Add %0, %1</code></pre>
+
+<p><strong>Function calls</strong> emit a <code>Call</code> instruction with the callee name and arguments:</p>
+<pre><code>%0 = Call "foo", [%arg1, %arg2]</code></pre>
+
+<p><strong>Array indexing</strong> uses <code>Gep</code> (GetElementPointer) to compute the element address, then <code>Load</code> to read:</p>
+<pre><code><span class="cm">; arr[idx]</span>
+%0 = Gep %arr_ptr, %idx, 4    <span class="cm">; elem_size=4</span>
+%1 = Load %0</code></pre>
+
+<h3>Scope Chains and Variable Lookup</h3>
+
+<p>Ignis models lexical scoping with a stack of <code>HashMap&lt;String, VReg&gt;</code>:</p>
+
+<pre><code>vars: <span class="ty">Vec</span>&lt;<span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">VReg</span>&gt;&gt;</code></pre>
+
+<p>When entering a block, a new scope is pushed. Variable declarations insert into the innermost scope. Variable references walk the stack from top to bottom, finding the nearest enclosing definition. When leaving a block, the scope is popped.</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lookup_var</span>(&amp;<span class="kw">self</span>, name: &amp;<span class="ty">str</span>) -&gt; <span class="ty">VReg</span> {
+    <span class="kw">for</span> scope <span class="kw">in</span> <span class="kw">self</span>.vars.<span class="fn">iter</span>().<span class="fn">rev</span>() {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(&amp;vreg) = scope.<span class="fn">get</span>(name) {
+            <span class="kw">return</span> vreg;
+        }
+    }
+    <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="kw">self</span>.next_vreg)  <span class="cm">; default if not found</span>
+}</code></pre>
+
+<p>The default fallback (returning a fresh vreg) is a simplification: in practice, an undeclared variable would have been caught by type checking.</p>
+
+<h3>Traced Example: <code>func add(i32, a: i32, b: i32) { return a + b; }</code></h3>
+
+<p>Step by step through the builder:</p>
+
+<ol>
+<li><strong>Entry block created</strong>: <code>bb0 "entry"</code>.</li>
+<li><strong>Parameters processed</strong>: <code>a</code> gets vreg %0 (slot), %1 (param). Emit <code>Alloc %0, i32</code> and <code>Store %1, %0</code>. Same for <code>b</code>: %2 (slot), %3 (param), <code>Alloc %2, i32</code>, <code>Store %3, %2</code>.</li>
+<li><strong>Return statement</strong>: Build expression <code>a + b</code>:
+  <ul>
+    <li><code>a</code> &rarr; <code>Load %4, %0</code></li>
+    <li><code>b</code> &rarr; <code>Load %5, %2</code></li>
+    <li><code>a + b</code> &rarr; <code>Add %6, %4, %5</code></li>
+  </ul>
+</li>
+<li><strong>Terminator</strong>: <code>Return %6</code>.</li>
+</ol>
+
+<p>Final IR:</p>
+
+<pre><code>bb0 (entry):
+  %0 = Alloc i32
+  %1 = Alloc i32           <span class="cm">; param vreg for a</span>
+  Store %1, %0             <span class="cm">; a = param</span>
+  %2 = Alloc i32
+  %3 = Alloc i32           <span class="cm">; param vreg for b</span>
+  Store %3, %2             <span class="cm">; b = param</span>
+  %4 = Load %0             <span class="cm">; read a</span>
+  %5 = Load %2             <span class="cm">; read b</span>
+  %6 = Add %4, %5          <span class="cm">; a + b</span>
+  Return %6</code></pre>
+
+<h3>Traced Example: <code>if</code> Statement</h3>
+
+<p>Source:</p>
+<pre><code><span class="kw">if</span> x {
+    <span class="kw">return</span> 1;
+} <span class="kw">else</span> {
+    <span class="kw">return</span> 2;
+}</code></pre>
+
+<p>Lowered IR:</p>
+
+<pre><code>bb0 (entry):
+  %0 = Load %x_slot         <span class="cm">; read x</span>
+  Branch %0, bb1, bb2
+
+bb1 (if.then):
+  %1 = MovImm 1
+  Return %1                 <span class="cm">; current_block becomes None</span>
+
+bb2 (if.else):
+  %2 = MovImm 2
+  Return %2                 <span class="cm">; current_block becomes None</span>
+                            <span class="cm">; merge_bb is created but never filled</span></code></pre>
+
+<p>Notice that <code>merge_bb</code> is created but remains empty &mdash; both branches end with <code>return</code>, so there's no code to emit in the merge block. The builder handles this gracefully by checking <code>current_block.is_some()</code> before emitting the merge jump.</p>
+
+<h3>What IR Building Does Not Do</h3>
+
+<p>The builder is intentionally simple. It does not:</p>
+
+<ul>
+<li><strong>Optimize</strong>: It emits naive code. Every variable access becomes a Load/Store pair. Every temporary gets its own vreg. Optimization is a separate pass.</li>
+<li><strong>Allocate registers</strong>: Vregs are purely symbolic at this stage.</li>
+<li><strong>Check types</strong>: Type checking has already run. The builder trusts that the AST is well-typed and just uses the annotations to determine sizes.</li>
+<li><strong>Emit machine code</strong>: That's the codegen phase. The IR is still architecture-independent.</li>
+</ul>
+
+<div class="callout tip">
+<strong>Debugging IR building</strong>: Add a display pass that prints the module after building. Seeing <code>%vreg = Op %src1, %src2</code> for every expression makes it immediately obvious whether your lowering is correct. Ignis can dump its IR by iterating functions, blocks, and instructions.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="10-ir.html">&larr; Chapter 10</a> &ensp; Chapter 11: Lowering to IR &ensp; <a href="12-iropt.html">Chapter 12 &rarr;</a></span>
+</div>
+
+</body>
+</html>

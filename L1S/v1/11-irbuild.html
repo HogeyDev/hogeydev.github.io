@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 11: IR Building &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="10-ir.html">&larr; Chapter 10</a> &ensp; Chapter 11: IR Building &ensp; <a href="12-iropt.html">Chapter 12 &rarr;</a></span>
+</div>
+
+<h2 id="irbuild">11 &ensp; IR Building</h2>
+
+<h3>From AST to IR</h3>
+
+<p>The <strong>IR Builder</strong> is the bridge between the high-level AST and the low-level intermediate representation. It walks the AST and emits <code>IrInstr</code>s into basic blocks, transforming structured control flow (if, while, for) into unstructured jumps and branches.</p>
+
+<p>This phase is called <strong>lowering</strong> &mdash; we take a high-level, tree-shaped representation and produce a low-level, graph-shaped one. Every variable declaration becomes an <code>Alloc</code> + <code>Store</code> pair. Every expression becomes a sequence of instructions that compute into a virtual register. Every control flow construct becomes a pattern of basic blocks connected by <code>Jump</code> and <code>Branch</code> terminators.</p>
+
+<h3>The IrBuilder Struct</h3>
+
+<p>The builder is stateful, accumulating an <code>IrModule</code> as it traverses the AST:</p>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; IrBuilder struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">IrBuilder</span>&lt;'a&gt; {
+    <span class="kw">pub</span> module: <span class="ty">IrModule</span>,
+    <span class="kw">pub</span> types: &amp;<span class="ty">TypeArena</span>,
+    <span class="kw">pub</span> annotations: &amp;<span class="ty">HashMap</span>&lt;<span class="ty">Span</span>, <span class="ty">TypeId</span>&gt;,
+    <span class="kw">pub</span> diag: &amp;<span class="kw">mut</span> <span class="ty">Diagnostics</span>,
+    prim_void: <span class="ty">TypeId</span>,
+    prim_bool: <span class="ty">TypeId</span>,
+    prim_char: <span class="ty">TypeId</span>,
+    prim_i32: <span class="ty">TypeId</span>,
+    current_func: <span class="ty">Option</span>&lt;<span class="ty">IrFunction</span>&gt;,
+    current_block: <span class="ty">Option</span>&lt;<span class="ty">IrBlockId</span>&gt;,
+    next_vreg: <span class="ty">u32</span>,
+    next_block: <span class="ty">u32</span>,
+    next_string: <span class="ty">u32</span>,
+    vars: <span class="ty">Vec</span>&lt;<span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">VReg</span>&gt;&gt;,
+}</code></pre>
+
+<p>The key fields:</p>
+<ul>
+<li><strong><code>module</code></strong>: The <code>IrModule</code> being built. Functions, globals, and strings accumulate here.</li>
+<li><strong><code>current_func</code></strong> / <strong><code>current_block</code></strong>: Which function and block we're currently emitting into. The builder operates in "insertion-point" mode.</li>
+<li><strong><code>next_vreg</code></strong>: Counter for virtual register allocation. Each call to <code>alloc_vreg_in</code> increments <code>func.num_vregs</code>.</li>
+<li><strong><code>vars</code></strong>: A stack of scope maps. Each scope maps variable names to their <code>VReg</code> (the Alloc'd slot, not the loaded value).</li>
+</ul>
+
+<h3>The Build Driver: <code>build()</code></h3>
+
+<p>The entry point iterates over top-level declarations:</p>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; entry point</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">build</span>(<span class="kw">mut</span> <span class="kw">self</span>, prog: &amp;<span class="ty">AstProgram</span>) -&gt; <span class="ty">IrModule</span> {
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;prog.decls {
+        <span class="kw">match</span> decl {
+            <span class="ty">AstDecl::Func</span>(f) =&gt; <span class="kw">self</span>.<span class="fn">build_func</span>(f),
+            <span class="ty">AstDecl::StaticVar</span>(sv) =&gt; <span class="kw">self</span>.<span class="fn">build_global</span>(sv),
+            _ =&gt; {}
+        }
+    }
+    <span class="kw">self</span>.module
+}</code></pre>
+
+<p>We skip struct, enum, and spec declarations &mdash; those are type-level constructs already handled by the type checker. Only functions and static variables produce IR.</p>
+
+<h3>Function Setup: <code>build_func()</code></h3>
+
+<p>Every function gets an entry block, parameter setup via <code>Alloc</code> + <code>Store</code>, and a default void return if none exists:</p>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; build_func</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">build_func</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="ty">AstFuncDecl</span>) {
+    <span class="kw">let</span> return_type = <span class="kw">self</span>.annotations.<span class="fn">get</span>(&amp;func.return_type.<span class="fn">span</span>()).<span class="fn">copied</span>()
+        .<span class="fn">unwrap_or_else</span>(|| <span class="kw">self</span>.prim_i32);
+
+    <span class="kw">let</span> <span class="kw">mut</span> ir_func = <span class="ty">IrFunction</span> {
+        name: func.name.<span class="fn">clone</span>(),
+        return_type,
+        params: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        blocks: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        num_vregs: 0,
+        entry_block: <span class="ty">IrBlockId</span>::<span class="fn">new</span>(0),
+    };
+
+    <span class="kw">let</span> entry = <span class="kw">self</span>.<span class="fn">new_block_in</span>(&amp;<span class="kw">mut</span> ir_func, <span class="str">"entry"</span>);
+    ir_func.entry_block = entry;
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(entry);
+    <span class="kw">self</span>.vars.<span class="fn">push</span>(<span class="ty">HashMap</span>::<span class="fn">new</span>());
+
+    <span class="kw">for</span> p <span class="kw">in</span> &amp;func.params {
+        <span class="kw">let</span> pt = <span class="kw">self</span>.<span class="fn">type_from_ast</span>(&amp;p.type_);
+        <span class="kw">let</span> vreg = <span class="kw">self</span>.<span class="fn">alloc_vreg_in</span>(&amp;<span class="kw">mut</span> ir_func);
+        <span class="kw">let</span> param_vreg = <span class="kw">self</span>.<span class="fn">alloc_vreg_in</span>(&amp;<span class="kw">mut</span> ir_func);
+        ir_func.params.<span class="fn">push</span>(<span class="ty">IrParam</span> {
+            name: p.name.<span class="fn">clone</span>(), type_: pt, vreg: param_vreg,
+        });
+        <span class="kw">self</span>.<span class="fn">emit_in</span>(&amp;<span class="kw">mut</span> ir_func, <span class="ty">IrInstr::Alloc</span>(vreg, pt));
+        <span class="kw">self</span>.<span class="fn">emit_in</span>(&amp;<span class="kw">mut</span> ir_func, <span class="ty">IrInstr::Store</span>(param_vreg, vreg));
+        <span class="kw">self</span>.vars.<span class="fn">last_mut</span>().<span class="fn">unwrap</span>().<span class="fn">insert</span>(p.name.<span class="fn">clone</span>(), vreg);
+    }
+
+    <span class="kw">self</span>.<span class="fn">build_block_in</span>(&amp;<span class="kw">mut</span> ir_func, &amp;func.body);
+    <span class="kw">self</span>.vars.<span class="fn">pop</span>();
+
+    <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+        <span class="kw">let</span> ret_vreg = <span class="kw">self</span>.<span class="fn">alloc_vreg_in</span>(&amp;<span class="kw">mut</span> ir_func);
+        <span class="kw">self</span>.<span class="fn">emit_in</span>(&amp;<span class="kw">mut</span> ir_func, <span class="ty">IrInstr::Alloc</span>(ret_vreg, <span class="kw">self</span>.prim_void));
+        <span class="kw">self</span>.<span class="fn">set_term_in</span>(&amp;<span class="kw">mut</span> ir_func, <span class="ty">IrTerminator::Return</span>(ret_vreg));
+    }
+
+    <span class="kw">self</span>.module.functions.<span class="fn">push</span>(ir_func);
+}</code></pre>
+
+<p><strong>Step-by-step:</strong></p>
+<ol>
+<li>Look up the return type from the annotation map (set by the type checker).</li>
+<li>Create an empty <code>IrFunction</code> with <code>num_vregs: 0</code>.</li>
+<li>Create the entry block &mdash; every function starts here.</li>
+<li>Push a new scope onto <code>self.vars</code>.</li>
+<li>For each parameter: allocate <strong>two</strong> vregs &mdash; one for the parameter slot (<code>Alloc</code>) and one for the parameter value itself. The parameter value is <code>Store</code>d into the slot. The slot vreg is recorded in the scope so identifier references find it.</li>
+<li>Build the function body, then pop the scope.</li>
+<li>If no terminator was set (e.g. missing return), emit a default void return.</li>
+</ol>
+
+<div class="callout info">
+<strong>Why Alloc + Store for parameters?</strong> This ensures every variable access follows the same pattern: <code>Load</code> from a slot. Parameters are just pre-initialized variables. The code generator handles them identically to local variables &mdash; both live on the stack.
+</div>
+
+<h3>Global Variables: <code>build_global()</code></h3>
+
+<pre><code><span class="kw">fn</span> <span class="fn">build_global</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, sv: &amp;<span class="ty">AstStaticVarDecl</span>) {
+    <span class="kw">let</span> type_ = <span class="kw">self</span>.<span class="fn">type_from_ast</span>(&amp;sv.type_);
+    <span class="kw">self</span>.module.globals.<span class="fn">push</span>(<span class="ty">IrGlobal</span> {
+        name: sv.name.<span class="fn">clone</span>(),
+        type_,
+        init: <span class="ty">None</span>,
+    });
+}</code></pre>
+
+<p>Globals are simple &mdash; register their name and type. Initialization is left as <code>None</code> for now. The codegen phase emits them in the <code>.data</code> section.</p>
+
+<h3>Statement Lowering: <code>build_stmt_in()</code></h3>
+
+<p>This is the heart of the lowering process. Every AST statement becomes zero or more IR instructions inside basic blocks:</p>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; build_stmt_in dispatch</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">build_stmt_in</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="kw">mut</span> <span class="ty">IrFunction</span>, stmt: &amp;<span class="ty">AstStmt</span>) {
+    <span class="kw">match</span> stmt {
+        <span class="ty">AstStmt::VarDecl</span>(v) =&gt; {
+            <span class="kw">let</span> t = <span class="kw">self</span>.<span class="fn">type_from_ast_opt</span>(&amp;v.type_);
+            <span class="kw">let</span> vreg = <span class="kw">self</span>.<span class="fn">alloc_vreg_in</span>(func);
+            <span class="kw">self</span>.<span class="fn">emit_in</span>(func, <span class="ty">IrInstr::Alloc</span>(vreg, t));
+            <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> init) = v.init {
+                <span class="kw">let</span> init_vreg = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, init);
+                <span class="kw">self</span>.<span class="fn">emit_in</span>(func, <span class="ty">IrInstr::Store</span>(init_vreg, vreg));
+            }
+            <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(scope) = <span class="kw">self</span>.vars.<span class="fn">last_mut</span>() {
+                scope.<span class="fn">insert</span>(v.name.<span class="fn">clone</span>(), vreg);
+            }
+        }
+        <span class="ty">AstStmt::Return</span>(r) =&gt; {
+            <span class="kw">let</span> val = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, &amp;r.value);
+            <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Return</span>(val));
+            <span class="kw">self</span>.current_block = <span class="ty">None</span>;
+        }
+        <span class="ty">AstStmt::If</span>(i) =&gt; { <span class="cm">/* see below */</span> }
+        <span class="ty">AstStmt::While</span>(w) =&gt; { <span class="cm">/* see below */</span> }
+        <span class="ty">AstStmt::For</span>(f) =&gt; { <span class="cm">/* see below */</span> }
+        <span class="ty">AstStmt::Block</span>(b) =&gt; <span class="kw">self</span>.<span class="fn">build_block_in</span>(func, b),
+        <span class="ty">AstStmt::Expr</span>(e) =&gt; { <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, e); }
+        _ =&gt; {}
+    }
+}</code></pre>
+
+<h4>Variable Declaration</h4>
+
+<p>Every <code>let x: i32 = expr;</code> produces three things:</p>
+<ol>
+<li><code>Alloc %vreg, type</code> &mdash; reserve a stack slot</li>
+<li>Evaluate the initializer (returns a vreg containing the value)</li>
+<li><code>Store %init, %vreg</code> &mdash; write into the slot</li>
+</ol>
+<p>The slot vreg is recorded in the current scope, so later <code>Ident</code> references can load from it.</p>
+
+<h4>Return Statement</h4>
+
+<p>A <code>return expr;</code> evaluates the expression, emits <code>Return(val)</code> as the block terminator, then sets <code>current_block = None</code>. The <code>None</code> signal is critical &mdash; it tells subsequent statements that the block was terminated. If we didn't clear it, we'd emit dead code after the return.</p>
+
+<h3>Control Flow Lowering</h3>
+
+<p>Structured control flow (if, while, for) is lowered to basic block graphs. Each construct follows a fixed pattern.</p>
+
+<h4>If / Else</h4>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; If lowering</span></div>
+<pre><code><span class="ty">AstStmt::If</span>(i) =&gt; {
+    <span class="kw">let</span> cond = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, &amp;i.cond);
+    <span class="kw">let</span> then_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"if.then"</span>);
+    <span class="kw">let</span> merge_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"if.end"</span>);
+    <span class="kw">let</span> has_else = i.else_branch.<span class="fn">is_some</span>();
+    <span class="kw">let</span> else_bb = <span class="kw">if</span> has_else {
+        <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"if.else"</span>)
+    } <span class="kw">else</span> {
+        merge_bb
+    };
+
+    <span class="kw">let</span> else_target = <span class="kw">if</span> has_else { else_bb } <span class="kw">else</span> { merge_bb };
+    <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Branch</span>(cond, then_bb, else_target));
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(then_bb);
+    <span class="kw">self</span>.<span class="fn">build_block_in</span>(func, &amp;i.then_block);
+    <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+        <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(merge_bb));
+    }
+
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> else_branch) = i.else_branch {
+        <span class="kw">self</span>.current_block = <span class="ty">Some</span>(else_bb);
+        <span class="kw">self</span>.<span class="fn">build_stmt_in</span>(func, else_branch);
+        <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+            <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(merge_bb));
+        }
+    }
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(merge_bb);
+}</code></pre>
+
+<p>The resulting block graph for <code>if (cond) { A } else { B }</code>:</p>
+
+<div class="diagram" style="text-align:left;">
+<strong>If/Else block structure:</strong><br><br>
+<div style="text-align:center">
+<span class="box">prev</span>
+<span class="arrow">&rarr;</span>
+<span class="box">if.then<br><small>(A)</small></span>
+<span class="arrow" style="display:block;margin-left:4rem;">&rarr;</span>
+<div style="display:inline-block;vertical-align:middle;">
+  <span class="box" style="display:block;margin:0.25rem 0;">Branch(cond, then, else)</span>
+  <span class="box" style="display:block;margin:0.25rem 0;border-color:var(--orange);">if.else<br><small>(B)</small></span>
+</div>
+<div style="display:inline-block;vertical-align:middle;">
+  <span class="arrow">&darr;</span>
+</div>
+<span class="box" style="display:inline-block;">if.end</span>
+</div>
+</div>
+
+<p>Key insight: when there's no else branch, <code>else_bb</code> points directly to <code>merge_bb</code>. The false branch of <code>Branch</code> skips straight to the merge point.</p>
+
+<h4>While Loop</h4>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; While lowering</span></div>
+<pre><code><span class="ty">AstStmt::While</span>(w) =&gt; {
+    <span class="kw">let</span> header_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"while.header"</span>);
+    <span class="kw">let</span> body_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"while.body"</span>);
+    <span class="kw">let</span> exit_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"while.exit"</span>);
+
+    <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+        <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(header_bb));
+    }
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(header_bb);
+    <span class="kw">let</span> cond = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, &amp;w.cond);
+    <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Branch</span>(cond, body_bb, exit_bb));
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(body_bb);
+    <span class="kw">self</span>.<span class="fn">build_block_in</span>(func, &amp;w.body);
+    <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+        <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(header_bb));
+    }
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(exit_bb);
+}</code></pre>
+
+<div class="diagram" style="text-align:left;">
+<strong>While block structure:</strong><br><br>
+<div style="text-align:center">
+<span class="box">prev</span>
+<span class="arrow">&rarr;</span>
+<span class="box">while.header<br><small>cond evaluated here</small></span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--green);">while.body</span>
+<span class="arrow" style="display:inline-block;">&darr;</span>
+<span class="arrow" style="display:inline-block;margin:0 0.5rem;">(false) &rarr;</span>
+<span class="box">while.exit</span>
+</div>
+<div style="text-align:center;margin-top:0.5rem;">
+<span class="arrow" style="color:var(--green);">(body &rarr; always jumps back to header)</span>
+</div>
+</div>
+
+<h4>For Loop</h4>
+
+<p>The <code>for</code> loop is the most complex pattern &mdash; it decomposes into five blocks:</p>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; For lowering</span></div>
+<pre><code><span class="ty">AstStmt::For</span>(f) =&gt; {
+    <span class="kw">let</span> init_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"for.init"</span>);
+    <span class="kw">let</span> header_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"for.header"</span>);
+    <span class="kw">let</span> body_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"for.body"</span>);
+    <span class="kw">let</span> update_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"for.update"</span>);
+    <span class="kw">let</span> exit_bb = <span class="kw">self</span>.<span class="fn">new_block_in</span>(func, <span class="str">"for.exit"</span>);
+
+    <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+        <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(init_bb));
+    }
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(init_bb);
+    <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, &amp;f.init);
+    <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(header_bb));
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(header_bb);
+    <span class="kw">let</span> cond = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, &amp;f.cond);
+    <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Branch</span>(cond, body_bb, exit_bb));
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(body_bb);
+    <span class="kw">self</span>.<span class="fn">build_block_in</span>(func, &amp;f.body);
+    <span class="kw">if</span> <span class="kw">self</span>.current_block.<span class="fn">is_some</span>() {
+        <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(update_bb));
+    }
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(update_bb);
+    <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, &amp;f.update);
+    <span class="kw">self</span>.<span class="fn">set_term_in</span>(func, <span class="ty">IrTerminator::Jump</span>(header_bb));
+
+    <span class="kw">self</span>.current_block = <span class="ty">Some</span>(exit_bb);
+}</code></pre>
+
+<div class="diagram" style="text-align:left;">
+<strong>For loop block structure:</strong><br><br>
+<div style="text-align:center">
+<span class="box">prev</span>
+<span class="arrow">&rarr;</span>
+<span class="box">for.init</span>
+<span class="arrow">&rarr;</span>
+<span class="box">for.header</span>
+<span class="arrow" style="display:inline-block;">&darr;</span>
+<span class="box" style="border-color:var(--green);">for.body</span>
+<span class="arrow">&rarr;</span>
+<span class="box">for.update</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--purple);">for.exit</span>
+<span class="arrow" style="display:inline-block;margin-left:0.5rem;">&crarr; update &rarr; header</span>
+</div>
+</div>
+
+<p>The for loop pattern generalizes to: <code>for.init &rarr; for.header &rarr; (branch body/exit) &rarr; for.body &rarr; for.update &rarr; for.header</code>. The back-edge from <code>for.update</code> to <code>for.header</code> is what makes it a loop.</p>
+
+<h3>Expression Lowering: <code>build_expr_in()</code></h3>
+
+<p>Every expression produces IR that computes into a virtual register:</p>
+
+<div class="code-header"><span>src/ir_build.rs &mdash; build_expr_in (selected cases)</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">build_expr_in</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="kw">mut</span> <span class="ty">IrFunction</span>, expr: &amp;<span class="ty">AstExpr</span>) -&gt; <span class="ty">VReg</span> {
+    <span class="kw">match</span> expr {
+        <span class="ty">AstExpr::Int</span>(s, _) =&gt; {
+            <span class="kw">let</span> t = <span class="kw">self</span>.prim_i32;
+            <span class="kw">let</span> vreg = <span class="kw">self</span>.<span class="fn">alloc_vreg_in</span>(func);
+            <span class="kw">self</span>.<span class="fn">emit_in</span>(func, <span class="ty">IrInstr::MovImm</span>(vreg, s.<span class="fn">parse</span>::&lt;<span class="ty">u64</span>&gt;().<span class="fn">unwrap_or</span>(0), t));
+            vreg
+        }
+        <span class="ty">AstExpr::Ident</span>(name, _) =&gt; {
+            <span class="kw">let</span> vreg = <span class="kw">self</span>.<span class="fn">lookup_var</span>(name);
+            <span class="kw">let</span> load = <span class="kw">self</span>.<span class="fn">alloc_vreg_in</span>(func);
+            <span class="kw">self</span>.<span class="fn">emit_in</span>(func, <span class="ty">IrInstr::Load</span>(load, vreg));
+            load
+        }
+        <span class="ty">AstExpr::Binary</span>(op, lhs, rhs, _) =&gt; {
+            <span class="kw">let</span> l = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, lhs);
+            <span class="kw">let</span> r = <span class="kw">self</span>.<span class="fn">build_expr_in</span>(func, rhs);
+            <span class="kw">let</span> vreg = <span class="kw">self</span>.<span class="fn">alloc_vreg_in</span>(func);
+            <span class="kw">let</span> instr = <span class="kw">match</span> op {
+                <span class="ty">BinaryOp::Add</span> =&gt; <span class="ty">IrInstr::Add</span>(vreg, l, r),
+                <span class="ty">BinaryOp::Sub</span> =&gt; <span class="ty">IrInstr::Sub</span>(vreg, l, r),
+                <span class="ty">BinaryOp::Mul</span> =&gt; <span class="ty">IrInstr::Mul</span>(vreg, l, r),
+                <span class="ty">BinaryOp::Eq</span>  =&gt; <span class="ty">IrInstr::Eq</span>(vreg, l, r),
+                <span class="cm">// ... other operators follow the same pattern</span>
+            };
+            <span class="kw">self</span>.<span class="fn">emit_in</span>(func, instr);
+            vreg
+        }
+        <span class="ty">AstExpr::Call</span>(callee, args, _) =&gt; {
+            <span class="cm">// ... builds args, emits a Call vreg</span>
+        }
+        <span class="cm">// ... Index, Field, Cast, etc.</span>
+    }
+}</code></pre>
+
+<p>The expression lowering creates a new vreg for each intermediate result. This is <strong>SSA-like</strong> &mdash; each vreg is written exactly once (except for the <code>Alloc</code>+<code>Store</code>+<code>Load</code> pattern for variables, which breaks strict SSA). The vreg numbering is dense: <code>%0</code>, <code>%1</code>, <code>%2</code>, ... within each function.</p>
+
+<h3>Variable Lookup</h3>
+
+<p>The <code>lookup_var</code> method walks the scope stack from innermost to outermost, returning the <code>Alloc</code> vreg for the variable's stack slot:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lookup_var</span>(&amp;<span class="kw">self</span>, name: &amp;<span class="ty">str</span>) -&gt; <span class="ty">VReg</span> {
+    <span class="kw">for</span> scope <span class="kw">in</span> <span class="kw">self</span>.vars.<span class="fn">iter</span>().<span class="fn">rev</span>() {
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(&amp;vreg) = scope.<span class="fn">get</span>(name) {
+            <span class="kw">return</span> vreg;
+        }
+    }
+    <span class="kw">let</span> v = <span class="ty">VReg</span>::<span class="fn">new</span>(<span class="kw">self</span>.next_vreg);
+    v
+}</code></pre>
+
+<p>Note: the return value is the <strong>slot</strong> vreg, not the loaded value. The caller (<code>build_expr_in</code> for <code>Ident</code>) wraps the result in <code>Load(v, slot)</code> to produce the value. This separation means the slot holds an address and <code>Load</code> dereferences it &mdash; the slot is effectively a pointer to the variable's stack location.</p>
+
+<h3>Helper Methods</h3>
+
+<p>Four small helpers make the builder ergonomic:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">alloc_vreg_in</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="kw">mut</span> <span class="ty">IrFunction</span>) -&gt; <span class="ty">VReg</span> {
+    <span class="kw">let</span> v = <span class="ty">VReg</span>::<span class="fn">new</span>(func.num_vregs);
+    func.num_vregs += 1;
+    v
+}
+
+<span class="kw">fn</span> <span class="fn">new_block_in</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="kw">mut</span> <span class="ty">IrFunction</span>, name: &amp;<span class="ty">str</span>) -&gt; <span class="ty">IrBlockId</span> {
+    <span class="kw">let</span> id = <span class="ty">IrBlockId</span>::<span class="fn">new</span>(func.blocks.<span class="fn">len</span>() <span class="kw">as</span> <span class="ty">u32</span>);
+    func.blocks.<span class="fn">push</span>(<span class="ty">IrBlock</span> {
+        id,
+        name: name.<span class="fn">to_string</span>(),
+        phis: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        instrs: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        terminator: <span class="ty">IrTerminator::Jump</span>(id),
+    });
+    id
+}
+
+<span class="kw">fn</span> <span class="fn">emit_in</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="kw">mut</span> <span class="ty">IrFunction</span>, instr: <span class="ty">IrInstr</span>) {
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(block_id) = <span class="kw">self</span>.current_block {
+        <span class="kw">let</span> idx = block_id.<span class="fn">index</span>();
+        <span class="kw">if</span> idx &lt; func.blocks.<span class="fn">len</span>() {
+            func.blocks[idx].instrs.<span class="fn">push</span>(instr);
+        }
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">set_term_in</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="kw">mut</span> <span class="ty">IrFunction</span>, term: <span class="ty">IrTerminator</span>) {
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(block_id) = <span class="kw">self</span>.current_block {
+        <span class="kw">let</span> idx = block_id.<span class="fn">index</span>();
+        <span class="kw">if</span> idx &lt; func.blocks.<span class="fn">len</span>() {
+            func.blocks[idx].terminator = term;
+        }
+    }
+}</code></pre>
+
+<p><strong>VReg allocation scheme</strong>: VRegs are allocated densely per function, starting at 0. The total <code>num_vregs</code> tells the register allocator how many virtual registers the function uses. VRegs are never reused &mdash; each is written by exactly one instruction (its "definition" site). This is SSA-like but not strict SSA because variables use <code>Alloc</code>+<code>Store</code>+<code>Load</code> which implicitly creates multiple definitions per vreg.</p>
+
+<p><strong>Block naming convention</strong>: Blocks are named by their control flow origin:</p>
+<ul>
+<li><code>entry</code> &mdash; function entry</li>
+<li><code>if.then</code>, <code>if.else</code>, <code>if.end</code> &mdash; if/else structure</li>
+<li><code>while.header</code>, <code>while.body</code>, <code>while.exit</code> &mdash; while loop</li>
+<li><code>for.init</code>, <code>for.header</code>, <code>for.body</code>, <code>for.update</code>, <code>for.exit</code> &mdash; for loop</li>
+</ul>
+<p>These names are purely human-readable &mdash; blocks are identified by their <code>IrBlockId</code> (which is just a dense <code>u32</code> index). But the names appear in debug output and IR dumps, making them invaluable for debugging.</p>
+
+<h3>Traced Example: <code>func main(i32) { let x: i32 = 1+2; return x; }</code></h3>
+
+<p>Let's trace the builder step by step on this function:</p>
+
+<p><strong>Step 1: Function setup</strong></p>
+<ul>
+<li>Create <code>IrFunction</code> named <code>"main"</code>, return type = <code>i32</code>.</li>
+<li>Create <code>bb0</code> named <code>"entry"</code>. Set as entry block and current block.</li>
+<li>Push a new scope.</li>
+</ul>
+
+<p><strong>Step 2: Parameter</strong></p>
+<ul>
+<li>Parameter <code>p0: i32</code> &rarr; <code>%0 = Alloc i32</code>, <code>%1 = (param value)</code>, then <code>Store %1, %0</code>.</li>
+<li>Scope: <code>{"p0": %0}</code></li>
+</ul>
+
+<p><strong>Step 3: Variable declaration</strong></p>
+<ul>
+<li><code>let x: i32 = 1+2;</code></li>
+<li><code>%2 = Alloc i32</code> (slot for <code>x</code>)</li>
+<li>Evaluate <code>1+2</code>:
+  <ul>
+  <li><code>%3 = MovImm 1, i32</code></li>
+  <li><code>%4 = MovImm 2, i32</code></li>
+  <li><code>%5 = Add %3, %4</code></li>
+  </ul>
+</li>
+<li><code>Store %5, %2</code> (store result into x's slot)</li>
+<li>Scope: <code>{"p0": %0, "x": %2}</code></li>
+</ul>
+
+<p><strong>Step 4: Return statement</strong></p>
+<ul>
+<li><code>return x;</code></li>
+<li>Look up <code>x</code> &rarr; <code>%0</code>... wait, <code>x</code> is <code>%2</code>. <code>Load %6, %2</code></li>
+<li><code>Return %6</code></li>
+<li><code>current_block = None</code></li>
+</ul>
+
+<p><strong>Final IR:</strong></p>
+
+<pre><code><span class="lb">main</span>:
+  <span class="cm">; Parameters: p0 = %1</span>
+  <span class="cm">; vregs: %0, %1, %2, %3, %4, %5, %6</span>
+
+<span class="lb">bb0 (entry):</span>
+  <span class="op">%0</span> = <span class="kw">Alloc</span> <span class="ty">i32</span>           <span class="cm">; param slot</span>
+  <span class="op">Store</span> <span class="op">%1</span>, <span class="op">%0</span>                <span class="cm">; store param into slot</span>
+  <span class="op">%2</span> = <span class="kw">Alloc</span> <span class="ty">i32</span>           <span class="cm">; x's slot</span>
+  <span class="op">%3</span> = <span class="kw">MovImm</span> <span class="num">1</span>, <span class="ty">i32</span>
+  <span class="op">%4</span> = <span class="kw">MovImm</span> <span class="num">2</span>, <span class="ty">i32</span>
+  <span class="op">%5</span> = <span class="kw">Add</span> <span class="op">%3</span>, <span class="op">%4</span>          <span class="cm">; 1 + 2</span>
+  <span class="op">Store</span> <span class="op">%5</span>, <span class="op">%2</span>                <span class="cm">; x = 3</span>
+  <span class="op">%6</span> = <span class="kw">Load</span> <span class="op">%2</span>              <span class="cm">; load x for return</span>
+  <span class="kw">Return</span> <span class="op">%6</span></code></pre>
+
+<p>This is the complete IR for the function. The <code>Alloc</code> instructions tell the register allocator "this vreg needs a stack slot." The <code>Store</code> and <code>Load</code> instructions manage data movement between slots and values. The <code>Add</code> computes in virtual registers.</p>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Forgetting to set <code>current_block = None</code> after a terminator</strong>: If you emit a <code>Return</code> or <code>Branch</code> but don't clear <code>current_block</code>, subsequent statements emit dead code into the terminated block. Always set <code>current_block = None</code> after setting a terminator that ends the block's lifetime.</li>
+<li><strong>Not checking <code>current_block.is_some()</code> before adding Jump</strong>: After building then/else bodies, always check if the block still exists. A <code>return</code> inside the then-block would have set <code>current_block = None</code>, and we must not emit a <code>Jump</code> into a dead block.</li>
+<li><strong>Variable shadowing</strong>: The scope stack correctly handles shadowing &mdash; <code>lookup_var</code> returns the innermost binding. But if you forget to push/pop scopes in <code>build_block_in</code>, variables leak between blocks.</li>
+<li><strong>Dangling <code>Alloc</code> without <code>Store</code></strong>: If a variable is declared but never assigned, its slot is allocated but never written. This is fine for uninitialized variables, but the optimizer can't remove the <code>Alloc</code> because it might be used by a later <code>Load</code>.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Debugging the IR builder</strong>: Add a custom <code>Display</code> impl or debug printer for <code>IrFunction</code> that dumps blocks in order with their instructions and terminators. Call it after each function is built. This catches 90% of builder bugs.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="10-ir.html">&larr; Chapter 10</a> &ensp; Chapter 11: IR Building &ensp; <a href="12-iropt.html">Chapter 12 &rarr;</a></span>
+</div>
+
+</body>
+</html>

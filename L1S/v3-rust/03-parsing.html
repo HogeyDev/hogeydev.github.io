@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parsing — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h1>Chapter 03: Parsing</h1>
+
+<p class="subtitle">Tokens are flat. Programs have structure.</p>
+
+<div class="callout info">
+  <strong>What you'll learn in this chapter:</strong> How to build a recursive descent parser in Rust, how Pratt parsing makes expressions elegant, how to handle error recovery, and how to transform a token stream into an abstract syntax tree.
+</div>
+
+<h2>The Problem</h2>
+
+<p>The lexer gives us a flat list of tokens: <code>[Keyword(Func), Ident("add"), OpenParen, ...]</code>. But a program isn't a list — it's a tree. A function <em>contains</em> statements. A statement <em>contains</em> expressions. An expression <em>contains</em> sub-expressions.</p>
+
+<p>The parser's job is to discover this tree structure from the flat token stream, guided by the grammar. It answers questions like:</p>
+
+<ul>
+  <li>Is this <code>if</code> keyword the start of an if-statement? Check for <code>(</code>, an expression, <code>)</code>, and a body.</li>
+  <li>Does this <code>+</code> bind tighter than that <code>==</code>? Check operator precedence.</li>
+  <li>Is this <code>}</code> the end of a function body or an if-else? Check the nesting context.</li>
+</ul>
+
+<p>The output is an <strong>abstract syntax tree</strong> (AST) — a tree representation of the program's structure that discards syntactic details (like parentheses and semicolons) while preserving the semantic structure.</p>
+
+<div class="diagram">
+<pre><code>Tokens (flat):
+  <span class="kw">func</span> add ( i32 , a : i32 , b : i32 ) { <span class="kw">return</span> a + b ; }
+
+AST (tree):
+  Program
+    └── FuncDecl "add" → i32
+          ├── Param("a", i32)
+          ├── Param("b", i32)
+          └── Body
+                └── Return
+                      └── Binary(+, "a", "b")</code></pre>
+</div>
+
+<h2>Recursive Descent Parsing</h2>
+
+<p>Recursive descent is the simplest and most widely used parsing technique for hand-written compilers. The idea: <strong>each grammar rule becomes a function</strong>. The function consumes tokens from the input and returns an AST node.</p>
+
+<p>Here's our grammar rules in informal form:</p>
+
+<table class="file-table">
+  <tr>
+    <th>Rule</th>
+    <th>Grammar</th>
+    <th>Function</th>
+  </tr>
+  <tr>
+    <td>Program</td>
+    <td><code>func_decl*</code></td>
+    <td><code>parse_program</code></td>
+  </tr>
+  <tr>
+    <td>FuncDecl</td>
+    <td><code>func ident(type, params) "{" stmt* "}"</code></td>
+    <td><code>parse_func_decl</code></td>
+  </tr>
+  <tr>
+    <td>Statement</td>
+    <td><code>return expr ; | let ident : type = expr ; | if (expr) block else block | while (expr) block | expr ;</code></td>
+    <td><code>parse_statement</code></td>
+  </tr>
+  <tr>
+    <td>Expression</td>
+    <td><code>... (Pratt parsing)</code></td>
+    <td><code>parse_expr</code></td>
+  </tr>
+  <tr>
+    <td>Type</td>
+    <td><code>ident | [N]type | @type</code></td>
+    <td><code>parse_type</code></td>
+  </tr>
+</table>
+
+<p>Because functions call each other recursively (a function body contains statements, which contain expressions, which can contain function calls), the parser is naturally recursive. Hence the name.</p>
+
+<h2>The Parser Struct</h2>
+
+<p>The parser holds the token stream, a cursor, and a list of diagnostics. Errors are collected, not thrown — we keep going after each error to find more:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/parser.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="kw">crate</span>::ast::*;
+<span class="kw">use</span> <span class="kw">crate</span>::diagnostics::<span class="ty">Diagnostic</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::token::{<span class="ty">Keyword</span>, <span class="ty">Token</span>, <span class="ty">TokenKind</span>};
+
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Parser</span> {
+    tokens: <span class="kw">Vec</span>&lt;<span class="ty">Token</span>&gt;,
+    pos: <span class="ty">usize</span>,
+    <span class="kw">pub</span> diagnostics: <span class="kw">Vec</span>&lt;<span class="ty">Diagnostic</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">Parser</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(tokens: <span class="kw">Vec</span>&lt;<span class="ty">Token</span>&gt;) -&gt; <span class="kw">Self</span> {
+        <span class="kw">Self</span> {
+            tokens,
+            pos: <span class="num">0</span>,
+            diagnostics: <span class="kw">Vec</span>::<span class="fn">new</span>(),
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">peek</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;&amp;<span class="ty">TokenKind</span>&gt; {
+        <span class="kw">self</span>.tokens.<span class="fn">get</span>(<span class="kw">self</span>.pos).<span class="fn">map</span>(|t| &amp;t.kind)
+    }
+
+    <span class="kw">fn</span> <span class="fn">advance</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; &amp;<span class="ty">Token</span> {
+        <span class="kw">let</span> tok = &amp;<span class="kw">self</span>.tokens[<span class="kw">self</span>.pos];
+        <span class="kw">self</span>.pos += <span class="num">1</span>;
+        tok
+    }
+
+    <span class="kw">fn</span> <span class="fn">expect</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, kind: <span class="ty">TokenKind</span>) -&gt; <span class="kw">bool</span> {
+        <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(&amp;kind) {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">true</span>
+        } <span class="kw">else</span> {
+            <span class="kw">let</span> found = <span class="kw">self</span>.<span class="fn">peek</span>().<span class="fn">cloned</span>().<span class="fn">unwrap_or</span>(<span class="ty">TokenKind::Semicolon</span>);
+            <span class="kw">self</span>.<span class="fn">error</span>(<span class="kw">format!</span>(<span class="str">"expected {:?}, found {:?}"</span>, kind, found));
+            <span class="kw">false</span>
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">error</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, msg: <span class="ty">String</span>) {
+        <span class="kw">let</span> span = <span class="kw">self</span>.tokens[<span class="kw">self</span>.pos.<span class="fn">min</span>(<span class="kw">self</span>.tokens.<span class="fn">len</span>() - <span class="num">1</span>)].span;
+        <span class="kw">self</span>.diagnostics.<span class="fn">push</span>(<span class="ty">Diagnostic</span> { message: msg, span });
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>parser.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">parser</span> = {
+  tokens: <span class="ty">Token</span>.token array;
+  mutable pos: <span class="ty">int</span>;
+  mutable diagnostics: <span class="ty">Diagnostic</span>.diagnostic list;
+}
+
+<span class="kw">let</span> make_parser tokens =
+  { tokens; pos = 0; diagnostics = [] }
+
+<span class="kw">let</span> peek p =
+  <span class="kw">if</span> p.pos &lt; <span class="ty">Array</span>.length p.tokens
+  <span class="kw">then</span> <span class="ty">Some</span> p.tokens.(p.pos).kind
+  <span class="kw">else</span> <span class="ty">None</span>
+
+<span class="kw">let</span> advance p =
+  <span class="kw">let</span> tok = p.tokens.(p.pos) <span class="kw">in</span>
+  p.pos &lt;- p.pos + 1;
+  tok
+
+<span class="kw">let</span> expect p kind =
+  <span class="kw">match</span> peek p <span class="kw">with</span>
+  | <span class="ty">Some</span> k <span class="kw">when</span> k = kind -&gt; advance p; <span class="kw">true</span>
+  | _ ->
+      error p (<span class="kw">Printf</span>.sprintf <span class="str">"expected %s"</span> (<span class="ty">Token</span>.show_kind kind));
+      <span class="kw">false</span></code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+  <strong>Why <code>expect</code> returns a <code>bool</code>:</strong> In a recursive descent parser, <code>expect</code> both consumes the expected token and reports the error. Returning <code>bool</code> lets the caller decide whether to abort parsing the current construct or try to recover. Most callers will continue — we want maximal error reporting, not early exit.
+</div>
+
+<h2>Parsing a Program</h2>
+
+<p>A program is a sequence of function declarations:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/parser.rs</span> — program &amp; func decl</div>
+    <pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">parse_program</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstProgram</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> funcs = <span class="kw">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> <span class="kw">self</span>.<span class="fn">peek</span>().<span class="fn">is_some</span>() {
+        <span class="kw">let</span> decl = <span class="kw">self</span>.<span class="fn">parse_func_decl</span>();
+        funcs.<span class="fn">push</span>(decl);
+    }
+    <span class="ty">AstProgram</span> { funcs }
+}
+
+<span class="kw">fn</span> <span class="fn">parse_func_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstFuncDecl</span> {
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::Func</span>));
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>();
+
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::OpenParen</span>);
+    <span class="kw">let</span> ret_type = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> params = <span class="kw">Vec</span>::<span class="fn">new</span>();
+
+    <span class="kw">while</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(&amp;<span class="ty">TokenKind::Comma</span>) {
+        <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume comma</span>
+        params.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">parse_param</span>());
+    }
+
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::CloseParen</span>);
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::OpenBrace</span>);
+
+    <span class="kw">let</span> <span class="kw">mut</span> body = <span class="kw">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> <span class="kw">self</span>.<span class="fn">peek</span>() != <span class="ty">Some</span>(&amp;<span class="ty">TokenKind::CloseBrace)
+        && <span class="kw">self</span>.<span class="fn">peek</span>().<span class="fn">is_some</span>()
+    {
+        body.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">parse_statement</span>());
+    }
+
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::CloseBrace</span>);
+    <span class="ty">AstFuncDecl</span> { name, ret_type, params, body }
+}
+
+<span class="kw">fn</span> <span class="fn">parse_param</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstParam</span> {
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::Colon</span>);
+    <span class="kw">let</span> ty = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+    <span class="ty">AstParam</span> { name, ty }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>parser.ml</span> — program &amp; func decl</div>
+    <pre><code><span class="kw">let</span> rec parse_program p =
+  <span class="kw">let</span> funcs = <span class="kw">ref</span> [] <span class="kw">in</span>
+  <span class="kw">while</span> peek p &lt;&gt; <span class="ty">None</span> <span class="kw">do</span>
+    funcs := !funcs @ [parse_func_decl p]
+  <span class="kw">done</span>;
+  <span class="ty">AstProgram</span> !funcs
+
+<span class="kw">and</span> parse_func_decl p =
+  expect p (<span class="ty">Token_Keyword</span> <span class="ty">Kw_Func</span>);
+  <span class="kw">let</span> name = expect_ident p <span class="kw">in</span>
+  expect p <span class="ty">Token_OpenParen</span>;
+  <span class="kw">let</span> ret_type = parse_type p <span class="kw">in</span>
+  <span class="kw">let</span> params = <span class="kw">ref</span> [] <span class="kw">in</span>
+  <span class="kw">while</span> peek p = <span class="ty">Some</span> <span class="ty">Token_Comma</span> <span class="kw">do</span>
+    advance p;
+    params := !params @ [parse_param p]
+  <span class="kw">done</span>;
+  expect p <span class="ty">Token_CloseParen</span>;
+  expect p <span class="ty">Token_OpenBrace</span>;
+  <span class="kw">let</span> body = <span class="kw">ref</span> [] <span class="kw">in</span>
+  <span class="kw">while</span> peek p &lt;&gt; <span class="ty">Some</span> <span class="ty">Token_CloseBrace</span> &amp;&amp; peek p &lt;&gt; <span class="ty">None</span> <span class="kw">do</span>
+    body := !body @ [parse_statement p]
+  <span class="kw">done</span>;
+  expect p <span class="ty">Token_CloseBrace</span>;
+  <span class="ty">AstFuncDecl</span> { name; ret_type; params = !params; body = !body }
+
+<span class="kw">and</span> parse_param p =
+  <span class="kw">let</span> name = expect_ident p <span class="kw">in</span>
+  expect p <span class="ty">Token_Colon</span>;
+  <span class="kw">let</span> ty = parse_type p <span class="kw">in</span>
+  <span class="ty">AstParam</span> { name; ty }</code></pre>
+  </div>
+</div>
+
+<h2>Parsing Statements</h2>
+
+<p>Statements come in several forms. The parser peeks at the current token to decide which kind to parse:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/parser.rs</span> — statements</div>
+    <pre><code><span class="kw">fn</span> <span class="fn">parse_statement</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstStmt</span> {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="ty">Some</span>(<span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::Return</span>)) =&gt; {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">let</span> expr = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+            <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::Semicolon</span>);
+            <span class="ty">AstStmt::Return</span>(expr)
+        }
+        <span class="ty">Some</span>(<span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::Let</span>)) => {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>();
+            <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::Colon</span>);
+            <span class="kw">let</span> ty = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+            <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::Equals</span>);
+            <span class="kw">let</span> init = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+            <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::Semicolon</span>);
+            <span class="ty">AstStmt::VarDecl</span> { name, ty, init }
+        }
+        <span class="ty">Some</span>(<span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::If</span>)) => {
+            <span class="kw">self</span>.<span class="fn">parse_if_stmt</span>()
+        }
+        <span class="ty">Some</span>(<span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::While</span>)) => {
+            <span class="kw">self</span>.<span class="fn">parse_while_stmt</span>()
+        }
+        <span class="ty">Some</span>(<span class="ty">TokenKind::OpenBrace</span>) => {
+            <span class="ty">AstStmt::Block</span>(<span class="kw">self</span>.<span class="fn">parse_block</span>())
+        }
+        _ => {
+            <span class="kw">let</span> expr = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+            <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::Semicolon</span>);
+            <span class="ty">AstStmt::Expr</span>(expr)
+        }
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">parse_if_stmt</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstStmt</span> {
+    <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume 'if'</span>
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::OpenParen</span>);
+    <span class="kw">let</span> cond = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::CloseParen</span>);
+    <span class="kw">let</span> then_branch = <span class="kw">self</span>.<span class="fn">parse_block_or_stmt</span>();
+
+    <span class="kw">let</span> else_branch = <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(&amp;<span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::Else</span>)) {
+        <span class="kw">self</span>.<span class="fn">advance</span>();
+        <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">parse_block_or_stmt</span>())
+    } <span class="kw">else</span> {
+        <span class="ty">None</span>
+    };
+
+    <span class="ty">AstStmt::If</span>(<span class="kw">Box::new</span>(cond), then_branch, else_branch.<span class="fn">map</span>(<span class="ty">Box::new</span>))
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>parser.ml</span> — statements</div>
+    <pre><code><span class="kw">and</span> parse_statement p = <span class="kw">match</span> peek p <span class="kw">with</span>
+  | <span class="ty">Some</span> (<span class="ty">Token_Keyword</span> <span class="ty">Kw_Return</span>) ->
+      advance p;
+      <span class="kw">let</span> expr = parse_expr p <span class="kw">in</span>
+      expect p <span class="ty">Token_Semicolon</span>;
+      <span class="ty">AstStmt_Return</span> expr
+  | <span class="ty">Some</span> (<span class="ty">Token_Keyword</span> <span class="ty">Kw_Let</span>) ->
+      advance p;
+      <span class="kw">let</span> name = expect_ident p <span class="kw">in</span>
+      expect p <span class="ty">Token_Colon</span>;
+      <span class="kw">let</span> ty = parse_type p <span class="kw">in</span>
+      expect p <span class="ty">Token_Equals</span>;
+      <span class="kw">let</span> init = parse_expr p <span class="kw">in</span>
+      expect p <span class="ty">Token_Semicolon</span>;
+      <span class="ty">AstStmt_VarDecl</span> (name, ty, init)
+  | <span class="ty">Some</span> (<span class="ty">Token_Keyword</span> <span class="ty">Kw_If</span>) -> parse_if_stmt p
+  | <span class="ty">Some</span> (<span class="ty">Token_Keyword</span> <span class="ty">Kw_While</span>) -> parse_while_stmt p
+  | <span class="ty">Some</span> <span class="ty">Token_OpenBrace</span> -> <span class="ty">AstStmt_Block</span> (parse_block p)
+  | _ ->
+      <span class="kw">let</span> expr = parse_expr p <span class="kw">in</span>
+      expect p <span class="ty">Token_Semicolon</span>;
+      <span class="ty">AstStmt_Expr</span> expr
+
+<span class="kw">and</span> parse_if_stmt p =
+  advance p;
+  expect p <span class="ty">Token_OpenParen</span>;
+  <span class="kw">let</span> cond = parse_expr p <span class="kw">in</span>
+  expect p <span class="ty">Token_CloseParen</span>;
+  <span class="kw">let</span> then_branch = parse_block_or_stmt p <span class="kw">in</span>
+  <span class="kw">let</span> else_branch =
+    <span class="kw">match</span> peek p <span class="kw">with</span>
+    | <span class="ty">Some</span> (<span class="ty">Token_Keyword</span> <span class="ty">Kw_Else</span>) -> advance p; <span class="ty">Some</span> (parse_block_or_stmt p)
+    | _ -> <span class="ty">None</span>
+  <span class="kw">in</span>
+  <span class="ty">AstStmt_If</span> (cond, then_branch, else_branch)</code></pre>
+  </div>
+</div>
+
+<p>Each <code>match</code> arm is clean and self-contained. The compiler enforces exhaustiveness — if we add a new statement kind to the AST, the <code>parse_statement</code> match will fail to compile until we add the corresponding arm.</p>
+
+<h2>Pratt Parsing for Expressions</h2>
+
+<p>Expressions are where parsing gets interesting. Consider <code>a + b * c</code>: the parser must produce <code>a + (b * c)</code>, not <code>(a + b) * c</code>. This is <strong>operator precedence</strong>. Then there's <strong>associativity</strong>: <code>a - b - c</code> means <code>(a - b) - c</code>, not <code>a - (b - c)</code>.</p>
+
+<p>The classic recursive descent approach uses one function per precedence level (<code>parse_expr</code>, <code>parse_term</code>, <code>parse_factor</code>). This works but is verbose and rigid. <strong>Pratt parsing</strong> is more elegant: each operator has a <em>binding power</em> (a number), and a single function handles all operators by comparing binding powers.</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/parser.rs</span> — Pratt binding powers</div>
+    <pre><code><span class="kw">const</span> <span class="fn">prefix_bp</span>(kind: &amp;<span class="ty">TokenKind</span>) -&gt; <span class="ty">Option</span>&lt;u8&gt; {
+    <span class="kw">match</span> kind {
+        <span class="ty">TokenKind::Minus</span> =&gt; <span class="ty">Some</span>(<span class="num">9</span>),   <span class="cm">// unary negation</span>
+        <span class="ty">TokenKind::Bang</span>  =&gt; <span class="ty">Some</span>(<span class="num">9</span>),   <span class="cm">// logical not</span>
+        <span class="ty">TokenKind::IntLit</span>(_) | <span class="ty">TokenKind::Ident</span>(_) | <span class="ty">TokenKind::OpenParen</span> => {
+            <span class="ty">Some</span>(<span class="num">0</span>)  <span class="cm">// atoms — consume and return</span>
+        }
+        _ =&gt; <span class="ty">None</span>,
+    }
+}
+
+<span class="kw">const</span> <span class="fn">infix_bp</span>(kind: &amp;<span class="ty">TokenKind</span>) -&gt; <span class="ty">Option</span>&lt;(u8, u8)&gt; {
+    <span class="kw">match</span> kind {
+        <span class="ty">TokenKind::OrOr</span>    =&gt; <span class="ty">Some</span>((<span class="num">1</span>, <span class="num">2</span>)),
+        <span class="ty">TokenKind::AndAnd</span>  =&gt; <span class="ty">Some</span>((<span class="num">3</span>, <span class="num">4</span>)),
+        <span class="ty">TokenKind::EqEq</span>
+        | <span class="ty">TokenKind::BangEq</span> =&gt; <span class="ty">Some</span>((<span class="num">5</span>, <span class="num">6</span>)),
+        <span class="ty">TokenKind::Lt</span>
+        | <span class="ty">TokenKind::Gt</span>
+        | <span class="ty">TokenKind::LtEq</span>
+        | <span class="ty">TokenKind::GtEq</span>   =&gt; <span class="ty">Some</span>((<span class="num">7</span>, <span class="num">8</span>)),
+        <span class="ty">TokenKind::Plus</span>
+        | <span class="ty">TokenKind::Minus</span>  =&gt; <span class="ty">Some</span>((<span class="num">9</span>, <span class="num">10</span>)),
+        <span class="ty">TokenKind::Star</span>
+        | <span class="ty">TokenKind::Slash</span>
+        | <span class="ty">TokenKind::Percent</span> => <span class="ty">Some</span>((<span class="num">11</span>, <span class="num">12</span>)),
+        <span class="ty">TokenKind::OpenParen</span> => <span class="ty">Some</span>((<span class="num">13</span>, <span class="num">14</span>)), <span class="cm">// function call</span>
+        _ => <span class="ty">None</span>,
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>parser.ml</span> — Pratt binding powers</div>
+    <pre><code><span class="kw">let</span> prefix_bp = <span class="kw">function</span>
+  | <span class="ty">Token_Minus</span> | <span class="ty">Token_Bang</span> -> <span class="ty">Some</span> 9
+  | <span class="ty">Token_IntLit</span> _ | <span class="ty">Token_Ident</span> _ | <span class="ty">Token_OpenParen</span> -> <span class="ty">Some</span> 0
+  | _ -> <span class="ty">None</span>
+
+<span class="kw">let</span> infix_bp = <span class="kw">function</span>
+  | <span class="ty">Token_OrOr</span>     -> <span class="ty">Some</span> (1, 2)
+  | <span class="ty">Token_AndAnd</span>   -> <span class="ty">Some</span> (3, 4)
+  | <span class="ty">Token_EqEq</span>
+  | <span class="ty">Token_BangEq</span>   -> <span class="ty">Some</span> (5, 6)
+  | <span class="ty">Token_Lt</span> | <span class="ty">Token_Gt</span>
+  | <span class="ty">Token_LtEq</span> | <span class="ty">Token_GtEq</span> -> <span class="ty">Some</span> (7, 8)
+  | <span class="ty">Token_Plus</span> | <span class="ty">Token_Minus</span> -> <span class="ty">Some</span> (9, 10)
+  | <span class="ty">Token_Star</span> | <span class="ty">Token_Slash</span>
+  | <span class="ty">Token_Percent</span>  -> <span class="ty">Some</span> (11, 12)
+  | <span class="ty">Token_OpenParen</span> -> <span class="ty">Some</span> (13, 14)
+  | _ -> <span class="ty">None</span></code></pre>
+  </div>
+</div>
+
+<p>The tuple <code>(left_bp, right_bp)</code> encodes both precedence and associativity. For left-associative operators like <code>+</code>, <code>left_bp &lt; right_bp</code> (9 and 10). For right-associative operators (if we had any, like exponentiation), we'd have <code>left_bp &gt; right_bp</code>. The <code>parse_expr_bp</code> function uses these to decide when to stop recursing:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/parser.rs</span> — Pratt expression parser</div>
+    <pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">parse_expr</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(<span class="num">0</span>)
+}
+
+<span class="kw">fn</span> <span class="fn">parse_expr_bp</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, min_bp: u8) -&gt; <span class="ty">AstExpr</span> {
+    <span class="cm">// Parse a prefix expression (atom or unary operator).</span>
+    <span class="kw">let</span> <span class="kw">mut</span> lhs = <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="ty">Some</span>(kind) <span class="kw">if</span> <span class="fn">prefix_bp</span>(kind).<span class="fn">is_some</span>() => {
+            <span class="kw">let</span> (_, r_bp) = <span class="kw">self</span>.<span class="fn">parse_prefix</span>()
+        }
+        _ => {
+            <span class="kw">self</span>.<span class="fn">error</span>(<span class="str">"expected expression"</span>.<span class="fn">to_string</span>());
+            <span class="ty">AstExpr::Error</span>
+        }
+    };
+
+    <span class="cm">// Parse infix operators while their binding power is high enough.</span>
+    <span class="kw">loop</span> {
+        <span class="kw">let</span> kind = <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">Some</span>(k) => k.<span class="fn">clone</span>(),
+            <span class="ty">None</span> => <span class="kw">break</span>,
+        };
+
+        <span class="kw">let</span> (l_bp, r_bp) = <span class="kw">match</span> <span class="fn">infix_bp</span>(&amp;kind) {
+            <span class="ty">Some</span>(bp) => bp,
+            <span class="ty">None</span> => <span class="kw">break</span>,
+        };
+
+        <span class="kw">if</span> l_bp &lt; min_bp {
+            <span class="kw">break</span>;
+        }
+
+        <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume the operator</span>
+        <span class="kw">let</span> rhs = <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(r_bp);
+        lhs = <span class="kw">self</span>.<span class="fn">make_binary</span>(kind, lhs, rhs);
+    }
+
+    lhs
+}
+
+<span class="kw">fn</span> <span class="fn">parse_prefix</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; (u8, <span class="ty">AstExpr</span>) {
+    <span class="kw">let</span> kind = <span class="kw">self</span>.<span class="fn">peek</span>().<span class="fn">unwrap</span>().<span class="fn">clone</span>();
+    <span class="kw">let</span> r_bp = <span class="fn">prefix_bp</span>(&amp;kind).<span class="fn">unwrap</span>();
+    <span class="kw">match</span> kind {
+        <span class="ty">TokenKind::Minus</span> | <span class="ty">TokenKind::Bang</span> => {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">let</span> expr = <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(r_bp);
+            (r_bp, <span class="ty">AstExpr::Unary</span>(kind, <span class="kw">Box::new</span>(expr)))
+        }
+        <span class="ty">TokenKind::IntLit</span>(n) => {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            (r_bp, <span class="ty">AstExpr::Int</span>(n))
+        }
+        <span class="ty">TokenKind::Ident</span>(name) => {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            (r_bp, <span class="ty">AstExpr::Ident</span>(name))
+        }
+        <span class="ty">TokenKind::OpenParen</span> => {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">let</span> expr = <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(<span class="num">0</span>);
+            <span class="kw">self</span>.<span class="fn">expect</span>(<span class="ty">TokenKind::CloseParen</span>);
+            (r_bp, expr)
+        }
+        _ => <span class="kw">unreachable!</span>(),
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>parser.ml</span> — Pratt expression parser</div>
+    <pre><code><span class="kw">and</span> parse_expr p = parse_expr_bp p 0
+
+<span class="kw">and</span> parse_expr_bp p min_bp =
+  <span class="kw">let</span> lhs = <span class="kw">match</span> peek p <span class="kw">with</span>
+    | <span class="ty">Some</span> kind <span class="kw">when</span> prefix_bp kind &lt;&gt; <span class="ty">None</span> ->
+        <span class="kw">let</span> (_, expr) = parse_prefix p <span class="kw">in</span>
+        expr
+    | _ ->
+        error p <span class="str">"expected expression"</span>;
+        <span class="ty">AstExpr_Error</span>
+  <span class="kw">in</span>
+  <span class="kw">let</span> <span class="kw">rec</span> loop lhs =
+    <span class="kw">match</span> peek p <span class="kw">with</span>
+    | <span class="ty">None</span> -> lhs
+    | <span class="ty">Some</span> kind ->
+        (<span class="kw">match</span> infix_bp kind <span class="kw">with</span>
+         | <span class="ty">Some</span> (l_bp, r_bp) <span class="kw">when</span> l_bp &gt;= min_bp ->
+             advance p;
+             <span class="kw">let</span> rhs = parse_expr_bp p r_bp <span class="kw">in</span>
+             loop (make_binary kind lhs rhs)
+         | _ -> lhs)
+  <span class="kw">in</span>
+  loop lhs
+
+<span class="kw">and</span> parse_prefix p =
+  <span class="kw">let</span> kind = <span class="kw">match</span> peek p <span class="kw">with</span> <span class="ty">Some</span> k -> k | <span class="ty">None</span> -> <span class="kw">failwith</span> <span class="str">"unreachable"</span> <span class="kw">in</span>
+  <span class="kw">let</span> r_bp = <span class="kw">match</span> prefix_bp kind <span class="kw">with</span> <span class="ty">Some</span> bp -&gt; bp | <span class="ty">None</span> -> 0 <span class="kw">in</span>
+  <span class="kw">match</span> kind <span class="kw">with</span>
+  | <span class="ty">Token_Minus</span> | <span class="ty">Token_Bang</span> ->
+      advance p;
+      <span class="kw">let</span> expr = parse_expr_bp p r_bp <span class="kw">in</span>
+      (r_bp, <span class="ty">AstExpr_Unary</span> (kind, expr))
+  | <span class="ty">Token_IntLit</span> n ->
+      advance p; (r_bp, <span class="ty">AstExpr_Int</span> n)
+  | <span class="ty">Token_Ident</span> name ->
+      advance p; (r_bp, <span class="ty">AstExpr_Ident</span> name)
+  | <span class="ty">Token_OpenParen</span> ->
+      advance p;
+      <span class="kw">let</span> expr = parse_expr_bp p 0 <span class="kw">in</span>
+      expect p <span class="ty">Token_CloseParen</span>;
+      (r_bp, expr)
+  | _ -> <span class="kw">failwith</span> <span class="str">"unreachable"</span></code></pre>
+  </div>
+</div>
+
+<p>The algorithm is beautiful in its simplicity:</p>
+
+<ol>
+  <li>Parse a prefix expression (atom, parenthesized expression, or unary operator).</li>
+  <li>Look at the next token. If it's an infix operator with binding power high enough, consume it and parse the right-hand side with the operator's right binding power.</li>
+  <li>Repeat until no operator has high enough binding power.</li>
+</ol>
+
+<div class="callout tip">
+  <strong>Why this is elegant in Rust:</strong> The <code>match</code> on <code>TokenKind</code> drives the entire parser. Each arm is short and focused. Adding a new operator means adding a variant to <code>TokenKind</code>, adding an entry to the binding power tables, and (if it's a new prefix form) adding an arm to <code>parse_prefix</code>. The compiler tells you if you miss anything.
+</div>
+
+<h2>Error Recovery</h2>
+
+<p>When the parser encounters an error, the worst thing it can do is stop. The programmer wants to see <em>all</em> errors in their file, not just the first one. Error recovery is the art of getting back to a known state and continuing.</p>
+
+<p>Our strategy is straightforward:</p>
+
+<ul>
+  <li><strong>Sentinel nodes:</strong> When parsing fails, produce <code>AstExpr::Error</code> or <code>AstStmt::Error</code>. These are real AST nodes that downstream phases can handle gracefully (e.g., by propagating the error or treating them as the unit type).</li>
+  <li><strong>Synchronization:</strong> After an error in a statement, skip tokens until we find a statement boundary (<code>}</code>, <code>;</code>, keyword). This prevents cascading errors where one mistake causes fifty spurious errors.</li>
+  <li><strong>Collect don't throw:</strong> All errors go into <code>diagnostics</code>. The parser never panics.</li>
+</ul>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/parser.rs</span> — error recovery</div>
+    <pre><code><span class="kw">fn</span> <span class="fn">synchronize</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(kind) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="kw">match</span> kind {
+            <span class="ty">TokenKind::Semicolon</span> => {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="kw">return</span>;
+            }
+            <span class="ty">TokenKind::CloseBrace</span>
+            | <span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::Func</span>)
+            | <span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::Let</span>)
+            | <span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::If</span>)
+            | <span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::While</span>)
+            | <span class="ty">TokenKind::Keyword</span>(<span class="ty">Keyword::Return</span>) => {
+                <span class="kw">return</span>;
+            }
+            _ => {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+            }
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>parser.ml</span> — error recovery</div>
+    <pre><code><span class="kw">let</span> synchronize p =
+  <span class="kw">let</span> <span class="kw">rec</span> loop () =
+    <span class="kw">match</span> peek p <span class="kw">with</span>
+    | <span class="ty">None</span> -> ()
+    | <span class="ty">Some</span> <span class="ty">Token_Semicolon</span> -> advance p; ()
+    | <span class="ty">Some</span> <span class="ty">Token_CloseBrace</span> -> ()
+    | <span class="ty">Some</span> (<span class="ty">Token_Keyword</span> (<span class="ty">Kw_Func</span> | <span class="ty">Kw_Let</span> | <span class="ty">Kw_If</span> | <span class="ty">Kw_While</span> | <span class="ty">Kw_Return</span>)) -> ()
+    | <span class="ty">Some</span> _ -> advance p; loop ()
+  <span class="kw">in</span>
+  loop ()</code></pre>
+  </div>
+</div>
+
+<p>When <code>parse_statement</code> encounters an error, it calls <code>synchronize</code> and returns <code>AstStmt::Error</code>. The loop in <code>parse_func_decl</code> continues to the next statement. The loop in <code>parse_program</code> continues to the next function. The programmer gets error messages for every problem in their file, not just the first one.</p>
+
+<h2>Complete Walkthrough</h2>
+
+<p>Let's trace the parser through a complete function:</p>
+
+<pre><code><span class="kw">func</span> add(i32, a: i32, b: i32) {
+  <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p><strong>Step 1: <code>parse_program</code></strong></p>
+<p>Peeks at <code>Keyword(Func)</code>. Enters the loop, calls <code>parse_func_decl</code>.</p>
+
+<p><strong>Step 2: <code>parse_func_decl</code></strong></p>
+<table class="file-table">
+  <tr><th>Action</th><th>Token consumed</th><th>State</th></tr>
+  <tr><td><code>expect(Keyword(Func))</code></td><td><code>func</code></td><td>Consumed func keyword</td></tr>
+  <tr><td><code>expect_ident()</code></td><td><code>add</code></td><td>name = "add"</td></tr>
+  <tr><td><code>expect(OpenParen)</code></td><td><code>(</code></td><td>Enter parameter list</td></tr>
+  <tr><td><code>parse_type()</code></td><td><code>i32</code></td><td>ret_type = AstType::Ident("i32")</td></tr>
+  <tr><td>Loop: peek is Comma</td><td><code>,</code></td><td>Parse param "a"</td></tr>
+  <tr><td><code>parse_param()</code></td><td><code>a</code>, <code>:</code>, <code>i32</code></td><td>param = ("a", i32)</td></tr>
+  <tr><td>Loop: peek is Comma</td><td><code>,</code></td><td>Parse param "b"</td></tr>
+  <tr><td><code>parse_param()</code></td><td><code>b</code>, <code>:</code>, <code>i32</code></td><td>param = ("b", i32)</td></tr>
+  <tr><td>Loop: peek is CloseParen</td><td></td><td>Exit param loop</td></tr>
+  <tr><td><code>expect(CloseParen)</code></td><td><code>)</code></td><td>End parameter list</td></tr>
+  <tr><td><code>expect(OpenBrace)</code></td><td><code>{</code></td><td>Enter function body</td></tr>
+</table>
+
+<p><strong>Step 3: Parse body statements</strong></p>
+<p>Peeks at <code>Keyword(Return)</code>. Enters the return branch:</p>
+<table class="file-table">
+  <tr><th>Action</th><th>Token consumed</th></tr>
+  <tr><td>advance (Return)</td><td><code>return</code></td></tr>
+  <tr><td><code>parse_expr()</code></td><td><code>a + b</code></td></tr>
+  <tr><td>expect(Semicolon)</td><td><code>;</code></td></tr>
+</table>
+
+<p><strong>Step 4: <code>parse_expr</code> (the expression <code>a + b</code>)</strong></p>
+<p>Calls <code>parse_expr_bp(0)</code>:</p>
+<table class="file-table">
+  <tr><th>Token</th><th>Action</th><th>Stack / Result</th></tr>
+  <tr><td><code>Ident("a")</code></td><td>Parse prefix: return <code>Ident("a")</code>, r_bp=0</td><td>lhs = Ident("a")</td></tr>
+  <tr><td><code>Plus</code></td><td>infix_bp returns (9, 10). 9 &gt;= 0, so consume <code>+</code>.</td><td>Call <code>parse_expr_bp(10)</code></td></tr>
+  <tr><td><code>Ident("b")</code></td><td>Parse prefix: return <code>Ident("b")</code>, r_bp=0</td><td>rhs = Ident("b")</td></tr>
+  <tr><td><code>Semicolon</code></td><td>infix_bp returns None. Break.</td><td>Return rhs = Ident("b")</td></tr>
+  <tr><td></td><td>lhs = Binary(+, Ident("a"), Ident("b"))</td><td>Loop: peek is Semicolon, break</td></tr>
+</table>
+
+<p>Return <code>Binary(+, Ident("a"), Ident("b"))</code> to <code>parse_statement</code>.</p>
+
+<p><strong>Step 5: Finish <code>parse_func_decl</code></strong></p>
+<p>Body now contains <code>[Return(Binary(+, "a", "b"))]</code>. Expects <code>CloseBrace</code>, consumes <code>}</code>. Returns <code>AstFuncDecl { name: "add", ... }</code>.</p>
+
+<p><strong>Step 6: <code>parse_program</code></strong></p>
+<p>Peeks at <code>None</code> (end of tokens). Exits loop. Returns <code>AstProgram { funcs: [...] }</code>.</p>
+
+<p>The final AST:</p>
+
+<div class="diagram">
+<pre><code>AstProgram
+  └── AstFuncDecl
+        ├── name: "add"
+        ├── ret_type: Ident("i32")
+        ├── params:
+        │   ├── AstParam { name: "a", ty: Ident("i32") }
+        │   └── AstParam { name: "b", ty: Ident("i32") }
+        └── body:
+              └── AstStmt::Return
+                    └── AstExpr::Binary
+                          ├── op: Plus
+                          ├── left: AstExpr::Ident("a")
+                          └── right: AstExpr::Ident("b")</code></pre>
+</div>
+
+<div class="callout info">
+  <strong>How Pratt handles precedence:</strong> If we had <code>a + b * c</code> instead of <code>a + b</code>, the inner <code>parse_expr_bp(10)</code> call would see <code>*</code> with binding power (11, 12). Since 11 &gt;= 10, it would recurse for the multiplication <em>before</em> returning to the addition level. The result is <code>a + (b * c)</code> — correct precedence. And the whole thing fits in 30 lines of code.
+</div>
+
+<h2>Exercises</h2>
+
+<div class="exercise">
+  <h3>Exercise 3.1: Implement the Parser</h3>
+  <p>Write the complete parser in <code>src/parser.rs</code> based on the code in this chapter. Implement <code>parse_program</code>, <code>parse_func_decl</code>, <code>parse_statement</code>, <code>parse_type</code>, and <code>parse_expr_bp</code>. Add tests that parse complete programs and verify the AST structure.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 3.2: Add Array Indexing</h3>
+  <p>Extend the parser to support array indexing: <code>arr[expr]</code>. This is a postfix operator — after parsing a primary expression, check for <code>[</code>, parse the index expression, and expect <code>]</code>. Add it to the Pratt infix table with appropriate binding power. The AST variant might be:</p>
+  <pre><code><span class="ty">AstExpr::Index</span> {
+    target: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+    index: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+}</code></pre>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 3.3: Add the Ternary Conditional Operator</h3>
+  <p>Add support for <code>cond ? then_expr : else_expr</code>. This is tricky because the middle expression is parsed at a different binding power than the right-hand side. In Pratt terms, the <code>?</code> is a right-associative infix operator, and the <code>:</code> acts as a separator, not a binary operator. Research how Rust's <code>?</code> or C's ternary is parsed, and implement it.</p>
+  <pre><code>func max(i32, a: i32, b: i32) {
+  return a > b ? a : b;
+}</code></pre>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 3.4: Better Error Messages</h3>
+  <p>Enhance error recovery to produce more helpful messages. When <code>expect</code> fails, include the expected token, the found token, and a suggestion:</p>
+  <pre><code><span class="kw">error</span>: expected `)` after parameter list, found `{`
+  &rarr; src/main.l1:1:24
+   |
+ 1 | <span class="kw">func</span> main(i32 { <span class="kw">return</span> 0; }
+   |                      ^ expected `)` here</code></pre>
+  <p>Hint: use the peek token's span for the "found" location.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 3.5: Parse Rust-style Function Syntax</h3>
+  <p>Add an alternative function declaration syntax that looks like Rust: <code>fn name(params) -&gt; RetType { body }</code> with the return type after <code>-&gt;</code>. The parser should accept both the standard L1 syntax and the Rust-like syntax. This exercises the idea of having multiple grammar rules produce the same AST.</p>
+  <pre><code><span class="kw">fn</span> add(a: i32, b: i32) -&gt; i32 {
+  <span class="kw">return</span> a + b;
+}</code></pre>
+</div>
+
+<h2>What's Next</h2>
+
+<p>We now have a parser that produces an AST. But what <em>is</em> the AST exactly? We've been using types like <code>AstExpr</code> and <code>AstStmt</code> throughout this chapter, but we haven't defined them formally. The next chapter does exactly that — laying out the complete AST type definitions and showing how they map to program structure.</p>
+
+<p>That's the subject of <a href="04-ast.html">Chapter 4: The AST</a>.</p>
+
+<div class="chapter-nav">
+  <a href="02-lexing.html" class="prev">Previous: Lexing</a>
+  <a href="04-ast.html" class="next">Next: The AST</a>
+</div>
+
+</body>
+</html>

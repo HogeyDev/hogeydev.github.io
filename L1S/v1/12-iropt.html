@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 12: Optimization &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="11-irbuild.html">&larr; Chapter 11</a> &ensp; Chapter 12: Optimization &ensp; <a href="13-regalloc.html">Chapter 13 &rarr;</a></span>
+</div>
+
+<h2 id="iropt">12 &ensp; Optimization</h2>
+
+<h3>Why Optimize?</h3>
+
+<p>The IR builder emits straightforward, unoptimized code. Every expression gets new vregs, every variable gets a stack slot, and every intermediate result is fully computed. This is correct but wasteful. Optimization refines the IR to eliminate dead computation, fold constants, and remove unnecessary operations.</p>
+
+<p>In L1S, optimization is optional in principle but essential in practice &mdash; without it, even trivial programs like <code>return 1+2;</code> would emit three instructions instead of one. The optimizer runs as a <strong>fixed-point loop</strong>: repeatedly apply passes until no change occurs or we hit a limit.</p>
+
+<h3>The Optimizer Driver: <code>optimize()</code></h3>
+
+<div class="code-header"><span>src/ir_opt.rs &mdash; main driver</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">optimize</span>(module: &amp;<span class="kw">mut</span> <span class="ty">IrModule</span>) {
+    <span class="kw">for</span> _ <span class="kw">in</span> 0..100 {
+        <span class="kw">let</span> changed = <span class="fn">constant_folding</span>(module)
+            | <span class="fn">dead_code_elimination</span>(module)
+            | <span class="fn">copy_propagation</span>(module);
+        <span class="kw">if</span> !changed {
+            <span class="kw">break</span>;
+        }
+    }
+    <span class="fn">remove_unreachable_blocks</span>(module);
+}</code></pre>
+
+<p>The driver runs up to 100 iterations. Each iteration applies three passes in sequence. If <strong>none</strong> of them changed anything, we've reached a fixed point and stop. After the loop, we run one cleanup pass (removing unreachable blocks) that doesn't count toward the iteration limit.</p>
+
+<div class="callout info">
+<strong>Why a fixed-point loop?</strong> Passes interact: constant folding may create new dead code (a folded expression's operands become unused). DCE removes it, which may enable more copy propagation. Running them repeatedly until stablization catches all these cascading effects. The 100-iteration cap prevents infinite loops from buggy passes.
+</div>
+
+<h3>Pass 1: Constant Folding</h3>
+
+<p><strong>What it does:</strong> When both operands of <code>Add</code>, <code>Sub</code>, or <code>Mul</code> are known constants, replace the instruction with a <code>MovImm</code> of the computed result.</p>
+
+<p><strong>Why it matters:</strong> Computations like <code>1 + 2</code>, <code>x * 0</code>, and <code>42 - 7</code> appear frequently in source code. Without folding, every constant expression survives into the generated assembly as runtime arithmetic. Folding eliminates them entirely.</p>
+
+<div class="code-header"><span>src/ir_opt.rs &mdash; constant_folding</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">constant_folding</span>(module: &amp;<span class="kw">mut</span> <span class="ty">IrModule</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> changed = <span class="kw">false</span>;
+    <span class="kw">for</span> func <span class="kw">in</span> &amp;<span class="kw">mut</span> module.functions {
+        <span class="kw">let</span> <span class="kw">mut</span> const_values: <span class="ty">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="ty">u64</span>&gt; = <span class="ty">HashMap</span>::<span class="fn">new</span>();
+
+        <span class="kw">for</span> block <span class="kw">in</span> &amp;<span class="kw">mut</span> func.blocks {
+            <span class="kw">let</span> <span class="kw">mut</span> replacements: <span class="ty">Vec</span>&lt;(<span class="ty">usize</span>, <span class="ty">IrInstr</span>)&gt; = <span class="ty">Vec</span>::<span class="fn">new</span>();
+
+            <span class="kw">for</span> (i, instr) <span class="kw">in</span> block.instrs.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+                <span class="kw">match</span> instr {
+                    <span class="ty">IrInstr::MovImm</span>(d, v, _) =&gt; {
+                        const_values.<span class="fn">insert</span>(*d, *v);
+                    }
+                    <span class="ty">IrInstr::Add</span>(d, a, b) =&gt; {
+                        <span class="kw">if</span> <span class="kw">let</span> (<span class="ty">Some</span>(av), <span class="ty">Some</span>(bv)) =
+                                (const_values.<span class="fn">get</span>(a), const_values.<span class="fn">get</span>(b)) {
+                            <span class="kw">let</span> val = av.<span class="fn">wrapping_add</span>(*bv);
+                            replacements.<span class="fn">push</span>((i, <span class="ty">IrInstr::MovImm</span>(*d, val, ...)));
+                            const_values.<span class="fn">insert</span>(*d, val);
+                            changed = <span class="kw">true</span>;
+                        }
+                    }
+                    <span class="ty">IrInstr::Sub</span>(d, a, b) =&gt; { <span class="cm">/* same pattern */</span> }
+                    <span class="ty">IrInstr::Mul</span>(d, a, b) =&gt; { <span class="cm">/* same pattern */</span> }
+                    _ =&gt; {}
+                }
+            }
+
+            <span class="kw">for</span> (i, replacement) <span class="kw">in</span> replacements {
+                block.instrs[i] = replacement;
+            }
+        }
+    }
+    changed
+}</code></pre>
+
+<p>The pass maintains a <code>HashMap&lt;VReg, u64&gt;</code> mapping vregs to their known constant values. As it scans instructions left to right:</p>
+<ol>
+<li><strong>MovImm</strong>: Record the vreg and its value.</li>
+<li><strong>Add/Sub/Mul</strong>: If both source operands are in the map, compute the result and schedule a replacement.</li>
+<li><strong>Other instructions</strong>: Clear the constant map (in a more aggressive version, but here we just skip them &mdash; the entries remain, which is a simplification).</li>
+</ol>
+
+<div class="callout warn">
+<strong>Simplification</strong>: The current implementation doesn't clear the constant map when it encounters a non-foldable instruction. This means it can incorrectly fold across blocks in some edge cases. A production optimizer would <strong>kill</strong> entries when encountering stores or calls that might invalidate them.
+</div>
+
+<h3>Pass 2: Dead Code Elimination (DCE)</h3>
+
+<p><strong>What it does:</strong> Removes instructions whose destination vreg is never used by any other instruction, terminator, or phi node.</p>
+
+<p><strong>Why it matters:</strong> The IR builder emits instructions for every expression, even if the result is never used (e.g., a discarded expression statement like <code>1+2;</code>). DCE cleans these up. It's especially important after constant folding &mdash; when <code>Add</code> gets replaced by <code>MovImm</code>, the original operands' definitions may become dead.</p>
+
+<div class="code-header"><span>src/ir_opt.rs &mdash; dead_code_elimination</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">dead_code_elimination</span>(module: &amp;<span class="kw">mut</span> <span class="ty">IrModule</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> changed = <span class="kw">false</span>;
+    <span class="kw">for</span> func <span class="kw">in</span> &amp;<span class="kw">mut</span> module.functions {
+        <span class="kw">let</span> <span class="kw">mut</span> uses: <span class="ty">HashSet</span>&lt;<span class="ty">VReg</span>&gt; = <span class="ty">HashSet</span>::<span class="fn">new</span>();
+
+        <span class="cm">// Collect all used vregs</span>
+        <span class="kw">for</span> block <span class="kw">in</span> &amp;func.blocks {
+            <span class="kw">for</span> instr <span class="kw">in</span> &amp;block.instrs {
+                <span class="kw">for</span> op <span class="kw">in</span> <span class="fn">instr_uses</span>(instr) {
+                    uses.<span class="fn">insert</span>(op);
+                }
+            }
+            <span class="kw">for</span> phi <span class="kw">in</span> &amp;block.phis {
+                <span class="kw">for</span> (src, _) <span class="kw">in</span> &amp;phi.sources {
+                    uses.<span class="fn">insert</span>(*src);
+                }
+            }
+            <span class="kw">match</span> &amp;block.terminator {
+                <span class="ty">IrTerminator::Branch</span>(cond, _, _) =&gt; { uses.<span class="fn">insert</span>(*cond); }
+                <span class="ty">IrTerminator::Return</span>(val) =&gt; { uses.<span class="fn">insert</span>(*val); }
+                _ =&gt; {}
+            }
+        }
+
+        <span class="cm">// Remove unused instructions</span>
+        <span class="kw">for</span> block <span class="kw">in</span> &amp;<span class="kw">mut</span> func.blocks {
+            block.instrs.<span class="fn">retain</span>(|instr| {
+                <span class="kw">let</span> keep = <span class="kw">match</span> instr {
+                    <span class="cm">// Side-effecting instructions are always kept</span>
+                    <span class="ty">IrInstr::Store</span>(_, _)
+                    | <span class="ty">IrInstr::Call</span>(_, _, _)
+                    | <span class="ty">IrInstr::MemCopy</span>(_, _, _) =&gt; <span class="kw">true</span>,
+                    _ =&gt; {
+                        <span class="kw">let</span> dest = instr.<span class="fn">dest</span>();
+                        uses.<span class="fn">contains</span>(&amp;dest)
+                    }
+                };
+                <span class="kw">if</span> !keep {
+                    changed = <span class="kw">true</span>;
+                }
+                keep
+            });
+        }
+    }
+    changed
+}</code></pre>
+
+<p><strong>Two-phase design:</strong></p>
+<ol>
+<li><strong>Collect uses</strong>: Walk every instruction, phi, and terminator. For each operand they reference, add the operand's vreg to a <code>HashSet</code>. This tells us which vregs are <em>needed</em>.</li>
+<li><strong>Retain or remove</strong>: For each instruction, check if its destination vreg is in the uses set. If not, it's dead and gets removed. Instructions with side effects (<code>Store</code>, <code>Call</code>, <code>MemCopy</code>) are always kept, because they affect memory even if their dest vreg is unused.</li>
+</ol>
+
+<h3>Pass 3: Copy Propagation</h3>
+
+<p><strong>What it does:</strong> When a <code>Load %d, %s</code> is seen, subsequent loads from <code>%d</code> can be replaced with a direct reference to <code>%s</code>. More precisely, it tracks copies: <code>Load %d, %s</code> means "the value in <code>%d</code> came from <code>%s</code>." If <code>%s</code> was itself a copy of another vreg, we forward the original.</p>
+
+<p><strong>Why it matters:</strong> The IR builder emits <code>Load</code> for every variable reference. If a variable is loaded multiple times, copy propagation can eliminate redundant loads. In L1S's simple implementation, this pass is lightweight but lays groundwork for more aggressive optimization.</p>
+
+<div class="code-header"><span>src/ir_opt.rs &mdash; copy_propagation</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">copy_propagation</span>(module: &amp;<span class="kw">mut</span> <span class="ty">IrModule</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> changed = <span class="kw">false</span>;
+    <span class="kw">for</span> func <span class="kw">in</span> &amp;<span class="kw">mut</span> module.functions {
+        <span class="kw">let</span> <span class="kw">mut</span> copies: <span class="ty">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="ty">VReg</span>&gt; = <span class="ty">HashMap</span>::<span class="fn">new</span>();
+
+        <span class="kw">for</span> block_idx <span class="kw">in</span> 0..func.blocks.<span class="fn">len</span>() {
+            <span class="kw">let</span> block = &amp;func.blocks[block_idx];
+            <span class="kw">for</span> instr <span class="kw">in</span> &amp;block.instrs {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ty">IrInstr::Load</span>(d, s) = instr {
+                    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(&amp;orig) = copies.<span class="fn">get</span>(s) {
+                        copies.<span class="fn">insert</span>(*d, orig);
+                        changed = <span class="kw">true</span>;
+                    } <span class="kw">else</span> {
+                        copies.<span class="fn">insert</span>(*d, *s);
+                    }
+                }
+            }
+        }
+    }
+    changed
+}</code></pre>
+
+<p>The current implementation only <em>records</em> copies but doesn't rewrite uses. It's a skeleton: it detects that <code>%d</code> is a copy of <code>%s</code> (or transitively of <code>orig</code>), but doesn't yet rename operands. A full implementation would walk all uses of <code>%d</code> and replace them with <code>%s</code>.</p>
+
+<div class="callout tip">
+<strong>Copy propagation vs. SSA</strong>: In a proper SSA-based compiler, copy propagation is trivial &mdash; you just rename. L1S doesn't use SSA, so copy propagation requires a dataflow analysis to know where copies are valid. The current implementation is deliberately conservative.
+</div>
+
+<h3>Pass 4: Remove Unreachable Blocks</h3>
+
+<p><strong>What it does:</strong> After all other optimizations, some blocks may become unreachable (e.g., the false-branch target of a branch whose condition is now constant-true). This pass removes them.</p>
+
+<p><strong>Why it matters:</strong> Dead blocks waste space and confuse debugging. They can also cause problems for the register allocator (which iterates all blocks).</p>
+
+<div class="code-header"><span>src/ir_opt.rs &mdash; remove_unreachable_blocks</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">remove_unreachable_blocks</span>(module: &amp;<span class="kw">mut</span> <span class="ty">IrModule</span>) {
+    <span class="kw">for</span> func <span class="kw">in</span> &amp;<span class="kw">mut</span> module.functions {
+        <span class="kw">let</span> entry = func.entry_block;
+        <span class="kw">let</span> <span class="kw">mut</span> reachable: <span class="ty">HashSet</span>&lt;<span class="ty">IrBlockId</span>&gt; = <span class="ty">HashSet</span>::<span class="fn">new</span>();
+        <span class="kw">let</span> <span class="kw">mut</span> worklist: <span class="ty">Vec</span>&lt;<span class="ty">IrBlockId</span>&gt; = <span class="fn">vec!</span>[entry];
+        reachable.<span class="fn">insert</span>(entry);
+
+        <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(block_id) = worklist.<span class="fn">pop</span>() {
+            <span class="kw">let</span> idx = block_id.<span class="fn">index</span>();
+            <span class="kw">if</span> idx &gt;= func.blocks.<span class="fn">len</span>() { <span class="kw">continue</span>; }
+            <span class="kw">let</span> successors = <span class="fn">block_successors</span>(&amp;func.blocks[idx]);
+            <span class="kw">for</span> succ <span class="kw">in</span> successors {
+                <span class="kw">if</span> reachable.<span class="fn">insert</span>(succ) {
+                    worklist.<span class="fn">push</span>(succ);
+                }
+            }
+        }
+
+        func.blocks.<span class="fn">retain</span>(|b| reachable.<span class="fn">contains</span>(&amp;b.id));
+
+        <span class="cm">// Clean up phis and terminators that reference removed blocks</span>
+        <span class="kw">for</span> block <span class="kw">in</span> &amp;<span class="kw">mut</span> func.blocks {
+            block.phis.<span class="fn">iter_mut</span>().<span class="fn">for_each</span>(|phi| {
+                phi.sources.<span class="fn">retain</span>(|(_, pred)| reachable.<span class="fn">contains</span>(pred));
+            });
+            <span class="kw">if</span> <span class="kw">let</span> <span class="ty">IrTerminator::Jump</span>(target) = &amp;block.terminator {
+                <span class="kw">if</span> !reachable.<span class="fn">contains</span>(target) {
+                    block.terminator = <span class="ty">IrTerminator::Jump</span>(block.id);
+                }
+            }
+        }
+    }
+}</code></pre>
+
+<p><strong>Algorithm:</strong> BFS from the entry block. Every block reachable via <code>block_successors</code> is marked. Then we filter the block list, keeping only reachable ones. Finally, we clean up phi source entries that reference dead predecessors, and redirect <code>Jump</code> terminators that point to removed blocks.</p>
+
+<h3>Helper Functions</h3>
+
+<p>Two helpers enable the pass implementations:</p>
+
+<div class="code-header"><span>src/ir_opt.rs &mdash; helper functions</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">instr_uses</span>(instr: &amp;<span class="ty">IrInstr</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">VReg</span>&gt; {
+    <span class="kw">match</span> instr {
+        <span class="ty">IrInstr::Alloc</span>(_, _)
+        | <span class="ty">IrInstr::Neg</span>(_, _)
+        | <span class="ty">IrInstr::Not</span>(_, _)
+        | <span class="ty">IrInstr::BitNot</span>(_, _)
+        | <span class="ty">IrInstr::MovImm</span>(_, _, _) =&gt; <span class="fn">vec!</span>[],
+        <span class="ty">IrInstr::Load</span>(_, s) =&gt; <span class="fn">vec!</span>[*s],
+        <span class="ty">IrInstr::Store</span>(v, p) =&gt; <span class="fn">vec!</span>[*v, *p],
+        <span class="ty">IrInstr::Add</span>(_, a, b)
+        | <span class="ty">IrInstr::Sub</span>(_, a, b)
+        | <span class="ty">IrInstr::Mul</span>(_, a, b)
+        | <span class="ty">IrInstr::SDiv</span>(_, a, b)
+        <span class="cm">// ... all binary ops: returns [*a, *b]</span>
+        | <span class="ty">IrInstr::Gep</span>(_, a, b, _) =&gt; <span class="fn">vec!</span>[*a, *b],
+        <span class="ty">IrInstr::Call</span>(_, _, args) =&gt; args.<span class="fn">clone</span>(),
+        <span class="cm">// ... unary ops: returns [*s]</span>
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">block_successors</span>(block: &amp;<span class="ty">IrBlock</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">IrBlockId</span>&gt; {
+    <span class="kw">match</span> &amp;block.terminator {
+        <span class="ty">IrTerminator::Jump</span>(target) =&gt; <span class="fn">vec!</span>[*target],
+        <span class="ty">IrTerminator::Branch</span>(_, t, f) =&gt; <span class="fn">vec!</span>[*t, *f],
+        <span class="ty">IrTerminator::Return</span>(_) =&gt; <span class="fn">vec!</span>[],
+    }
+}</code></pre>
+
+<p><code>instr_uses</code> returns the set of vregs that an instruction <em>reads from</em>. <code>Alloc</code> and <code>MovImm</code> read nothing. <code>Load</code> reads its source. Binary ops read both operands. <code>Call</code> reads all argument vregs.</p>
+
+<p><code>block_successors</code> returns the blocks that control flow can reach from this block's terminator &mdash; essential for BFS reachability analysis.</p>
+
+<h3>Before/After Example</h3>
+
+<p>Consider this IR from the builder for <code>let x: i32 = (1 + 2) * 3; return x;</code>:</p>
+
+<p><strong>Before optimization:</strong></p>
+<pre><code><span class="lb">bb0 (entry):</span>
+  <span class="op">%0</span> = <span class="kw">Alloc</span> <span class="ty">i32</span>           <span class="cm">; x's slot</span>
+  <span class="op">%1</span> = <span class="kw">MovImm</span> <span class="num">1</span>, <span class="ty">i32</span>
+  <span class="op">%2</span> = <span class="kw">MovImm</span> <span class="num">2</span>, <span class="ty">i32</span>
+  <span class="op">%3</span> = <span class="kw">Add</span> <span class="op">%1</span>, <span class="op">%2</span>           <span class="cm">; 1+2 = 3</span>
+  <span class="op">%4</span> = <span class="kw">MovImm</span> <span class="num">3</span>, <span class="ty">i32</span>
+  <span class="op">%5</span> = <span class="kw">Mul</span> <span class="op">%3</span>, <span class="op">%4</span>           <span class="cm">; 3*3 = 9</span>
+  <span class="op">Store</span> <span class="op">%5</span>, <span class="op">%0</span>                <span class="cm">; x = 9</span>
+  <span class="op">%6</span> = <span class="kw">Load</span> <span class="op">%0</span>              <span class="cm">; load x for return</span>
+  <span class="kw">Return</span> <span class="op">%6</span></code></pre>
+
+<p><strong>After constant folding:</strong> <code>Add %1, %2</code> &rarr; <code>MovImm %3, 3</code>. Then <code>Mul %3, %4</code> sees both operands constant (3 and 3) &rarr; <code>MovImm %5, 9</code>.</p>
+
+<pre><code><span class="op">%1</span> = <span class="kw">MovImm</span> <span class="num">1</span>, <span class="ty">i32</span>
+<span class="op">%2</span> = <span class="kw">MovImm</span> <span class="num">2</span>, <span class="ty">i32</span>
+<span class="op">%3</span> = <span class="kw">MovImm</span> <span class="num">3</span>, <span class="ty">i32</span>        <span class="cm">; was Add</span>
+<span class="op">%4</span> = <span class="kw">MovImm</span> <span class="num">3</span>, <span class="ty">i32</span>
+<span class="op">%5</span> = <span class="kw">MovImm</span> <span class="num">9</span>, <span class="ty">i32</span>        <span class="cm">; was Mul</span>
+<span class="op">Store</span> <span class="op">%5</span>, <span class="op">%0</span>
+<span class="op">%6</span> = <span class="kw">Load</span> <span class="op">%0</span>
+<span class="kw">Return</span> <span class="op">%6</span></code></pre>
+
+<p><strong>After DCE:</strong> <code>%1</code>, <code>%2</code>, <code>%3</code>, <code>%4</code> are no longer used (only <code>%5</code>, <code>%0</code>, <code>%6</code> are referenced).</p>
+
+<pre><code><span class="op">%0</span> = <span class="kw">Alloc</span> <span class="ty">i32</span>
+<span class="op">%5</span> = <span class="kw">MovImm</span> <span class="num">9</span>, <span class="ty">i32</span>
+<span class="op">Store</span> <span class="op">%5</span>, <span class="op">%0</span>
+<span class="op">%6</span> = <span class="kw">Load</span> <span class="op">%0</span>
+<span class="kw">Return</span> <span class="op">%6</span></code></pre>
+
+<p>From 8 instructions down to 5. The constant arithmetic is completely eliminated &mdash; the program just stores 9 and returns it.</p>
+
+<h3>Test Suite</h3>
+
+<p>The optimizer tests verify each pass independently:</p>
+
+<div class="code-header"><span>src/ir_opt.rs &mdash; tests</span></div>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_dead_code_elim</span>() {
+    <span class="cm">// All instrs are used, nothing should change</span>
+    <span class="kw">let</span> <span class="kw">mut</span> module = <span class="fn">make_module</span>(<span class="fn">make_simple_func</span>());
+    <span class="fn">dead_code_elimination</span>(&amp;<span class="kw">mut</span> module);
+    <span class="fn">assert_eq!</span>(module.functions[0].blocks[0].instrs.<span class="fn">len</span>(), 4);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_dce_removes_unused</span>() {
+    <span class="cm">// %0 = Add but %0 is never used &rarr; removed</span>
+    <span class="cm">// Keeps Alloc(%1) and Store(%2, %1) = 2 instrs</span>
+    <span class="kw">let</span> <span class="kw">mut</span> module = <span class="fn">make_module_with_unused</span>();
+    <span class="fn">dead_code_elimination</span>(&amp;<span class="kw">mut</span> module);
+    <span class="fn">assert_eq!</span>(module.functions[0].blocks[0].instrs.<span class="fn">len</span>(), 2);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_remove_unreachable</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> func = <span class="fn">make_func_with_unreachable</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> module = <span class="ty">IrModule</span> { <span class="cm">/* ... */</span> };
+    <span class="fn">remove_unreachable_blocks</span>(&amp;<span class="kw">mut</span> module);
+    <span class="fn">assert_eq!</span>(module.functions[0].blocks.<span class="fn">len</span>(), 2);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_constant_fold_identity</span>() {
+    <span class="cm">// Just check it doesn't crash on a simple function</span>
+    <span class="fn">constant_folding</span>(&amp;<span class="kw">mut</span> module);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_block_successors</span>() {
+    <span class="kw">let</span> jump = <span class="ty">IrBlock</span> { terminator: <span class="ty">IrTerminator::Jump</span>(<span class="ty">IrBlockId</span>::<span class="fn">new</span>(1)), <span class="cm">/* ... */</span> };
+    <span class="fn">assert_eq!</span>(<span class="fn">block_successors</span>(&amp;jump), <span class="fn">vec!</span>[<span class="ty">IrBlockId</span>::<span class="fn">new</span>(1)]);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_instr_uses</span>() {
+    <span class="kw">let</span> add = <span class="ty">IrInstr::Add</span>(<span class="ty">VReg</span>::<span class="fn">new</span>(0), <span class="ty">VReg</span>::<span class="fn">new</span>(1), <span class="ty">VReg</span>::<span class="fn">new</span>(2));
+    <span class="fn">assert_eq!</span>(<span class="fn">instr_uses</span>(&amp;add), <span class="fn">vec!</span>[<span class="ty">VReg</span>::<span class="fn">new</span>(1), <span class="ty">VReg</span>::<span class="fn">new</span>(2)]);
+}</code></pre>
+
+<p>To run the optimizer tests:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- ir_opt
+</code></pre>
+
+<div class="callout info">
+<strong>Test patterns to note</strong>: Each test constructs a minimal <code>IrFunction</code> or <code>IrModule</code> inline, runs a single pass, and asserts on properties like instruction count or block count. This is low-level testing &mdash; we're verifying the pass logic, not the overall result. Higher-level integration tests (compile a program and check the output) are elsewhere.
+</div>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Forgetting to mark side-effectful instructions</strong>: If DCE removes a <code>Store</code> or <code>Call</code>, the program becomes incorrect. Always check: "does this instruction affect memory, I/O, or global state?" If yes, keep it regardless of whether its dest vreg is used.</li>
+<li><strong>Incorrect constant map management</strong>: The constant folding pass doesn't clear entries when it encounters a <code>Store</code> or <code>Call</code> that could modify a vreg's value. This is a known limitation &mdash; in a real compiler, the constant map should be invalidated at side-effecting operations.</li>
+<li><strong>Fixed-point termination</strong>: Ensure the loop <em>always</em> terminates. Each pass should return <code>false</code> when it makes no changes. The 100-iteration cap is a safety net, but you should design passes to converge naturally.</li>
+<li><strong>Unreachable block cleanup</strong>: After removing blocks, always clean up references. A dangling <code>Jump</code> to a removed block will crash the code generator. Phi node source entries referencing removed predecessors should be filtered.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Debugging optimizer output</strong>: The best debugging strategy is to print the IR before and after each pass. Add a <code>dump_ir()</code> function that prints each function's blocks, instructions, and terminators. Run it between passes to see exactly what changed.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="11-irbuild.html">&larr; Chapter 11</a> &ensp; Chapter 12: Optimization &ensp; <a href="13-regalloc.html">Chapter 13 &rarr;</a></span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 2: Source Locations &mdash; Span &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="01-pipeline.html">&larr; Chapter 1</a> &ensp; Chapter 2: Source Locations &mdash; Span &ensp; <a href="03-tokens.html">Chapter 3 &rarr;</a></span>
+</div>
+
+<h2 id="span">2 &ensp; Source Locations &mdash; Span</h2>
+
+<h3>Why Source Locations Matter</h3>
+
+<p>When a compiler reports an error, it must tell the programmer exactly <em>where</em> the error occurred. "Type mismatch on line 42" is useful. "Type mismatch" alone is useless.</p>
+
+<p>To enable precise error reporting, every token, AST node, and IR instruction in L1S carries a <strong>Span</strong> &mdash; a small data structure that records the source location of the corresponding piece of source code.</p>
+
+<p>Consider this error message:</p>
+
+<pre><code><span style="color:var(--red)">error</span><span style="color:var(--fg2)">[E002]</span>: type mismatch
+  <span style="color:var(--blue)">--&gt;</span> test.is:3:12
+   <span style="color:var(--blue)">|</span>
+<span style="color:var(--blue)"> 3</span> <span style="color:var(--blue)">|</span>     <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="str">"hello"</span>;
+   <span style="color:var(--blue)">|</span>            <span style="color:var(--red)">^^^^^^^^^^^</span> expected i32, found string</code></pre>
+
+<p>The <code>3:12</code> and the underlined region come directly from a <code>Span</code>. Without Span, the compiler would be flying blind.</p>
+
+<h3>The Span Struct</h3>
+
+<p>Every source location in L1S is represented by the <code>Span</code> struct in <code>src/span.rs</code>. It is just 16 bytes &mdash; four <code>u32</code>/<code>usize</code> fields &mdash; so it is <code>Copy</code> and cheap to pass around:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; The Span struct</span></div>
+<pre><code><span class="kw">use</span> std::fmt;
+
+<span class="pp">#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Span</span> {
+    <span class="kw">pub</span> start: <span class="ty">usize</span>,  <span class="cm">// byte offset of the first character</span>
+    <span class="kw">pub</span> end:   <span class="ty">usize</span>,  <span class="cm">// byte offset one past the last character</span>
+    <span class="kw">pub</span> line:  <span class="ty">u32</span>,    <span class="cm">// 1-based line number</span>
+    <span class="kw">pub</span> col:   <span class="ty">u32</span>,    <span class="cm">// 1-based column number (of the start position)</span>
+}</code></pre>
+
+<p><strong>Field by field:</strong></p>
+
+<ul>
+  <li><strong><code>start: usize</code></strong> &mdash; The byte offset from the beginning of the source file to the first byte of this span. For a token like <code>func</code> at the very beginning of the file, <code>start = 0</code>.</li>
+  <li><strong><code>end: usize</code></strong> &mdash; The byte offset one past the last byte of this span. The length of the spanned text is <code>end - start</code>. For <code>func</code>, <code>end = 4</code>.</li>
+  <li><strong><code>line: u32</code></strong> &mdash; The 1-based line number of the start position. Line 1 is the first line. This is what editors display and what users understand.</li>
+  <li><strong><code>col: u32</code></strong> &mdash; The 1-based column number of the start position. Column 1 is the first character on the line. Tabs count as one column.</li>
+</ul>
+
+<div class="callout info">
+<strong>Why byte offsets AND line/col?</strong> Byte offsets (<code>start</code>, <code>end</code>) are precise and machine-friendly &mdash; you can slice the source string with <code>&amp;source[span.start..span.end]</code>. Line/col numbers are human-friendly &mdash; they appear in error messages and editor integrations. Having both means the compiler never needs to recalculate line/col from byte offsets (which is O(n) for large files).
+</div>
+
+<h3>Span::new() &mdash; The Constructor</h3>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(start: <span class="ty">usize</span>, end: <span class="ty">usize</span>, line: <span class="ty">u32</span>, col: <span class="ty">u32</span>) -&gt; <span class="ty">Self</span> {
+    <span class="ty">Span</span> { start, end, line, col }
+}</code></pre>
+
+<p>The constructor simply wraps the four values into a <code>Span</code>. There is no validation &mdash; it is the caller's responsibility to ensure <code>end &gt;= start</code> and that the line/col values are consistent with the byte offsets.</p>
+
+<p>This is called from the lexer every time a token is produced:</p>
+
+<pre><code><span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(start_pos, end_pos, start_line, start_col);</code></pre>
+
+<p>The lexer records <code>start_pos</code>/<code>start_line</code>/<code>start_col</code> <em>before</em> consuming the token, then records <code>end_pos</code> afterward. The span covers exactly the characters of the token.</p>
+
+<h3>Span::dummy() &mdash; The "Nowhere" Span</h3>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">dummy</span>() -&gt; <span class="ty">Self</span> {
+    <span class="ty">Span</span> { start: 0, end: 0, line: 0, col: 0 }
+}</code></pre>
+
+<p><code>dummy()</code> returns a span with all-zero fields. This is used as a placeholder when no real source location exists:</p>
+
+<ul>
+  <li><strong>Synthetic AST nodes</strong>: The parser may insert implicit nodes (e.g., a default return value) that don't correspond to any source text.</li>
+  <li><strong>Compiler-generated IR</strong>: Temporary variables and basic blocks created during optimization have no original source location.</li>
+  <li><strong>Error recovery placeholders</strong>: When the parser skips bad tokens, it may insert dummy spans for missing constructs.</li>
+</ul>
+
+<p>Note that <code>line: 0</code> and <code>col: 0</code> are <em>invalid</em> for real source locations (which are 1-based), making it easy to identify dummy spans in debug output. A helper like <code>span.is_dummy()</code> would check <code>line == 0</code>.</p>
+
+<h3>Span::merge() &mdash; Combining Spans</h3>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">merge</span>(a: <span class="ty">Span</span>, b: <span class="ty">Span</span>) -&gt; <span class="ty">Span</span> {
+    <span class="kw">let</span> start = a.start.<span class="fn">min</span>(b.start);
+    <span class="kw">let</span> end = a.end.<span class="fn">max</span>(b.end);
+    <span class="kw">let</span> line = a.line.<span class="fn">min</span>(b.line);
+    <span class="kw">let</span> col = <span class="kw">if</span> a.line &lt; b.line { a.col } <span class="kw">else</span> { a.col.<span class="fn">min</span>(b.col) };
+    <span class="ty">Span</span> { start, end, line, col }
+}</code></pre>
+
+<p><code>merge()</code> produces a new <code>Span</code> that covers both input spans. This is the workhorse for compound constructs. When the parser builds an AST node like <code>a + b</code>, it merges the spans of the left operand, the operator, and the right operand to produce a span covering the entire expression.</p>
+
+<p><strong>The merge logic:</strong></p>
+<ul>
+  <li><strong>Byte offsets</strong>: <code>start</code> takes the minimum, <code>end</code> takes the maximum. The merged span covers from the earliest byte to the latest byte.</li>
+  <li><strong>Line number</strong>: Uses the minimum (earliest) line number.</li>
+  <li><strong>Column number</strong>: If the spans are on different lines (<code>a.line &lt; b.line</code>), use <code>a.col</code> (the column of the earlier line). If they are on the same line, use the minimum column.</li>
+</ul>
+
+<p>This column logic means the merged span always points to the <em>beginning</em> of the construct, which is the most intuitive location for error messages.</p>
+
+<div class="callout tip">
+<strong>Merge is transitive and associative</strong>: You can chain merges to cover arbitrarily large regions: <code>Span::merge(Span::merge(a, b), c)</code> covers everything from the start of <code>a</code> to the end of <code>c</code>. This is exactly how the parser builds spans for deeply nested expressions.
+</div>
+
+<h3>The Display Impl</h3>
+
+<pre><code><span class="kw">impl</span> <span class="ty">fmt::Display</span> <span class="kw">for</span> <span class="ty">Span</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> <span class="ty">fmt::Formatter</span>&lt;'_&gt;) -&gt; <span class="ty">fmt::Result</span> {
+        <span class="fn">write!</span>(f, <span class="str">"{}:{}"</span>, <span class="kw">self</span>.line, <span class="kw">self</span>.col)
+    }
+}</code></pre>
+
+<p>Formatting a <code>Span</code> produces the familiar <code>line:col</code> string (e.g., <code>"3:14"</code>). This is what appears in error messages and debug output. The byte offsets are not shown in the Display impl &mdash; they are for internal use &mdash; but can be inspected via the struct fields or the <code>Debug</code> derive (<code>{:?}</code>).</p>
+
+<h3>Full Annotated span.rs</h3>
+
+<p>Here is the complete <code>src/span.rs</code> file with annotations:</p>
+
+<div class="code-header"><span>src/span.rs &mdash; Complete file (95 lines)</span></div>
+<pre><code><span class="kw">use</span> std::fmt;
+
+<span class="cm">// ---- Line 3-9: The struct definition ----</span>
+<span class="cm">// Derive traits for equality (PartialEq, Eq), cloning (Clone, Copy),</span>
+<span class="cm">// debugging (Debug), and hashability (Hash).</span>
+<span class="pp">#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Span</span> {
+    <span class="kw">pub</span> start: <span class="ty">usize</span>,  <span class="cm">// byte offset of the first character (0-based)</span>
+    <span class="kw">pub</span> end:   <span class="ty">usize</span>,  <span class="cm">// byte offset one past the last character</span>
+    <span class="kw">pub</span> line:  <span class="ty">u32</span>,    <span class="cm">// 1-based line number</span>
+    <span class="kw">pub</span> col:   <span class="ty">u32</span>,    <span class="cm">// 1-based column number</span>
+}
+
+<span class="cm">// ---- Lines 11-27: Constructor, dummy, merge ----</span>
+<span class="kw">impl</span> <span class="ty">Span</span> {
+    <span class="cm">/// Create a new span from raw components.</span>
+    <span class="cm">/// Caller must ensure end &gt;= start and line/col are 1-based or 0 for dummy.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(start: <span class="ty">usize</span>, end: <span class="ty">usize</span>, line: <span class="ty">u32</span>, col: <span class="ty">u32</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Span</span> { start, end, line, col }
+    }
+
+    <span class="cm">/// Create a dummy/invalid span for synthetic constructs.</span>
+    <span class="cm">/// All fields are 0, which is invalid for real source locations.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">dummy</span>() -&gt; <span class="ty">Self</span> {
+        <span class="ty">Span</span> { start: 0, end: 0, line: 0, col: 0 }
+    }
+
+    <span class="cm">/// Merge two spans into one that covers both.</span>
+    <span class="cm">/// Used for compound constructs like binary expressions.</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">merge</span>(a: <span class="ty">Span</span>, b: <span class="ty">Span</span>) -&gt; <span class="ty">Span</span> {
+        <span class="kw">let</span> start = a.start.<span class="fn">min</span>(b.start);
+        <span class="kw">let</span> end = a.end.<span class="fn">max</span>(b.end);
+        <span class="kw">let</span> line = a.line.<span class="fn">min</span>(b.line);
+        <span class="kw">let</span> col = <span class="kw">if</span> a.line &lt; b.line { a.col }
+                         <span class="kw">else</span> { a.col.<span class="fn">min</span>(b.col) };
+        <span class="ty">Span</span> { start, end, line, col }
+    }
+}
+
+<span class="cm">// ---- Lines 29-33: Display formatting ----</span>
+<span class="cm">/// Format as `line:col`, the standard human-readable location format.</span>
+<span class="kw">impl</span> <span class="ty">fmt::Display</span> <span class="kw">for</span> <span class="ty">Span</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> <span class="ty">fmt::Formatter</span>&lt;'_&gt;) -&gt; <span class="ty">fmt::Result</span> {
+        <span class="fn">write!</span>(f, <span class="str">"{}:{}"</span>, <span class="kw">self</span>.line, <span class="kw">self</span>.col)
+    }
+}
+
+<span class="cm">// ---- Lines 35-95: Test suite ----</span>
+<span class="pp">#[cfg(test)]</span>
+<span class="kw">mod</span> tests {
+    <span class="kw">use</span> <span class="kw">super</span>::*;
+    <span class="cm">// ... (see "Testing Span" below)</span>
+}</code></pre>
+
+<h3>Why Both Byte Offsets AND Line/Col?</h3>
+
+<p>New compiler authors often ask: why store both <code>(start, end)</code> and <code>(line, col)</code>? Couldn't we just store byte offsets and compute line/col on demand?</p>
+
+<p><strong>The short answer</strong>: Performance and convenience.</p>
+
+<p><strong>Byte offsets</strong> are essential for slicing into the source string. When the error formatter needs to extract the offending line and underline the error, it does:</p>
+
+<pre><code><span class="kw">let</span> text = &amp;source[span.start..span.end];  <span class="cm">// O(1) slice</span></code></pre>
+
+<p>This is how the diagnostics system retrieves the exact text of a token or expression.</p>
+
+<p><strong>Line/col</strong> are essential for error messages. Computing line/col from byte offsets requires scanning the source from the beginning of the file to find all newlines before the given offset &mdash; an O(n) operation. For a large file with many errors, this would be repeated hundreds of times.</p>
+
+<table class="file-table">
+<tr><th>Representation</th><th>Good For</th><th>Bad For</th></tr>
+<tr><td>Byte offsets (start, end)</td><td>Source slicing, range comparison, merge</td><td>Displaying to humans</td></tr>
+<tr><td>Line/col</td><td>Error messages, editor integrations</td><td>Computationally expensive to produce from offsets</td></tr>
+<tr><td><strong>Both</strong></td><td colspan="2" style="text-align:center;">Best of both worlds &mdash; computed once by the lexer, used everywhere</td></tr>
+</table>
+
+<p>The lexer tracks both simultaneously as it scans, so the cost is paid exactly once per token.</p>
+
+<h3>How Span Merging Works for Compound Constructs</h3>
+
+<p>The parser uses <code>Span::merge</code> whenever it builds a composite AST node. Consider parsing the expression <code>1 + 2 * 3</code>:</p>
+
+<ol>
+  <li>Lexer produces spans for each token:
+    <table class="file-table">
+    <tr><th>Token</th><th>Span (byte range)</th><th>Span (line:col)</th></tr>
+    <tr><td><code>1</code></td><td>[0, 1)</td><td>1:1</td></tr>
+    <tr><td><code>+</code></td><td>[2, 3)</td><td>1:3</td></tr>
+    <tr><td><code>2</code></td><td>[4, 5)</td><td>1:5</td></tr>
+    <tr><td><code>*</code></td><td>[6, 7)</td><td>1:7</td></tr>
+    <tr><td><code>3</code></td><td>[8, 9)</td><td>1:9</td></tr>
+    </table>
+  </li>
+  <li>The parser recognizes <code>2 * 3</code> as a <code>BinaryExpr(Mul)</code> and merges:
+    <pre><code>mul_span = Span::merge(2_span, <span class="fn">Span::merge</span>(*_span, 3_span))
+<span class="cm">// Result: [4, 9), line: 1, col: 5</span></code></pre>
+  </li>
+  <li>The parser recognizes <code>1 + (2 * 3)</code> as a <code>BinaryExpr(Add)</code> and merges:
+    <pre><code>add_span = Span::merge(1_span, <span class="fn">Span::merge</span>(+_span, mul_span))
+<span class="cm">// Result: [0, 9), line: 1, col: 1</span></code></pre>
+  </li>
+</ol>
+
+<p>The merged span for the entire expression <code>1 + 2 * 3</code> is <code>1:1</code>, pointing to the first character. If the type checker later reports an error on this expression, the span points to the beginning of the entire construct.</p>
+
+<div class="diagram" style="text-align:left;">
+<strong>Visual: Merging spans for <code>1 + 2 * 3</code></strong><br><br>
+<code>[0,1)</code> &larr; span of <code>1</code><br>
+<code>[2,3)</code> &larr; span of <code>+</code><br>
+<code>[4,9)</code> &larr; merged span of <code>2 * 3</code> (mul_span)<br>
+<code>[0,9)</code> &larr; merged span of <code>1 + 2 * 3</code> (add_span)
+</div>
+
+<h3>Full Test Suite</h3>
+
+<p>The <code>#[cfg(test)]</code> module in <code>span.rs</code> contains 7 tests covering every aspect of the Span API. Let's examine each one:</p>
+
+<h4>test_span_new &mdash; Basic Construction</h4>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_new</span>() {
+    <span class="kw">let</span> s = <span class="ty">Span</span>::<span class="fn">new</span>(10, 20, 5, 3);
+    <span class="fn">assert_eq!</span>(s.start, 10);
+    <span class="fn">assert_eq!</span>(s.end, 20);
+    <span class="fn">assert_eq!</span>(s.line, 5);
+    <span class="fn">assert_eq!</span>(s.col, 3);
+}</code></pre>
+
+<p>Verifies that the constructor stores all four fields correctly. A span from byte 10 to byte 20, on line 5 at column 3.</p>
+
+<h4>test_span_dummy &mdash; Synthetic Placeholder</h4>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_dummy</span>() {
+    <span class="kw">let</span> s = <span class="ty">Span</span>::<span class="fn">dummy</span>();
+    <span class="fn">assert_eq!</span>(s.start, 0);
+    <span class="fn">assert_eq!</span>(s.end, 0);
+}</code></pre>
+
+<p>Confirms that <code>dummy()</code> produces zeroed fields. Note: this test only checks <code>start</code> and <code>end</code>; <code>line</code> and <code>col</code> are also 0 but not explicitly asserted here. A more thorough test might check all four.</p>
+
+<h4>test_span_merge &mdash; Cross-Line Merge</h4>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_merge</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(5, 10, 2, 3);
+    <span class="kw">let</span> b = <span class="ty">Span</span>::<span class="fn">new</span>(15, 25, 4, 7);
+    <span class="kw">let</span> m = <span class="ty">Span</span>::<span class="fn">merge</span>(a, b);
+    <span class="fn">assert_eq!</span>(m.start, 5);   <span class="cm">// min(5, 15)</span>
+    <span class="fn">assert_eq!</span>(m.end, 25);    <span class="cm">// max(10, 25)</span>
+}</code></pre>
+
+<p>Merging two spans on different lines. The merged span starts at byte 5 (the earliest) and ends at byte 25 (the latest). The line/col fields are not checked in this test, but by the merge logic: <code>line = min(2, 4) = 2</code>, <code>col = a.col (since a.line &lt; b.line) = 3</code>.</p>
+
+<h4>test_span_merge_same_line &mdash; Same-Line Merge</h4>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_merge_same_line</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(5, 10, 2, 3);
+    <span class="kw">let</span> b = <span class="ty">Span</span>::<span class="fn">new</span>(12, 18, 2, 8);
+    <span class="kw">let</span> m = <span class="ty">Span</span>::<span class="fn">merge</span>(a, b);
+    <span class="fn">assert_eq!</span>(m.start, 5);   <span class="cm">// min(5, 12)</span>
+    <span class="fn">assert_eq!</span>(m.end, 18);    <span class="cm">// max(10, 18)</span>
+    <span class="fn">assert_eq!</span>(m.line, 2);    <span class="cm">// same line</span>
+}</code></pre>
+
+<p>When both spans are on the same line, the merged span stays on that line. <code>line = min(2, 2) = 2</code>. The column would be <code>min(3, 8) = 3</code> (not asserted).</p>
+
+<h4>test_span_display &mdash; Human-Readable Format</h4>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_display</span>() {
+    <span class="kw">let</span> s = <span class="ty">Span</span>::<span class="fn">new</span>(0, 0, 3, 14);
+    <span class="fn">assert_eq!</span>(<span class="fn">format!</span>(<span class="str">"{}"</span>, s), <span class="str">"3:14"</span>);
+}</code></pre>
+
+<p>Verifies the <code>Display</code> impl produces <code>line:col</code> format. A span at line 3, column 14 formats as <code>"3:14"</code>.</p>
+
+<h4>test_span_copy &mdash; Copy Semantics</h4>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_copy</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(1, 2, 1, 1);
+    <span class="kw">let</span> b = a;               <span class="cm">// Copy, not move</span>
+    <span class="fn">assert_eq!</span>(a, b);         <span class="cm">// Both are still valid</span>
+}</code></pre>
+
+<p>Because <code>Span</code> derives <code>Clone</code> and <code>Copy</code>, assignment creates a bitwise copy. Both <code>a</code> and <code>b</code> remain valid after the assignment. The <code>PartialEq</code> derive allows direct comparison with <code>==</code>.</p>
+
+<h4>test_span_merge_reverse_order &mdash; Order Independence</h4>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_span_merge_reverse_order</span>() {
+    <span class="kw">let</span> a = <span class="ty">Span</span>::<span class="fn">new</span>(20, 30, 5, 10);
+    <span class="kw">let</span> b = <span class="ty">Span</span>::<span class="fn">new</span>(5, 15, 2, 1);
+    <span class="kw">let</span> m = <span class="ty">Span</span>::<span class="fn">merge</span>(a, b);
+    <span class="fn">assert_eq!</span>(m.start, 5);   <span class="cm">// min(20, 5), not a.start</span>
+    <span class="fn">assert_eq!</span>(m.end, 30);    <span class="cm">// max(30, 15), not a.end</span>
+}</code></pre>
+
+<p>Even when <code>a</code> comes <em>after</em> <code>b</code> in the source (byte 20 vs byte 5), merge still produces the correct covering span. This is critical because the parser may merge spans in any order &mdash; a right-to-left associative expression merges right operand before left.</p>
+
+<div class="callout info">
+<strong>Test coverage</strong>: These 7 tests cover every public API surface: construction (<code>new</code>), placeholder (<code>dummy</code>), combination (<code>merge</code> on same and different lines, forward and reverse order), display formatting, and copy semantics. If you add a method to <code>Span</code>, add tests for it here.
+</div>
+
+<h3>Traced Example: Spans for a Complete Function</h3>
+
+<p>Let's trace how spans are created for every token and node in this program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> 42;
+}</code></pre>
+
+<p>Here is the byte-level view. Each <code>^</code> marks one byte position:</p>
+
+<pre><code>func main(i32) {\n    return 42;\n}
+<span style="color:var(--fg2)">0         1         2         3
+0123456789012345678901234567890</span></code></pre>
+
+<p>The lexer produces these spans for each token:</p>
+
+<table class="file-table">
+<tr><th>#</th><th>Token</th><th>Bytes</th><th>Span (line:col)</th><th>Source</th></tr>
+<tr><td>1</td><td><code>Func</code></td><td>[0, 4)</td><td>1:1</td><td><code>func</code></td></tr>
+<tr><td>2</td><td><code>Ident("main")</code></td><td>[5, 9)</td><td>1:6</td><td><code>main</code></td></tr>
+<tr><td>3</td><td><code>OpenParen</code></td><td>[9, 10)</td><td>1:10</td><td><code>(</code></td></tr>
+<tr><td>4</td><td><code>I32</code></td><td>[10, 13)</td><td>1:11</td><td><code>i32</code></td></tr>
+<tr><td>5</td><td><code>CloseParen</code></td><td>[13, 14)</td><td>1:14</td><td><code>)</code></td></tr>
+<tr><td>6</td><td><code>OpenBrace</code></td><td>[15, 16)</td><td>1:16</td><td><code>{</code></td></tr>
+<tr><td>7</td><td><code>Return</code></td><td>[21, 27)</td><td>2:5</td><td><code>return</code></td></tr>
+<tr><td>8</td><td><code>NumLiteral("42")</code></td><td>[28, 30)</td><td>2:12</td><td><code>42</code></td></tr>
+<tr><td>9</td><td><code>Semicolon</code></td><td>[30, 31)</td><td>2:14</td><td><code>;</code></td></tr>
+<tr><td>10</td><td><code>CloseBrace</code></td><td>[32, 33)</td><td>3:1</td><td><code>}</code></td></tr>
+<tr><td>11</td><td><code>Eof</code></td><td>[33, 33)</td><td>3:2</td><td>&lt;end&gt;</td></tr>
+</table>
+
+<p><strong>Key observations from this trace:</strong></p>
+
+<ol>
+  <li><strong>Zero-length span for EOF</strong>: The Eof token has <code>start == end == 33</code>. It occupies no bytes; it sits at the boundary after the last character. The span still carries a valid line:col so error messages can reference "end of file."</li>
+  <li><strong>Skip whitespace</strong>: The lexer skipped whitespace (bytes 4&ndash;5 between <code>func</code> and <code>main</code>, bytes 16&ndash;20 for the newline and indentation). These positions produce no tokens.</li>
+  <li><strong>Newline tracking</strong>: Token 7 (<code>return</code>) is at line 2, column 5. The lexer correctly advanced past the <code>\n</code> at byte 16, incrementing line to 2 and resetting col to 1.</li>
+  <li><strong>Merge example</strong>: When the parser builds the <code>Return</code> statement AST node, it merges the span of the <code>return</code> keyword (2:5) with the span of <code>42</code> (2:12) to produce <code>Span { start: 21, end: 30, line: 2, col: 5 }</code> covering <code>return 42</code>.</li>
+</ol>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+  <li><strong>Spans pointing to wrong locations</strong>: The lexer must record <code>start_pos</code>/<code>start_line</code>/<code>start_col</code> <em>before</em> consuming a token, and <code>end_pos</code> <em>after</em>. If you record the start position after consuming the first character, all spans will be off by at least one character.</li>
+  <li><strong>Zero vs one-based</strong>: Line/col are 1-based. A common bug is initializing <code>line: 0, col: 0</code> for the first character, which makes error messages show <code>0:0</code> instead of <code>1:1</code>. Only <code>Span::dummy()</code> should have 0 values.</li>
+  <li><strong>UTF-8 confusion</strong>: Byte offsets are byte positions, not character positions. <code>source[span.start..span.end]</code> works correctly only if both indices fall on UTF-8 character boundaries. The lexer uses <code>CharIndices</code> and <code>len_utf8()</code> to guarantee this.</li>
+  <li><strong>Merging dummy spans</strong>: If you merge a real span with a dummy span (<code>line: 0</code>), the result will have <code>line: 0</code>, which is invalid. Guard against this with <code>if a.line == 0 { return b; } if b.line == 0 { return a; }</code>.</li>
+  <li><strong>End-exclusive convention</strong>: <code>end</code> is the byte offset <em>one past</em> the last character of the span. Text extracted via <code>&amp;source[s.start..s.end]</code> is correct. If you accidentally treat <code>end</code> as inclusive, every span will be one byte too long.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Debugging spans</strong>: Add this helper to your debugging arsenal:
+<pre style="margin:0.5rem 0 0;font-size:0.8rem;"><code><span class="kw">fn</span> <span class="fn">dump_span</span>(source: &amp;<span class="ty">str</span>, s: &amp;<span class="ty">Span</span>) {
+    <span class="fn">println!</span>(<span class="str">"Span: {}:{}..{}:{} (bytes {}..{}) text={:?}"</span>,
+             s.line, s.col, s.end, s.col + (s.end - s.start),
+             s.start, s.end, &amp;source[s.start..s.end]);
+}</code></pre>
+This prints the location, byte range, and the actual source text covered by the span, making it easy to verify correctness.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="01-pipeline.html">&larr; Chapter 1</a> &ensp; Chapter 2: Source Locations &mdash; Span &ensp; <a href="03-tokens.html">Chapter 3 &rarr;</a></span>
+</div>
+
+</body>
+</html>

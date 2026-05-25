@@ -1,0 +1,2 @@
+func add(i32, a: i32, b: i32) { return a + b; }
+func main(i32) { return add(10, 20); }

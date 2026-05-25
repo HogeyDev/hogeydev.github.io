@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Where Next? — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>9. Where Next?</h2>
+
+<p>We built a compiler.</p>
+
+<p>Not a toy. Not a simulation. A real compiler that takes source code in a real (if small) language and produces x86-64 assembly that runs on real hardware. The pipeline is complete. The executable works. You understand every line of it.</p>
+
+<p>Take a breath. This is an accomplishment. Most programmers never build a compiler. You did.</p>
+
+<h3>What We Built</h3>
+
+<p>Two complete compilers, each implementing the same pipeline from source text to executable. Here is every component:</p>
+
+<table class="file-table">
+  <tr><th>Component</th><th>Rust impl</th><th>OCaml impl</th><th>What it does</th></tr>
+  <tr><td><code>token</code></td><td><code>src/token.rs</code></td><td><code>token.ml</code></td><td>Token type definitions</td></tr>
+  <tr><td><code>lexer</code></td><td><code>src/lexer.rs</code></td><td><code>lexer.ml</code></td><td>Characters → tokens</td></tr>
+  <tr><td><code>ast</code></td><td><code>src/ast.rs</code></td><td><code>ast.ml</code></td><td>AST type definitions</td></tr>
+  <tr><td><code>parser</code></td><td><code>src/parser.rs</code></td><td><code>parser.ml</code></td><td>Tokens → AST</td></tr>
+  <tr><td><code>symbol</code></td><td><code>src/symbol.rs</code></td><td><code>symbol.ml</code></td><td>Scoped symbol table</td></tr>
+  <tr><td><code>check</code></td><td><code>src/check.rs</code></td><td><code>check.ml</code></td><td>Type checker</td></tr>
+  <tr><td><code>diag</code></td><td><code>src/diag.rs</code></td><td><code>diag.ml</code></td><td>Error reporting with source underlines</td></tr>
+  <tr><td><code>ir</code></td><td><code>src/ir.rs</code></td><td><code>ir.ml</code></td><td>IR type definitions (SSA)</td></tr>
+  <tr><td><code>ir_build</code></td><td><code>src/ir_build.rs</code></td><td><code>ir_build.ml</code></td><td>AST → SSA IR (Braun et al.)</td></tr>
+  <tr><td><code>iropt</code></td><td><code>src/iropt.rs</code></td><td><code>iropt.ml</code></td><td>Constant folding, DCE, algebraic</td></tr>
+  <tr><td><code>regalloc</code></td><td><code>src/regalloc.rs</code></td><td><code>regalloc.ml</code></td><td>Linear scan register allocator</td></tr>
+  <tr><td><code>codegen</code></td><td><code>src/codegen.rs</code></td><td><code>codegen.ml</code></td><td>IR → x86-64 assembly</td></tr>
+  <tr><td><code>main</code></td><td><code>src/main.rs</code></td><td><code>main.ml</code></td><td>Driver: orchestration, file I/O, linking</td></tr>
+</table>
+
+<p>The Rust implementation comes in at approximately <strong>~4000 lines</strong>. The OCaml implementation is <strong>~3500 lines</strong> — the difference is largely Rust's verbosity for memory management (borrow checker annotations, <code>Box</code> for recursive types, explicit error types) versus OCaml's implicit heap allocation and concise pattern matching.</p>
+
+<p>Both compilers produce identical assembly for the same source. Both pass the same test suite. Both are designed to be read, modified, and extended.</p>
+
+<h3>Rust vs. OCaml: A Comparison</h3>
+
+<p>Building the same compiler in two languages is instructive. Here is what we learned:</p>
+
+<table class="file-table">
+  <tr><th>Dimension</th><th>Rust</th><th>OCaml</th></tr>
+  <tr>
+    <td><strong>Pattern matching</strong></td>
+    <td>Exhaustive, expressive, requires <code>Box</code> for recursive types</td>
+    <td>Exhaustive, concise, no boxing needed (all types are heap-allocated)</td>
+  </tr>
+  <tr>
+    <td><strong>Memory management</strong></td>
+    <td>Ownership + borrowing guarantees no dangling pointers at compile time</td>
+    <td>Garbage collection: simpler to write, but unpredictable pause times</td>
+  </tr>
+  <tr>
+    <td><strong>Error handling</strong></td>
+    <td><code>Result&lt;T, E&gt;</code> with <code>?</code> operator — explicit, zero-cost</td>
+    <td>Exceptions or <code>result</code> type — flexible but less structured</td>
+  </tr>
+  <tr>
+    <td><strong>Performance</strong></td>
+    <td>Compiles to native code, zero-cost abstractions, no GC pauses</td>
+    <td>Compiles to native code, GC can cause pauses, but generally fast</td>
+  </tr>
+  <tr>
+    <td><strong>Ecosystem</strong></td>
+    <td>Cargo, crates.io, 150k+ packages, excellent documentation</td>
+    <td>OPAM, Dune, fewer packages, but high quality</td>
+  </tr>
+  <tr>
+    <td><strong>Learning curve</strong></td>
+    <td>Steep — borrow checker, lifetimes, trait system</td>
+    <td>Moderate — functional purity, algebraic types, functors</td>
+  </tr>
+  <tr>
+    <td><strong>Compile time</strong></td>
+    <td>Slower — Rust's type checking and LLVM codegen take time</td>
+    <td>Fast — OCaml's compiler is simple and well-optimized</td>
+  </tr>
+  <tr>
+    <td><strong>Tree transformations</strong></td>
+    <td>Clear but verbose — <code>Box</code>, <code>&</code>, <code>match</code></td>
+    <td>Extremely concise — <code>function</code> + pattern matching on algebraic types</td>
+  </tr>
+</table>
+
+<p>Neither language is strictly better. Rust gives us compile-time memory safety and fine-grained control. OCaml gives us rapid prototyping and unparalleled concision for tree-shaped data. Both produce correct, working compilers. The choice between them is a choice about which tradeoffs matter for your project.</p>
+
+<p>One surprising observation: the Rust version is only ~15% longer than the OCaml version. Much of Rust's additional verbosity comes from <code>Box</code> (for recursive AST types), explicit <code>Result</code> handling, and borrow checker annotations. Once you are used to these, they fade into the background, and the two implementations look remarkably similar — a testament to how both languages enable the same functional, pattern-matching-heavy style of compiler construction.</p>
+
+<pre><code><span class="cm">;; The same program, compiled by both compilers:</span>
+<span class="cm">;; func main(i32) { return 42; }</span>
+
+    <span class="kw">global</span> <span class="fn">main</span>
+    <span class="kw">section</span> <span class="str">.text</span>
+<span class="fn">main</span>:
+    push rbp
+    mov rbp, rsp
+    mov rax, <span class="num">42</span>
+    mov rsp, rbp
+    pop rbp
+    ret</code></pre>
+
+<h3>What We Didn't Build</h3>
+
+<p>Our compiler works, but it is minimal. Here is what production compilers have that we left out, ranked by impact:</p>
+
+<table class="file-table">
+  <tr><th>Feature</th><th>What it adds</th><th>Difficulty</th></tr>
+  <tr>
+    <td><strong>More types</strong> — strings, floats, arrays</td>
+    <td>Strings need a character encoding, heap allocation, and runtime. Floats need SSE/AVX. Arrays need bounds checking and memory layout.</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td><strong>Generics</strong> — like Rust generics</td>
+    <td>Monomorphization: generate a separate copy of each generic function for each concrete type instantiation. Requires the symbol table to track type parameters.</td>
+    <td>Hard</td>
+  </tr>
+  <tr>
+    <td><strong>Closures</strong> — capturing environments</td>
+    <td>Like Rust's <code>Fn</code> traits. A closure is a pair of (function pointer, captured environment). Requires closure conversion: transform nested functions into flat code with an environment struct.</td>
+    <td>Hard</td>
+  </tr>
+  <tr>
+    <td><strong>Advanced optimization</strong> — GVN, loop opt, inlining</td>
+    <td>Global Value Numbering eliminates redundant computations. Loop optimization (LICM, strength reduction) speeds up loops. Inlining replaces call sites with the callee's body.</td>
+    <td>Hard</td>
+  </tr>
+  <tr>
+    <td><strong>Graph coloring register allocation</strong></td>
+    <td>Better code quality than linear scan. Builds an interference graph and colors it. Spills fewer values, produces faster code.</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td><strong>Garbage collection</strong> — RC or tracing</td>
+    <td>Reference counting (like <code>Rc&lt;T&gt;</code>) or tracing GC (like Java). Requires compiler support for stack scanning and write barriers.</td>
+    <td>Very Hard</td>
+  </tr>
+  <tr>
+    <td><strong>Standard library</strong> — I/O, collections, math</td>
+    <td>Every program returns an integer. No printing, no file access, no data structures. A stdlib makes the language usable for real tasks.</td>
+    <td>Medium</td>
+  </tr>
+  <tr>
+    <td><strong>Self-hosting</strong> — the compiler that compiles itself</td>
+    <td>Write the compiler <em>in our language</em>. Bootstrap it through our existing compiler. The ultimate milestone — the compiler no longer depends on Rust or OCaml.</td>
+    <td>Very Hard</td>
+  </tr>
+</table>
+
+<div class="callout">
+<strong>Not a weakness — a foundation</strong>
+Every production compiler started where we are. LLVM began as a research paper. GCC began as a small C compiler. Rust began as a personal project by Graydon Hoare. Every single feature above was added one at a time, by someone who first built exactly what we have built here.
+</div>
+
+<h3>Ideas for the Reader</h3>
+
+<p>So where do you go from here? Here are concrete projects, ordered from easiest to most ambitious:</p>
+
+<p><strong>Add one feature at a time.</strong> The best advice: add the thing <em>you</em> miss most. Is it frustrating that you cannot print output? Add a <code>print</code> function that calls C's <code>printf</code> via an extern declaration. Do you want to write recursive functions? Make sure the calling convention handles it correctly. Does the one-pass compilation annoy you? Add a REPL.</p>
+
+<p><strong>Port to a new backend.</strong> Our compiler targets x86-64, but the concepts transfer directly. ARM64 uses different register names but the same patterns. RISC-V is the cleanest ISA ever designed — only 47 instructions. WebAssembly is a stack machine — instead of registers, push and pop values. LLVM IR lets us piggyback on LLVM's optimizers and backends, giving us every architecture LLVM supports.</p>
+
+<p><strong>Write an optimization pass.</strong> Constant folding is the easiest and most immediately rewarding. Watch your generated code shrink from dozens of instructions to a single <code>mov eax, const</code>. Then add dead code elimination, then copy propagation, then algebraic simplification. Each pass is 20–50 lines and each one makes your code measurably better.</p>
+
+<p><strong>Add proper register allocation.</strong> Replace spill-everything with linear scan — or go further and implement graph coloring. The difference in generated code quality is dramatic. Programs that spill everything run 10x slower than programs that keep values in registers.</p>
+
+<p><strong>Self-host.</strong> Write the compiler <em>in your language</em>. The compiler we have is simple enough that a determined programmer could translate the Rust or OCaml source into our language in a few weeks. Then compile that source with our existing compiler, and the new compiler can compile itself. This is the final boss of compiler projects.</p>
+
+<h4>A Concrete Roadmap: 10 Projects</h4>
+
+<p>If you want a structured path forward, here is a sequence of 10 projects that will take you from our minimal compiler to something substantially more capable:</p>
+
+<ol>
+  <li><strong>Add a standard library.</strong> Implement <code>print_i32</code>, <code>print_bool</code>, <code>read_i32</code> as extern functions that call C's <code>printf</code> and <code>scanf</code>. This makes programs interactive and testable beyond exit codes.</li>
+  <li><strong>Add string literals.</strong> Define a string type (<code>@u8</code> — pointer to immutable byte array), store string data in the read-only data section (<code>.rodata</code>), and teach the type checker about pointer types. Strings unlock meaningful output.</li>
+  <li><strong>Add fixed-size arrays.</strong> Support <code>[N]Type</code> syntax. Stack-allocate them. Add bounds checks in the IR or codegen. Arrays unlock real data structures.</li>
+  <li><strong>Add compound assignment operators.</strong> <code>+=</code>, <code>-=</code>, <code>*=</code>, etc. Desugar to <code>x = x + y</code> in a pre-IR pass. Small change, big ergonomic improvement.</li>
+  <li><strong>Add <code>for</code> loops.</strong> Syntactic sugar over <code>while</code>. Desugar in the parser: <code>for (i = 0; i &lt; n; i = i + 1) { body }</code> becomes a <code>while</code> with initialization, condition, and increment.</li>
+  <li><strong>Write an optimization pipeline.</strong> Start with constant folding (easiest), then dead code elimination, then copy propagation, then algebraic simplification. Run them in a loop until fixpoint.</li>
+  <li><strong>Replace spill-everything with linear scan.</strong> Compute live intervals, allocate registers, spill only when necessary. This is the single biggest performance improvement you can make.</li>
+  <li><strong>Add a REPL.</strong> Read-eval-print loop with dynamic code generation. Read a line, compile it to a shared object, <code>dlopen</code> it, call the function. This is the most fun project on this list.</li>
+  <li><strong>Port to ARM64.</strong> Rewrite just the codegen module (~300 lines). ARM64 has 32 registers, a load-store architecture, and no x86-64 legacy baggage. You will deeply understand architecture independence.</li>
+  <li><strong>Self-host.</strong> Write the compiler in your language. Bootstrap it through your existing compiler. Fix the bugs. Iterate. When your new compiler can compile itself, you have achieved compiler nirvana.</li>
+</ol>
+
+<h3>The Architecture of the Compiler: A Retrospective</h3>
+
+<p>Looking back at the pipeline, one pattern stands out: <strong>every stage is a function.</strong> Each stage takes input of one type and produces output of another. There are no side effects, no global state, no hidden dependencies between stages. This is not an accident — it is a design principle we followed from the start, and it is the same principle that makes Rust's compiler (and most production compilers) modular and testable.</p>
+
+<div class="diagram">Source  ──►  Tokens  ──►  AST  ──►  IR  ──►  Assembly  ──►  Executable
+  lexer      parser    typeck    codegen    nasm + cc</div>
+
+<p>Each arrow is a pure transformation. The interfaces are:</p>
+
+<ul>
+  <li><code>fn lex(source: &amp;str) -> (Vec&lt;Token&gt;, Vec&lt;Diag&gt;)</code></li>
+  <li><code>fn parse(tokens: &amp;[Token]) -> (Program, Vec&lt;Diag&gt;)</code></li>
+  <li><code>fn typeck(ast: &amp;Program, sym: &amp;SymbolTable) -> Vec&lt;Diag&gt;</code></li>
+  <li><code>fn build_ir(ast: &amp;Program, sym: &amp;SymbolTable) -> Function</code></li>
+  <li><code>fn codegen(ir: &amp;Function, alloc: &amp;Allocation) -> String</code></li>
+</ul>
+
+<p>If you ever build a larger compiler, preserve this property. Test each stage independently. Compose them in the driver. Never let one stage reach into another stage's internals. The day you want to replace the code generator (to target ARM64, for example), you will be grateful that the IR cleanly separates frontend from backend.</p>
+
+<h3>Porting Targets</h3>
+
+<p>The IR we built is architecture-independent. The code generator is the only architecture-specific component. Here is how to target different architectures:</p>
+
+<table class="file-table">
+  <tr><th>Target</th><th>Registers</th><th>Key differences</th><th>Difficulty</th></tr>
+  <tr><td><strong>ARM64</strong></td><td>x0–x30</td><td>32 general-purpose registers. Load/store architecture (only <code>ldr</code>/<code>str</code> access memory). Conditional execution via <code>b.eq</code>/<code>b.ne</code>. Frame pointer is x29, link register is x30.</td><td>Medium</td></tr>
+  <tr><td><strong>RISC-V</strong></td><td>x0–x31</td><td>Base ISA has only 47 instructions. x0 is hardwired to zero. No condition codes — branches compare registers directly. Elegant and minimal.</td><td>Medium</td></tr>
+  <tr><td><strong>WebAssembly</strong></td><td>Stack-based</td><td>No registers. Instructions push and pop from an implicit value stack. Structured control flow (blocks, if/else, loops). Different IR entirely.</td><td>Hard</td></tr>
+  <tr><td><strong>LLVM IR</strong></td><td>SSA virtual regs</td><td>LLVM accepts SSA IR directly. Our IR maps almost 1:1 to LLVM IR instructions. Write a thin pass that converts our IR types to LLVM's C++ API. Then LLVM handles codegen for every architecture.</td><td>Easy</td></tr>
+</table>
+
+<h3>Further Reading</h3>
+
+<p>The books and resources that will take you further than we could in these nine chapters:</p>
+
+<h3>What Each Chapter Taught You</h3>
+
+<p>Before we part, a quick summary of the conceptual arc:</p>
+
+<table class="file-table">
+  <tr><th>Chapter</th><th>Core idea</th><th>Rust concept connection</th></tr>
+  <tr><td>01 — Text and Spans</td><td>Source positions make errors useful</td><td><code>Span</code> is like <code>SourceMap</code> in rustc</td></tr>
+  <tr><td>02 — Lexing</td><td>Characters → Tokens via finite automata</td><td>Like <code>proc_macro</code> tokenization</td></tr>
+  <tr><td>03 — Parsing</td><td>Tokens → Tree via recursive descent</td><td>Like <code>syn</code> parsing Rust code</td></tr>
+  <tr><td>04 — AST</td><td>The tree is the contract between phases</td><td>Recursive <code>enum</code> with <code>Box</code></td></tr>
+  <tr><td>05 — Semantics</td><td>Names and types must be checked</td><td>Name resolution + type checking, like rustc's HIR</td></tr>
+  <tr><td>06 — IR</td><td>SSA bridges source language and machine</td><td>Like MIR — flat, typed, SSA</td></tr>
+  <tr><td>07 — Codegen</td><td>IR → real assembly instructions</td><td>Like LLVM backend codegen</td></tr>
+  <tr><td>08 — Assembly</td><td>The driver ties everything together</td><td>Like <code>cargo build</code> orchestrating rustc + linker</td></tr>
+</table>
+
+<p>Each chapter introduced one phase, one data structure, one transformation. Each phase is independent, testable, and replaceable. This modularity is not just good software engineering — it is the defining architectural insight of production compilers from GCC to LLVM to rustc.</p>
+
+<h3>Exercises Not Yet Solved</h3>
+
+<p>Throughout the book, we posed exercises at the end of each chapter. If you have solved them all, you have already extended the compiler significantly. If you have not, here is a recap of every unsolved exercise, organized by chapter:</p>
+
+<table class="file-table">
+  <tr><th>Chapter</th><th>Exercises</th></tr>
+  <tr><td>05 — Semantics</td><td>Struct type checking, function overload resolution, control flow analysis, type aliases, integer literal suffixes</td></tr>
+  <tr><td>06 — IR</td><td>Global Value Numbering, dead block elimination, strength reduction, copy propagation, IR verification pass</td></tr>
+  <tr><td>07 — Codegen</td><td>Graph coloring register allocation, floating point support, spill cost heuristics, peephole optimization, tail call optimization</td></tr>
+  <tr><td>08 — Assembly</td><td><code>--dump-ast</code> flag, test runner script, <code>--keep-asm</code> flag, parallel compilation, incremental compilation</td></tr>
+</table>
+
+<p>These exercises are not busywork. Each one teaches a real skill used in production compilers. If you complete even half of them, you will have a compiler that rivals early versions of real-world language implementations.</p>
+
+<table class="file-table">
+  <tr><th>Resource</th><th>Why read it</th></tr>
+  <tr>
+    <td><em>Compilers: Principles, Techniques, and Tools</em> (Dragon Book) — Aho, Lam, Sethi, Ullman</td>
+    <td>The classic textbook. Finite automata for lexing, LR parsing, type systems, data-flow analysis, register allocation. Dense but definitive.</td>
+  </tr>
+  <tr>
+    <td><em>Crafting Interpreters</em> — Robert Nystrom</td>
+    <td>The most approachable book on language implementation. Builds a tree-walking interpreter and a bytecode VM. Excellent on the "why" behind design choices. Free online.</td>
+  </tr>
+  <tr>
+    <td><em>Engineering a Compiler</em> — Cooper and Torczon</td>
+    <td>Pragmatic and well-structured. Strong on instruction selection, register allocation, and optimization. More approachable than the Dragon Book.</td>
+  </tr>
+  <tr>
+    <td><em>Modern Compiler Implementation in ML</em> — Andrew Appel</td>
+    <td>Uses ML (similar to OCaml) for all examples. Builds a complete compiler for the Tiger language. If you liked our OCaml compiler, you will love this.</td>
+  </tr>
+  <tr>
+    <td><em>Static Single Assignment Book</em> — Rastello and Bouchez</td>
+    <td>The definitive reference on SSA form. Covers construction, optimization passes, and destruction. Our Braun et al. algorithm is covered in depth.</td>
+  </tr>
+  <tr>
+    <td><em>System V AMD64 ABI</em></td>
+    <td>The official specification for calling conventions, stack layout, and data types on x86-64 Linux. Required reading for understanding every detail of our codegen.</td>
+  </tr>
+  <tr>
+    <td><em>Simple and Efficient Construction of Static Single Assignment Form</em> — Braun et al.</td>
+    <td>The paper that inspired our IR builder. Explains the sealed-block algorithm for constructing SSA directly during IR generation. Short, clear, practical.</td>
+  </tr>
+</table>
+
+<h3>Why Two Implementations?</h3>
+
+<p>Throughout this book, we presented every piece of code in Rust <em>and</em> OCaml. Why double the work?</p>
+
+<p>First, because seeing the same algorithm in two languages clarifies what is <em>essential</em> versus what is <em>incidental</em>. The pattern-matching structure of a type checker is the same in Rust and OCaml — that is essential. The exact syntax for declaring a recursive enum — that is incidental. When you understand both, you understand the concept, not just the syntax.</p>
+
+<p>Second, because Rust and OCaml represent two different points in the design space of systems programming. Rust gives you control over memory layout, zero-cost abstractions, and compile-time safety guarantees via the borrow checker. OCaml gives you rapid prototyping, garbage-collected ease, and the most elegant pattern matching in any industrial language. Both are excellent for compiler construction — but for different reasons.</p>
+
+<p>Third, because building the same thing twice is the best way to learn. The first time, you are figuring out the problem. The second time, you are refining your understanding. The Rust version taught us about ownership and lifetimes in tree-structured data — every <code>Box&lt;Expr&gt;</code> is a reminder that the compiler has finite memory. The OCaml version taught us about recursive algebraic types and functional transformations — the elegance of expressing tree rewrites as pure functions.</p>
+
+<p>If you only read one implementation, read the one in the language you are less familiar with. If you know Rust, read the OCaml code — the pattern matching will feel liberating. If you know OCaml, read the Rust code — the explicitness about memory management will feel enlightening.</p>
+
+<h3>The Road Ahead</h3>
+
+<p>Building a compiler changes how you think about code. You start seeing the hidden structure: the boundary between compile-time and run-time, the difference between syntax and semantics, the layering of abstractions that makes modern computing possible.</p>
+
+<p>Here is what we hope you take away from this journey:</p>
+
+<p><strong>Compilers are not magic.</strong> They are mechanical transformations, each one simple enough to hold in your head. The complexity comes from the number of stages, not from any single stage. You now understand every stage.</p>
+
+<p><strong>The pipeline scales.</strong> Every optimization pass, every language feature, every backend target follows the same pattern: define a representation, write a transformation, compose it with the rest. The skills you learned here apply directly to production compilers.</p>
+
+<p><strong>You can build anything.</strong> If you can build a compiler, you can build almost any software system. The discipline of defining precise interfaces between stages, of designing data structures that make transformations natural, of testing each piece independently — these are universal software engineering skills.</p>
+
+<div class="companion-box">
+<h3>The Companion Compilers</h3>
+<p>Both compilers referenced in this book are available as fully functional open-source projects in <code>code/rust/</code> and <code>code/ocaml/</code>.</p>
+<p><strong>Rust compiler</strong> — <code>code/rust/</code> — ~4000 lines, built with Cargo</p>
+<p><strong>OCaml compiler</strong> — <code>code/ocaml/</code> — ~3500 lines, built with Dune</p>
+<p>Both compile the same language to x86-64 assembly, pass the same test suite, and are designed to be read alongside this book. Clone them, modify them, break them, fix them. They are yours.</p>
+</div>
+
+<h3>Thank You</h3>
+
+<p>If you have read this far, you have done something most programmers never attempt. You have seen behind the curtain. You understand what happens between <code>return 42</code> and <code>mov eax, 42; ret</code>. You have built both the theory and the practice of a complete compiler pipeline — twice, in two different languages.</p>
+
+<p>You built a compiler. Not a toy — a real, working compiler that generates x86-64 assembly. You should be proud.</p>
+
+<p>The next step is yours. The compiler you build from here — with your features, your optimizations, your design decisions — will teach you more than any book could. The tools are in your hands. The concepts are in your head.</p>
+
+<p style="text-align:center; font-size:1.4rem; margin:2rem 0;"><strong>Go build something amazing.</strong></p>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="08-assembly.html" class="prev">The Final Mile</a>
+  <span></span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building a Compiler from Scratch — The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.4rem; font-weight: 700; margin: 2rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: var(--blue); }
+  p { color: var(--fg); margin-bottom: 1rem; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul { padding-left: 0; list-style: none; margin-bottom: 1rem; }
+  li { margin-bottom: 0.5rem; }
+  .hero { text-align: center; padding: 3rem 0 2rem; margin-bottom: 2rem; }
+  .hero .subtitle { font-size: 1.1rem; color: var(--fg2); max-width: 600px; margin: 0.5rem auto 0; }
+  .chapter-list { margin: 2rem 0; }
+  .chapter-list li {
+    padding: 0.6rem 1rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .chapter-list li:hover { border-color: var(--orange); background: var(--bg3); }
+  .chapter-list .num {
+    display: inline-block;
+    font-weight: 700;
+    color: var(--orange);
+    min-width: 2rem;
+  }
+  .chapter-list .desc { color: var(--fg2); font-size: 0.85rem; margin-top: 0.1rem; }
+  .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: var(--bg3);
+    color: var(--fg2);
+    border: 1px solid var(--border);
+    margin-left: 6px;
+  }
+  .tag.expanded { border-color: var(--green); color: var(--green); }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .diagram .box.highlight { border-color: var(--orange); color: var(--orange); }
+  .diagram .arrow { color: var(--orange); }
+  .status-bar { margin: 1.5rem 0; padding: 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; font-size: 0.875rem; }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>Building a Compiler from Scratch</h1>
+  <p class="subtitle">A complete walkthrough of the L1S compiler &mdash; a real, working compiler that translates a C-like language into x86-64 machine code, written in Rust.</p>
+</div>
+
+<p>This book takes you through every stage of a production-quality toy compiler, from reading source code to emitting NASM assembly. Each chapter explains the <em>what</em>, the <em>why</em>, and the <em>how</em>, with annotated code from the actual compiler.</p>
+
+<div class="diagram">
+<span class="box">Source</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Lexer</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Parser</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Type Checker</span>
+<span class="arrow">&rarr;</span>
+<span class="box">IR Builder</span>
+<span class="arrow">&rarr;</span>
+<span class="box highlight">Optimizer</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Codegen</span>
+<span class="arrow">&rarr;</span>
+<span class="box">nasm + cc</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--green);color:var(--green);">Executable</span>
+</div>
+
+<h2>Table of Contents</h2>
+
+<ul class="chapter-list">
+  <li>
+    <a href="00-setup.html"><span class="num">0.</span> Before You Begin</a>
+    <div class="desc">What is a compiler? Required tools, building and running L1S, project structure.</div>
+  </li>
+  <li>
+    <a href="01-pipeline.html"><span class="num">1.</span> Pipeline Overview</a>
+    <div class="desc">The eight-phase compiler pipeline, data flow between stages, tracing a program through the compiler.</div>
+  </li>
+  <li>
+    <a href="02-span.html"><span class="num">2.</span> Source Locations &mdash; Span</a>
+    <div class="desc">The Span struct: byte offsets, line/col tracking, span merging for error reporting.</div>
+  </li>
+  <li>
+    <a href="03-tokens.html"><span class="num">3.</span> The Token System</a>
+    <div class="desc">The Token enum, SpannedToken, keyword classification, every token variant in the language.</div>
+  </li>
+  <li>
+    <a href="04-lexer.html"><span class="num">4.</span> The Lexer <span class="tag expanded">expanded</span></a>
+    <div class="desc">Character-by-character scanning, number/string/identifier lexing, error recovery, tests.</div>
+  </li>
+  <li>
+    <a href="05-ast.html"><span class="num">5.</span> The Abstract Syntax Tree</a>
+    <div class="desc">AST data structures: expressions, statements, declarations, the full type hierarchy.</div>
+  </li>
+  <li>
+    <a href="06-parser.html"><span class="num">6.</span> The Parser</a>
+    <div class="desc">Recursive-descent parsing, Pratt expression parser, binding powers, error recovery.</div>
+  </li>
+  <li>
+    <a href="07-types.html"><span class="num">7.</span> The Type System</a>
+    <div class="desc">Interned type arena, TypeNode enum, structural equality, size/alignment computation.</div>
+  </li>
+  <li>
+    <a href="08-symbols.html"><span class="num">8.</span> The Symbol Table</a>
+    <div class="desc">Scope-chain design, lexical scoping, shadowing, global declarations.</div>
+  </li>
+  <li>
+    <a href="09-typeck.html"><span class="num">9.</span> Type Checking</a>
+    <div class="desc">Multi-pass semantic analysis, type annotations, function call validation, diagnostics.</div>
+  </li>
+  <li>
+    <a href="10-ir.html"><span class="num">10.</span> Intermediate Representation</a>
+    <div class="desc">Basic blocks, virtual registers, IR instructions, terminators, example IR output.</div>
+  </li>
+  <li>
+    <a href="11-irbuild.html"><span class="num">11.</span> IR Building</a>
+    <div class="desc">Lowering AST to IR, variable slots, control flow lowering, expression compilation.</div>
+  </li>
+  <li>
+    <a href="12-iropt.html"><span class="num">12.</span> Optimization</a>
+    <div class="desc">Constant folding, dead code elimination, copy propagation, unreachable block removal.</div>
+  </li>
+  <li>
+    <a href="13-regalloc.html"><span class="num">13.</span> Register Allocation</a>
+    <div class="desc">Spill-everything allocator, stack slot assignment, frame layout.</div>
+  </li>
+  <li>
+    <a href="14-codegen.html"><span class="num">14.</span> Code Generation</a>
+    <div class="desc">x86-64 NASM codegen, function prologue/epilogue, instruction selection, calling convention.</div>
+  </li>
+  <li>
+    <a href="15-link.html"><span class="num">15.</span> Assembly &amp; Linking</a>
+    <div class="desc">The compiler driver, invoking nasm and cc, output file management.</div>
+  </li>
+  <li>
+    <a href="16-diag.html"><span class="num">16.</span> Error Diagnostics</a>
+    <div class="desc">Rust-style error reporting, span formatting, multi-level diagnostics.</div>
+  </li>
+  <li>
+    <a href="17-conclusion.html"><span class="num">17.</span> Conclusion</a>
+    <div class="desc">What you've built, files at a glance, future directions.</div>
+  </li>
+</ul>
+
+<div class="status-bar">
+  <strong>Status:</strong> All 17 chapters are fully expanded (10,451 lines).
+</div>
+
+</body>
+</html>

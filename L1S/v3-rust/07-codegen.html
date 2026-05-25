@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>From IR to Machine Code — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>7. From IR to Machine Code</h2>
+
+<p>We have SSA IR. Clean, well-formed, optimized. But the CPU does not understand virtual registers or basic blocks. The CPU understands x86-64 instructions: <code>mov</code>, <code>add</code>, <code>cmp</code>, <code>jmp</code>, <code>call</code>, <code>ret</code>. Our job in this chapter is to turn IR into real x86-64 assembly.</p>
+
+<p>This is the most satisfying phase of the compiler. Everything before was setup. Now we produce something that actually runs on hardware.</p>
+
+<p>There are three problems to solve:</p>
+
+<ol>
+  <li><strong>Register allocation:</strong> We have infinite virtual registers. The CPU has 16 (or fewer). Map virtual registers to real registers or stack slots.</li>
+  <li><strong>Instruction selection:</strong> Each IR instruction maps to one or more x86-64 instructions.</li>
+  <li><strong>Phi resolution:</strong> Phi nodes are conceptual — in machine code, they become <em>moves</em> at the end of predecessor blocks.</li>
+</ol>
+
+<h3>Register Allocation: Linear Scan</h3>
+
+<p>Think of register allocation like Rust's allocator: we have a fixed resource (registers) and competing demands (virtual registers). Every virtual register has a <strong>live interval</strong> — the range of instructions where its value is needed. If two virtual registers have overlapping live intervals, they cannot share a register. If they do not overlap, they can.</p>
+
+<p><strong>Linear scan</strong> is the simplest practical register allocation algorithm. It is not optimal (graph coloring gives better results), but it is fast, simple, and good enough for our compiler. LLVM uses linear scan as a fast path and graph coloring for optimization.</p>
+
+<p>The algorithm:</p>
+
+<ol>
+  <li><strong>Compute live intervals</strong> for every virtual register.</li>
+  <li><strong>Sort by start point.</strong></li>
+  <li><strong>Scan:</strong> maintain a set of active intervals (those that are live at the current point). When an interval ends, free its register. When a new interval starts, assign it a register. If none is free, <strong>spill</strong> — store the value to the stack and reload it when needed.</li>
+</ol>
+
+<div class="diagram">Live intervals:
+  %0:  [1, 3]    ────
+  %1:  [2, 5]      ──────
+  %2:  [4, 6]        ────
+  %3:  [7, 8]              ──
+
+Registers available: r0, r1, r2
+
+  Scan:
+    instr 1: %0 starts → assign r0
+    instr 2: %1 starts → assign r1
+    instr 4: %2 starts → assign r2  (all regs used, but one ends soon)
+    instr 6: %2 ends   → free r2
+    instr 7: %3 starts → assign r2  (reuse!)</div>
+
+<p>Here is the core allocator in Rust:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/regalloc.rs</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">LiveInterval</span> {
+    <span class="kw">pub</span> vreg: <span class="ty">VReg</span>,
+    <span class="kw">pub</span> start: <span class="hl">usize</span>,
+    <span class="kw">pub</span> end: <span class="hl">usize</span>,
+}
+
+<span class="kw">pub fn</span> <span class="fn">linear_scan</span>(
+    intervals: &amp;<span class="hl">mut</span> [<span class="ty">LiveInterval</span>],
+    regs: <span class="hl">usize</span>,
+) -&gt; <span class="hl">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="ty">Alloc</span>&gt; {
+    intervals.<span class="fn">sort_by_key</span>(|iv| iv.start);
+
+    <span class="kw">let mut</span> active: <span class="hl">Vec</span>&lt;<span class="hl">usize</span>&gt; = <span class="hl">Vec::new</span>();      <span class="cm">// indices into intervals</span>
+    <span class="kw">let mut</span> free_regs: <span class="hl">Vec</span>&lt;<span class="hl">usize</span>&gt; = (<span class="num">0</span>..regs).<span class="fn">collect</span>(); <span class="cm">// available registers</span>
+    <span class="kw">let mut</span> result = <span class="hl">HashMap::new</span>();
+    <span class="kw">let mut</span> stack_slot = regs;  <span class="cm">// next stack slot for spilled values</span>
+
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="num">0</span>..intervals.<span class="fn">len</span>() {
+        <span class="cm">// Expire dead intervals</span>
+        active.<span class="fn">retain</span>(|&amp;j| {
+            <span class="kw">if</span> intervals[j].end &lt;= intervals[i].start {
+                free_regs.<span class="fn">push</span>(j);   <span class="cm">// free the register</span>
+                <span class="kw">false</span>
+            } <span class="kw">else</span> {
+                <span class="kw">true</span>
+            }
+        });
+
+        <span class="kw">if let</span> <span class="hl">Some</span>(reg) = free_regs.<span class="fn">pop</span>() {
+            result.<span class="fn">insert</span>(intervals[i].vreg, <span class="ty">Alloc</span>::Reg(reg));
+            active.<span class="fn">push</span>(i);
+        } <span class="kw">else</span> {
+            <span class="cm">// No free register — spill to stack</span>
+            <span class="kw">let</span> slot = stack_slot;
+            stack_slot += <span class="num">1</span>;
+            result.<span class="fn">insert</span>(intervals[i].vreg, <span class="ty">Alloc</span>::Stack(slot));
+        }
+    }
+
+    result
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>regalloc.ml</span></div>
+    <pre><code><span class="kw">type</span> live_interval = {
+  vreg:  int;
+  start: int;
+  end_:   int;
+}
+
+<span class="kw">type</span> alloc = Reg of int | Stack of int
+
+<span class="kw">let</span> <span class="fn">linear_scan</span> intervals num_regs =
+  <span class="kw">let</span> intervals = <span class="hl">List</span>.sort (<span class="kw">fun</span> a b -&gt; <span class="hl">Int</span>.compare a.start b.start) intervals <span class="kw">in</span>
+  <span class="kw">let</span> active = <span class="hl">ref</span> [] <span class="kw">in</span>
+  <span class="kw">let</span> free_regs = <span class="hl">ref</span> (<span class="hl">List</span>.init num_regs (<span class="kw">fun</span> i -&gt; i)) <span class="kw">in</span>
+  <span class="kw">let</span> result = <span class="hl">Hashtbl</span>.create 64 <span class="kw">in</span>
+  <span class="kw">let</span> next_slot = <span class="hl">ref</span> num_regs <span class="kw">in</span>
+
+  <span class="hl">List</span>.iter (<span class="kw">fun</span> iv -&gt;
+    <span class="cm">(* Expire dead intervals *)</span>
+    active := <span class="hl">List</span>.filter (<span class="kw">fun</span> j -&gt;
+      <span class="kw">let</span> j_iv = <span class="hl">List</span>.nth intervals j <span class="kw">in</span>
+      <span class="kw">if</span> j_iv.end_ &lt;= iv.start <span class="kw">then</span> (
+        free_regs := j :: !free_regs;
+        <span class="kw">false</span>
+      ) <span class="kw">else</span>
+        <span class="kw">true</span>
+    ) !active;
+
+    <span class="kw">match</span> !free_regs <span class="kw">with</span>
+    | reg :: rest -&gt;
+        free_regs := rest;
+        <span class="hl">Hashtbl</span>.replace result iv.vreg (<span class="hl">Reg</span> reg);
+        active := (<span class="hl">List</span>.length active) :: !active
+    | [] -&gt;
+        <span class="kw">let</span> slot = !next_slot <span class="kw">in</span>
+        next_slot := slot + 1;
+        <span class="hl">Hashtbl</span>.replace result iv.vreg (<span class="hl">Stack</span> slot)
+  ) intervals;
+  result</code></pre>
+  </div>
+</div>
+
+<div class="callout warn">
+<strong>Linear scan is not perfect</strong>
+Our implementation is simplified. A real linear scan allocator also handles <em>spill costs</em> — when no register is free, you can choose to spill the interval that ends latest (farthest in the future) rather than the current one. This makes better decisions. Adding spill cost heuristics is exercise 3.
+</div>
+
+<h3>x86-64 Primer</h3>
+
+<p>Before we generate code, we need to understand our target. x86-64 is a complex instruction set, but we only need a small subset:</p>
+
+<table class="file-table">
+  <tr><th>Instruction</th><th>Meaning</th><th>Our Use</th></tr>
+  <tr><td><code>mov src, dst</code></td><td>Copy src to dst</td><td>Loading/storing values, argument setup</td></tr>
+  <tr><td><code>add src, dst</code></td><td>dst += src</td><td>Addition</td></tr>
+  <tr><td><code>sub src, dst</code></td><td>dst -= src</td><td>Subtraction</td></tr>
+  <tr><td><code>imul src, dst</code></td><td>dst *= src</td><td>Multiplication</td></tr>
+  <tr><td><code>idiv src</code></td><td>rdx:rax /= src</td><td>Division (uses fixed registers)</td></tr>
+  <tr><td><code>cmp a, b</code></td><td>Compute b - a, set flags</td><td>Comparison before conditional jump</td></tr>
+  <tr><td><code>sete al</code></td><td>Set byte to 1 if equal</td><td>Equality comparison result</td></tr>
+  <tr><td><code>setg al</code></td><td>Set byte to 1 if greater</td><td>Greater-than comparison</td></tr>
+  <tr><td><code>jmp label</code></td><td>Unconditional jump</td><td>Branch to another block</td></tr>
+  <tr><td><code>je label</code></td><td>Jump if equal</td><td>Conditional branch</td></tr>
+  <tr><td><code>jne label</code></td><td>Jump if not equal</td><td>Conditional branch</td></tr>
+  <tr><td><code>call func</code></td><td>Push return addr, jump</td><td>Function calls</td></tr>
+  <tr><td><code>ret</code></td><td>Pop return addr, jump</td><td>Return from function</td></tr>
+  <tr><td><code>push src</code></td><td>Push src onto stack</td><td>Prologue, calling convention</td></tr>
+  <tr><td><code>pop dst</code></td><td>Pop from stack into dst</td><td>Epilogue</td></tr>
+</table>
+
+<p><strong>Registers</strong> (the general-purpose ones we care about):</p>
+
+<table class="file-table">
+  <tr><th>Register</th><th>Purpose (SysV ABI)</th><th>Our Usage</th></tr>
+  <tr><td><code>rax</code></td><td>Return value, scratch</td><td>Return value, division</td></tr>
+  <tr><td><code>rbx</code></td><td>Callee-saved</td><td>General purpose</td></tr>
+  <tr><td><code>rcx</code></td><td>4th argument, scratch</td><td>General purpose</td></tr>
+  <tr><td><code>rdx</code></td><td>3rd argument, scratch</td><td>Division, general</td></tr>
+  <tr><td><code>rsi</code></td><td>2nd argument, scratch</td><td>General purpose</td></tr>
+  <tr><td><code>rdi</code></td><td>1st argument, scratch</td><td>General purpose</td></tr>
+  <tr><td><code>rsp</code></td><td>Stack pointer</td><td>Stack management (fixed)</td></tr>
+  <tr><td><code>rbp</code></td><td>Base pointer (frame pointer)</td><td>Stack frame (fixed)</td></tr>
+  <tr><td><code>r8–r15</code></td><td>5th–6th args, scratch/callee</td><td>General purpose</td></tr>
+</table>
+
+<h3>The Stack Frame</h3>
+
+<p>Every function that uses local variables or spills registers needs a <strong>stack frame</strong>. The frame is a region of memory on the stack that holds local data. It is set up in the <strong>prologue</strong> and torn down in the <strong>epilogue</strong>:</p>
+
+<div class="diagram">High addresses
+  ┌──────────────────┐
+  │  argument N       │  ← caller's stack
+  │  ...              │
+  │  1st argument     │
+  ├──────────────────┤
+  │  return address   │  ← pushed by `call`
+  ├──────────────────┤
+  │  saved rbp        │  ← pushed by `push rbp`
+  ├──────────────────┤
+  │  local variable 0 │
+  │  ...              │  ← accessed via [rbp - offset]
+  │  spilled vregs    │
+  │  local variable N │
+  └──────────────────┘
+  Low addresses</div>
+
+<p>The prologue and epilogue in assembly:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/codegen.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">emit_prologue</span>(asm: &amp;<span class="kw">mut</span> <span class="ty">Assembly</span>, frame_size: <span class="hl">usize</span>) {
+    asm.<span class="fn">emit</span>(<span class="str">"    push rbp"</span>);
+    asm.<span class="fn">emit</span>(<span class="str">"    mov rbp, rsp"</span>);
+    <span class="kw">if</span> frame_size &gt; <span class="num">0</span> {
+        <span class="cm">// Align frame size to 16 bytes (x86-64 ABI requirement)</span>
+        <span class="kw">let</span> aligned = (frame_size + <span class="num">15</span>) &amp; !<span class="num">15</span>;
+        asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    sub rsp, {}"</span>, aligned));
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">emit_epilogue</span>(asm: &amp;<span class="kw">mut</span> <span class="ty">Assembly</span>) {
+    asm.<span class="fn">emit</span>(<span class="str">"    mov rsp, rbp"</span>);
+    asm.<span class="fn">emit</span>(<span class="str">"    pop rbp"</span>);
+    asm.<span class="fn">emit</span>(<span class="str">"    ret"</span>);
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>codegen.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">emit_prologue</span> asm frame_size =
+  <span class="fn">emit</span> asm <span class="str">"    push rbp"</span>;
+  <span class="fn">emit</span> asm <span class="str">"    mov rbp, rsp"</span>;
+  <span class="kw">if</span> frame_size &gt; 0 <span class="kw">then</span>
+    <span class="kw">let</span> aligned = (frame_size + 15) <span class="kw">land</span> lnot 15 <span class="kw">in</span>
+    <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    sub rsp, %d"</span> aligned)
+
+<span class="kw">let</span> <span class="fn">emit_epilogue</span> asm =
+  <span class="fn">emit</span> asm <span class="str">"    mov rsp, rbp"</span>;
+  <span class="fn">emit</span> asm <span class="str">"    pop rbp"</span>;
+  <span class="fn">emit</span> asm <span class="str">"    ret"</span></code></pre>
+  </div>
+</div>
+
+<h3>Instruction Selection</h3>
+
+<p>Each IR instruction maps to one or more x86-64 instructions. Here is the mapping:</p>
+
+<table class="file-table">
+  <tr><th>IR Instruction</th><th>x86-64</th><th>Notes</th></tr>
+  <tr><td><code>Const %d, n</code></td><td><code>mov reg_d, n</code></td><td>Immediate value into register</td></tr>
+  <tr><td><code>Add %d, %a, %b</code></td><td><code>mov reg_d, reg_a; add reg_b, reg_d</code></td><td>Three-address to two-address</td></tr>
+  <tr><td><code>Sub %d, %a, %b</code></td><td><code>mov reg_d, reg_a; sub reg_b, reg_d</code></td><td></td></tr>
+  <tr><td><code>Mul %d, %a, %b</code></td><td><code>mov reg_d, reg_a; imul reg_b, reg_d</code></td><td></td></tr>
+  <tr><td><code>Eq %d, %a, %b</code></td><td><code>cmp reg_a, reg_b; sete al; movzx reg_d, al</code></td><td>Comparison produces boolean</td></tr>
+  <tr><td><code>Lt %d, %a, %b</code></td><td><code>cmp reg_a, reg_b; setl al; movzx reg_d, al</code></td><td></td></tr>
+  <tr><td><code>Not %d, %a</code></td><td><code>xor reg_d, 1</code></td><td>Boolean NOT (flip lowest bit)</td></tr>
+  <tr><td><code>Load %d, ptr</code></td><td><code>mov reg_d, [reg_ptr]</code></td><td>Memory load</td></tr>
+  <tr><td><code>Store %val, %ptr</code></td><td><code>mov [reg_ptr], reg_val</code></td><td>Memory store</td></tr>
+  <tr><td><code>Call %d, f, args</code></td><td><code>mov rdi, arg0; mov rsi, arg1; ...; call f; mov reg_d, rax</code></td><td>SysV calling convention</td></tr>
+  <tr><td><code>Ret %v</code></td><td><code>mov rax, reg_v; jmp epilogue</code></td><td>Return value in rax</td></tr>
+  <tr><td><code>Branch %c, t, f</code></td><td><code>cmp c, 1; je t_label; jmp f_label</code></td><td>Conditional branch</td></tr>
+  <tr><td><code>Jump b</code></td><td><code>jmp b_label</code></td><td>Unconditional branch</td></tr>
+</table>
+
+<p>The code generator walks each basic block, emitting instructions. Spilled registers become loads from and stores to <code>[rbp - offset]</code>. Non-spilled registers become direct register references.</p>
+
+<h4>The Assembly Buffer</h4>
+
+<p>We collect the generated assembly in a simple string buffer. Here is the type:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/codegen.rs</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">Assembly</span> {
+    lines: <span class="hl">Vec</span>&lt;<span class="hl">String</span>&gt;,
+    indent: <span class="hl">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Assembly</span> {
+    <span class="kw">pub fn</span> <span class="fn">new</span>() -&gt; <span class="hl">Self</span> {
+        <span class="hl">Self</span> { lines: <span class="hl">Vec::new</span>(), indent: <span class="num">0</span> }
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">emit</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>, line: &amp;<span class="hl">str</span>) {
+        <span class="hl">self</span>.lines.<span class="fn">push</span>(line.<span class="fn">to_string</span>());
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">emit_label</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>, label: &amp;<span class="hl">str</span>) {
+        <span class="hl">self</span>.lines.<span class="fn">push</span>(<span class="hl">format!</span>(<span class="str">"{}:"</span>, label));
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">finish</span>(&amp;<span class="hl">self</span>) -&gt; <span class="hl">String</span> {
+        <span class="hl">self</span>.lines.<span class="fn">join</span>(<span class="str">"\n"</span>)
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>codegen.ml</span></div>
+    <pre><code><span class="kw">type</span> assembly = {
+  mutable lines: string list;
+}
+
+<span class="kw">let</span> <span class="fn">create</span> () = { lines = [] }
+
+<span class="kw">let</span> <span class="fn">emit</span> asm line =
+  asm.lines &lt;- line :: asm.lines
+
+<span class="kw">let</span> <span class="fn">emit_label</span> asm label =
+  asm.lines &lt;- (<span class="hl">Printf.sprintf</span> <span class="str">"%s:"</span> label) :: asm.lines
+
+<span class="kw">let</span> <span class="fn">finish</span> asm =
+  <span class="hl">String</span>.concat <span class="str">"\n"</span> (<span class="hl">List</span>.rev asm.lines)</code></pre>
+  </div>
+</div>
+
+<p>We emit lines in order as we traverse the IR. Labels for basic blocks, instructions for operations. The output is valid NASM syntax — NASM is the assembler we invoke to turn this text into machine code.</p>
+
+<h4>Generating Code for a Basic Block</h4>
+
+<p>Here is how we generate code for a complete basic block, including its terminator:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/codegen.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">emit_block</span>(
+    block: &amp;<span class="ty">BasicBlock</span>,
+    alloc: &amp;<span class="hl">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="ty">Alloc</span>&gt;,
+    asm: &amp;<span class="kw">mut</span> <span class="ty">Assembly</span>,
+) {
+    asm.<span class="fn">emit_label</span>(&amp;<span class="hl">format!</span>(<span class="str">".L{}"</span>, block.id));
+
+    <span class="kw">for</span> instr <span class="kw">in</span> &amp;block.instrs {
+        <span class="fn">emit_instr</span>(instr, alloc, asm);
+    }
+
+    <span class="kw">match</span> &amp;block.terminator {
+        Terminator::Return(val) =&gt; {
+            <span class="kw">if let</span> <span class="hl">Some</span>(v) = val {
+                <span class="kw">let</span> rv = <span class="fn">reg_or_stack</span>(*v, alloc);
+                asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    mov rax, {}"</span>, rv));
+            }
+            <span class="fn">emit_epilogue</span>(asm);
+        }
+        Terminator::Jump(target) =&gt; {
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    jmp .L{}"</span>, target));
+        }
+        Terminator::Branch(cond, t, f) =&gt; {
+            <span class="kw">let</span> rc = <span class="fn">reg_or_stack</span>(*cond, alloc);
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    cmp {}, 1"</span>, rc));
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    je .L{}"</span>, t));
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    jmp .L{}"</span>, f));
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>codegen.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">emit_block</span> block alloc asm =
+  <span class="fn">emit_label</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">".L%d"</span> block.id);
+
+  <span class="hl">List</span>.iter (<span class="kw">fun</span> instr -&gt; <span class="fn">emit_instr</span> instr alloc asm) block.instrs;
+
+  <span class="kw">match</span> block.terminator <span class="kw">with</span>
+  | Return (<span class="hl">Some</span> v) -&gt;
+      <span class="kw">let</span> rv = <span class="fn">reg_or_stack</span> v alloc <span class="kw">in</span>
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    mov rax, %s"</span> rv);
+      <span class="fn">emit_epilogue</span> asm
+  | Return <span class="hl">None</span> -&gt;
+      <span class="fn">emit_epilogue</span> asm
+  | Jump target -&gt;
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    jmp .L%d"</span> target)
+  | Branch (cond, t, f) -&gt;
+      <span class="kw">let</span> rc = <span class="fn">reg_or_stack</span> cond alloc <span class="kw">in</span>
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    cmp %s, 1"</span> rc);
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    je .L%d"</span> t);
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    jmp .L%d"</span> f)</code></pre>
+  </div>
+</div>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/codegen.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">emit_instr</span>(
+    instr: &amp;<span class="ty">Instr</span>,
+    alloc: &amp;<span class="hl">HashMap</span>&lt;<span class="ty">VReg</span>, <span class="ty">Alloc</span>&gt;,
+    asm: &amp;<span class="kw">mut</span> <span class="ty">Assembly</span>,
+) {
+    <span class="kw">match</span> *instr {
+        Instr::Const(dst, n) =&gt; {
+            <span class="kw">let</span> d = <span class="fn">reg_or_stack</span>(dst, alloc);
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    mov {}, {}"</span>, d, n));
+        }
+        Instr::Add(dst, a, b) =&gt; {
+            <span class="kw">let</span> d = <span class="fn">reg_or_stack</span>(dst, alloc);
+            <span class="kw">let</span> ra = <span class="fn">reg_or_stack</span>(a, alloc);
+            <span class="kw">let</span> rb = <span class="fn">reg_or_stack</span>(b, alloc);
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    mov {}, {}"</span>, d, ra));
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    add {}, {}"</span>, d, rb));
+        }
+        Instr::Eq(dst, a, b) =&gt; {
+            <span class="kw">let</span> d = <span class="fn">reg_or_stack</span>(dst, alloc);
+            <span class="kw">let</span> ra = <span class="fn">reg_or_stack</span>(a, alloc);
+            <span class="kw">let</span> rb = <span class="fn">reg_or_stack</span>(b, alloc);
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    cmp {}, {}"</span>, ra, rb));
+            asm.<span class="fn">emit</span>(<span class="str">"    sete al"</span>);
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    movzx {}, al"</span>, d));
+        }
+        Instr::Ret(val) =&gt; {
+            <span class="kw">let</span> rv = <span class="fn">reg_or_stack</span>(val, alloc);
+            asm.<span class="fn">emit</span>(&amp;<span class="hl">format!</span>(<span class="str">"    mov rax, {}"</span>, rv));
+        }
+        <span class="cm">// ... other instructions</span>
+        _ =&gt; {}
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>codegen.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">emit_instr</span> instr alloc asm =
+  <span class="kw">match</span> instr <span class="kw">with</span>
+  | Const (dst, n) -&gt;
+      <span class="kw">let</span> d = <span class="fn">reg_or_stack</span> dst alloc <span class="kw">in</span>
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    mov %s, %d"</span> d n)
+  | Add (dst, a, b) -&gt;
+      <span class="kw">let</span> d  = <span class="fn">reg_or_stack</span> dst alloc <span class="kw">in</span>
+      <span class="kw">let</span> ra = <span class="fn">reg_or_stack</span> a   alloc <span class="kw">in</span>
+      <span class="kw">let</span> rb = <span class="fn">reg_or_stack</span> b   alloc <span class="kw">in</span>
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    mov %s, %s"</span> d ra);
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    add %s, %s"</span> d rb)
+  | Eq (dst, a, b) -&gt;
+      <span class="kw">let</span> d  = <span class="fn">reg_or_stack</span> dst alloc <span class="kw">in</span>
+      <span class="kw">let</span> ra = <span class="fn">reg_or_stack</span> a   alloc <span class="kw">in</span>
+      <span class="kw">let</span> rb = <span class="fn">reg_or_stack</span> b   alloc <span class="kw">in</span>
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    cmp %s, %s"</span> ra rb);
+      <span class="fn">emit</span> asm <span class="str">"    sete al"</span>;
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    movzx %s, al"</span> d)
+  | Ret (Some val) -&gt;
+      <span class="kw">let</span> rv = <span class="fn">reg_or_stack</span> val alloc <span class="kw">in</span>
+      <span class="fn">emit</span> asm (<span class="hl">Printf.sprintf</span> <span class="str">"    mov rax, %s"</span> rv)
+  | _ -&gt; ()</code></pre>
+  </div>
+</div>
+
+<h3>Phi Resolution</h3>
+
+<p>Phi nodes do not exist in x86-64. They are a conceptual tool for the optimizer. In machine code, we resolve them by inserting <strong>move instructions</strong> at the end of each predecessor block:</p>
+
+<div class="diagram">IR with Phi:
+  b2 (then):
+    jmp b4
+
+  b3 (else):
+    jmp b4
+
+  b4 (merge):
+    %3 = phi [b2: %0, b3: %1]
+    ret %3
+
+Generated assembly:
+  b2:
+    mov rax, r0        ; move %0 into rax (return value)
+    jmp b4
+
+  b3:
+    mov rax, r1        ; move %1 into rax
+    jmp b4
+
+  b4:
+    ; %3 is now in rax (no Phi needed)
+    ret</div>
+
+<p>The key insight: a Phi node is not a real instruction. It is a statement about data flow. When we generate code, we resolve it by copying the incoming value at the end of each predecessor into the register or stack slot that holds the Phi's result. If multiple Phis exist, we may need temporary registers to avoid clobbering (the "swap problem"), but for our simple compiler, sequential moves work fine.</p>
+
+<h3>Complete Assembly Output</h3>
+
+<p>Let us see what our compiler produces for a complete program. Here is the simplest possible:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> <span class="num">42</span>;
+}</code></pre>
+
+<p>The output assembly:</p>
+
+<pre><code>    <span class="kw">global</span> <span class="fn">main</span>
+    <span class="kw">section</span> <span class="str">.text</span>
+
+<span class="fn">main</span>:
+    <span class="cm">; prologue</span>
+    push rbp
+    mov rbp, rsp
+
+    <span class="cm">; return 42</span>
+    mov rax, <span class="num">42</span>
+
+    <span class="cm">; epilogue</span>
+    mov rsp, rbp
+    pop rbp
+    ret</code></pre>
+
+<p>That is real x86-64 assembly. Generated by our compiler. Running on real hardware. Seven instructions. It pushes the base pointer, saves the frame pointer, loads 42 into <code>rax</code> (the return value register), restores the frame, pops the base pointer, and returns.</p>
+
+<p>Now something more complex — a function with parameters and arithmetic:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, <span class="ty">a</span>: <span class="ty">i32</span>, <span class="ty">b</span>: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p>The output assembly:</p>
+
+<pre><code>    <span class="kw">global</span> <span class="fn">add</span>
+    <span class="kw">section</span> <span class="str">.text</span>
+
+<span class="fn">add</span>:
+    <span class="cm">; prologue</span>
+    push rbp
+    mov rbp, rsp
+
+    <span class="cm">; parameters arrive in rdi, rsi</span>
+    <span class="cm">; a is in rdi, b is in rsi (SysV ABI)</span>
+
+    <span class="cm">; a + b</span>
+    mov rax, rdi
+    add rax, rsi
+
+    <span class="cm">; epilogue</span>
+    mov rsp, rbp
+    pop rbp
+    ret</code></pre>
+
+<p>The SysV calling convention passes the first two integer arguments in <code>rdi</code> and <code>rsi</code>. Our compiler maps parameter VRegs to these registers. The addition becomes a <code>mov</code> and an <code>add</code>. The result is already in <code>rax</code>, ready for the caller to read.</p>
+
+<div class="callout tip">
+<strong>That's real hardware</strong>
+You can take this assembly, assemble it with NASM, link it with <code>cc</code>, and run it on any x86-64 Linux machine. Our compiler produces actual executables. Not bytecode. Not a VM. Real native code.
+</div>
+
+<h3>What Code Generation Enables</h3>
+
+<p>With code generation, our pipeline is complete:</p>
+
+<ul>
+  <li><strong>Lexer</strong> → tokens</li>
+  <li><strong>Parser</strong> → AST</li>
+  <li><strong>Type checker</strong> → validated AST</li>
+  <li><strong>IR builder</strong> → SSA IR</li>
+  <li><strong>Optimizer</strong> → optimized SSA IR</li>
+  <li><strong>Register allocator</strong> → mapped VRegs</li>
+  <li><strong>Code generator</strong> → x86-64 assembly</li>
+</ul>
+
+<p>Every stage is a well-defined transformation with a clean interface. The output of the last stage is a string of assembly text that NASM can assemble into machine code.</p>
+
+<p>This is the point where the compiler stops being a thought experiment and starts being a tool. Every other program we write in our language — from "hello world" to a self-hosting compiler — goes through this pipeline. And now you understand every step.</p>
+
+<h3>Calling Convention in Detail</h3>
+
+<p>The System V AMD64 ABI specifies exactly how functions call each other. Here are the rules our code generator must follow:</p>
+
+<p><strong>Argument passing:</strong> Integer and pointer arguments are passed in registers, left to right: <code>rdi</code>, <code>rsi</code>, <code>rdx</code>, <code>rcx</code>, <code>r8</code>, <code>r9</code>. Additional arguments are pushed onto the stack in reverse order.</p>
+
+<p><strong>Return value:</strong> Integer and pointer return values go in <code>rax</code>. Our function <code>main(i32)</code> returns an <code>i32</code> — the generated assembly loads the return value into <code>rax</code> before <code>ret</code>.</p>
+
+<p><strong>Callee-saved registers:</strong> <code>rbx</code>, <code>rbp</code>, and <code>r12</code>–<code>r15</code> must be preserved across function calls. If our code generator uses these registers, it must save and restore them. Our simple allocator avoids this by using scratch registers and stack slots.</p>
+
+<p><strong>Stack alignment:</strong> The stack must be 16-byte aligned before a <code>call</code> instruction. Our prologue <code>push rbp</code> (8 bytes) + <code>sub rsp, N</code> (with N aligned to 16) maintains this invariant.</p>
+
+<p>Here is how a function call looks in the generated assembly:</p>
+
+<pre><code><span class="cm">;; Call: result = add(3, 4);</span>
+    mov rdi, <span class="num">3</span>           <span class="cm">; first argument</span>
+    mov rsi, <span class="num">4</span>           <span class="cm">; second argument</span>
+    call <span class="fn">add</span>             <span class="cm">; push return addr, jump to add</span>
+    mov [rbp-<span class="num">8</span>], rax    <span class="cm">; store return value to result</span></code></pre>
+
+<p>The callee (<code>add</code>) receives <code>rdi=3</code> and <code>rsi=4</code>. It computes the result, leaves it in <code>rax</code>, and returns. The caller reads <code>rax</code> and stores it. This is the entire calling convention — everything else is mechanical.</p>
+
+<h3>Companion Source Files</h3>
+
+<table class="file-table">
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>src/regalloc.rs</code></td><td>Linear scan register allocation, live interval computation</td></tr>
+  <tr><td><code>src/codegen.rs</code></td><td>IR → x86-64 instruction selection, prologue/epilogue, phi resolution</td></tr>
+</table>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Graph coloring register allocation</strong>
+Replace linear scan with a graph coloring allocator. Build an interference graph where nodes are VRegs and edges connect overlapping live intervals. Color the graph with k colors (k = number of physical registers). Spill if coloring fails. This produces better code than linear scan and is the algorithm used by GCC and LLVM's -O2.
+</div>
+
+<div class="exercise">
+<strong>2. Floating point support</strong>
+Add <code>f32</code> and <code>f64</code> types. The IR needs new instructions for floating-point arithmetic. The code generator needs SSE/AVX instructions: <code>movss</code>, <code>addss</code>, <code>mulss</code>, <code>ucomiss</code>, etc. New registers: <code>xmm0</code>–<code>xmm15</code>. This is a significant extension that touches every part of the compiler.
+</div>
+
+<div class="exercise">
+<strong>3. Spill cost heuristics</strong>
+Improve linear scan with spill cost: when no register is free, spill the active interval whose end is farthest from the current point (instead of spilling the newly arriving VReg). This requires tracking which interval to spill and adding spill/reload instructions to the IR.
+</div>
+
+<div class="exercise">
+<strong>4. Peephole optimization on assembly</strong>
+After the code generator emits instructions, run a peephole optimizer over the assembly text. Replace patterns like <code>mov rax, [rbp-8]; mov [rbp-8], rax</code> (a redundant load-store pair) with nothing. Or replace <code>mov rax, 0</code> with <code>xor rax, rax</code> (smaller encoding).
+</div>
+
+<div class="exercise">
+<strong>5. Tail call optimization</strong>
+When a function's last action is calling another function, and the callee's return value is directly returned, optimize the call into a jump (<code>jmp</code> instead of <code>call; ret</code>). This avoids growing the stack for recursive functions. Requires recognizing the tail position in the IR.
+</div>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="06-ir.html" class="prev">The Bridge: Intermediate Representation</a>
+  <a href="08-assembly.html" class="next">The Final Mile</a>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 16: Error Diagnostics &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="15-link.html">&larr; Chapter 15</a> &ensp; Chapter 16: Error Diagnostics &ensp; <a href="17-conclusion.html">Chapter 17 &rarr;</a></span>
+</div>
+
+<h2 id="diag">16 &ensp; Error Diagnostics</h2>
+
+<h3>Why Error Messages Matter</h3>
+
+<p>Error reporting is one of the most important user-facing features of a compiler. A programmer spends far more time debugging than writing code, and the quality of error messages directly determines how quickly they can find and fix problems. A good diagnostic tells the programmer not just <em>what</em> went wrong, but <em>where</em> and <em>why</em>.</p>
+
+<p>Consider two responses to the same input error:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Bad diagnostic:</strong><br>
+<pre style="text-align:left;background:var(--bg3);border:none;padding:0.5rem;margin:0.25rem 0;font-size:0.8rem;">
+syntax error on line 5
+</pre>
+<strong>Good diagnostic (rustc-style):</strong><br>
+<pre style="text-align:left;background:var(--bg3);border:none;padding:0.5rem;margin:0.25rem 0;font-size:0.8rem;">
+error[E000]: expected ';' after return expression
+  --> test.is:5:12
+   |
+ 5 |     return 42
+   |            ^ expected ';'
+   |
+   = note: every return statement must end with a semicolon
+</pre>
+</div>
+
+<p>The good diagnostic includes: the severity (<code>error</code>), the file and precise location (<code>test.is:5:12</code>), a source line with an underline caret pointing to the exact position, a descriptive message, and an optional note with additional guidance. This style, popularized by the Rust compiler (and earlier by Elm), has become the gold standard for compiler diagnostics.</p>
+
+<h3>Design Space for Diagnostics</h3>
+
+<p>Compiler diagnostics can be designed along several axes:</p>
+
+<ul>
+<li><strong>Severity levels</strong>: At minimum, errors (compilation cannot proceed) and warnings (suspicious but not fatal). Many compilers add notes (auxiliary information), help messages, and lint-level diagnostics.</li>
+<li><strong>Span attachment</strong>: A diagnostic can have zero spans (a global error), one primary span (the main location), or multiple secondary spans (related locations like "see declaration here").</li>
+<li><strong>Formatting</strong>: From bare text (<code>line 5: syntax error</code>) to structured output with source snippets, underlines, color, and annotations. Modern terminals support ANSI color codes, and many compilers (rustc, clang) use them to highlight errors.</li>
+<li><strong>Error codes</strong>: Unique identifiers like <code>E0308</code> (type mismatch in Rust) that can be looked up in documentation. Some compilers (clang) even suggest fixes.</li>
+<li><strong>Continuation strategy</strong>: Stop-at-first-error vs. recover-and-continue. The latter finds more errors per compilation but requires careful error recovery in the parser.</li>
+</ul>
+
+<h3>How Ignis Implements Diagnostics</h3>
+
+<p>Ignis implements a simplified version of the rustc-style diagnostic system with three core types: <code>Severity</code>, <code>Diagnostic</code> (individual error/warning/note), and <code>Diagnostics</code> (the collector).</p>
+
+<h4>The Severity Enum</h4>
+
+<p>Every diagnostic carries a severity level that determines its behavior:</p>
+
+<div class="code-header"><span>src/diag.rs &mdash; Severity</span></div>
+<pre><code><span class="pp">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">Severity</span> {
+    <span class="ty">Error</span>,
+    <span class="ty">Warning</span>,
+    <span class="ty">Note</span>,
+}</code></pre>
+
+<p>The three levels serve distinct roles:</p>
+<ul>
+<li><strong>Error</strong>: Compilation cannot produce a working binary. The driver exits with a non-zero status code. The <code>has_errors()</code> method checks for any diagnostic with this severity.</li>
+<li><strong>Warning</strong>: The compiler noticed something suspicious but can continue. Warnings alone do not prevent code generation.</li>
+<li><strong>Note</strong>: Supplementary information attached to an error or warning. Notes never appear standalone; they always provide context for another diagnostic.</li>
+</ul>
+
+<h4>The Diagnostic Struct (Builder Pattern)</h4>
+
+<p>Individual diagnostics are constructed using a builder pattern, where each setter method consumes and returns <code>Self</code> for chaining:</p>
+
+<div class="code-header"><span>src/diag.rs &mdash; Diagnostic struct</span></div>
+<pre><code><span class="pp">#[derive(Debug, Clone)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Diagnostic</span> {
+    <span class="kw">pub</span> severity: <span class="ty">Severity</span>,
+    <span class="kw">pub</span> message: <span class="ty">String</span>,
+    <span class="kw">pub</span> span: <span class="ty">Option</span>&lt;<span class="ty">Span</span>&gt;,
+    <span class="kw">pub</span> notes: <span class="ty">Vec</span>&lt;(<span class="ty">String</span>, <span class="ty">Option</span>&lt;<span class="ty">Span</span>&gt;)&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">Diagnostic</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(severity: <span class="ty">Severity</span>, message: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Diagnostic</span> { severity, message: message.<span class="fn">into</span>(), span: <span class="ty">None</span>, notes: <span class="ty">Vec</span>::<span class="fn">new</span>() }
+    }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">at</span>(<span class="kw">mut</span> <span class="kw">self</span>, span: <span class="ty">Span</span>) -&gt; <span class="ty">Self</span> {
+        <span class="kw">self</span>.span = <span class="ty">Some</span>(span); <span class="kw">self</span>
+    }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">with_note</span>(<span class="kw">mut</span> <span class="kw">self</span>, msg: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;, span: <span class="ty">Option</span>&lt;<span class="ty">Span</span>&gt;) -&gt; <span class="ty">Self</span> {
+        <span class="kw">self</span>.notes.<span class="fn">push</span>((msg.<span class="fn">into</span>(), span)); <span class="kw">self</span>
+    }
+}</code></pre>
+
+<p>Usage produces readable, chainable code:</p>
+<pre><code><span class="kw">let</span> diag = <span class="ty">Diagnostic</span>::<span class="fn">new</span>(<span class="ty">Severity</span>::<span class="fn">Error</span>, <span class="str">"type mismatch"</span>)
+    .<span class="fn">at</span>(some_span)
+    .<span class="fn">with_note</span>(<span class="str">"expected i32, found bool"</span>, <span class="ty">None</span>)
+    .<span class="fn">with_note</span>(<span class="str">"see definition here"</span>, <span class="ty">Some</span>(def_span));</code></pre>
+
+<h4>The Diagnostics Collector</h4>
+
+<p>The <code>Diagnostics</code> struct acts as the central repository. It holds the source text and file path (set once early in the pipeline) and provides convenience methods for emitting diagnostics:</p>
+
+<div class="code-header"><span>src/diag.rs &mdash; Diagnostics collector</span></div>
+<pre><code><span class="pp">#[derive(Debug, Clone)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Diagnostics</span> {
+    <span class="kw">pub</span> diagnostics: <span class="ty">Vec</span>&lt;<span class="ty">Diagnostic</span>&gt;,
+    <span class="kw">pub</span> source: <span class="ty">Option</span>&lt;<span class="ty">String</span>&gt;,
+    <span class="kw">pub</span> file_path: <span class="ty">Option</span>&lt;<span class="ty">String</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">Diagnostics</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">set_source</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, source: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;, path: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">error</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, msg: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;, span: <span class="ty">Option</span>&lt;<span class="ty">Span</span>&gt;)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">warning</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, msg: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;, span: <span class="ty">Option</span>&lt;<span class="ty">Span</span>&gt;)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">note</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, msg: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;, span: <span class="ty">Option</span>&lt;<span class="ty">Span</span>&gt;)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">has_errors</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">bool</span>
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">print_all</span>(&amp;<span class="kw">self</span>)
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">format_diagnostic</span>(&amp;<span class="kw">self</span>, diag: &amp;<span class="ty">Diagnostic</span>) -&gt; <span class="ty">String</span>
+}</code></pre>
+
+<p>The <code>source</code> and <code>file_path</code> fields are set once (typically by the parser) and reused for all emitted diagnostics. Having the source text available allows the formatter to extract and display the offending line with an underline caret. The convenience methods (<code>error</code>, <code>warning</code>, <code>note</code>) use a private <code>at_maybe</code> helper that conditionally attaches a span: if <code>Some(span)</code> is provided, the diagnostic gets a location; if <code>None</code>, it remains location-less.</p>
+
+<h3>The Formatter: Producing Rustc-Style Output</h3>
+
+<p>The <code>format_diagnostic</code> method is the heart of the system. It produces structured, multiline output with source context:</p>
+
+<div class="code-header"><span>src/diag.rs &mdash; format_diagnostic()</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">format_diagnostic</span>(&amp;<span class="kw">self</span>, diag: &amp;<span class="ty">Diagnostic</span>) -&gt; <span class="ty">String</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> out = <span class="ty">String</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> severity = <span class="kw">match</span> diag.severity { <span class="cm">/* "error"/"warning"/"note" */</span> };
+
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(span) = &amp;diag.span {
+        <span class="cm">// Format: error[E000]: message</span>
+        <span class="cm">//         --> file:line:col</span>
+        <span class="cm">//          |</span>
+        <span class="cm">//        5 | let x: i32 = "hello";</span>
+        <span class="cm">//          |             ^^^^^^^</span>
+        <span class="cm">//         = note: expected i32, found @char</span>
+    }
+    <span class="cm">// ... notes ...</span>
+    out
+}</code></pre>
+
+<p>The formatting logic has several key details:</p>
+<ul>
+<li><strong>Severity label</strong>: Starts with <code>error[E000]:</code>, <code>warning[E000]:</code>, or <code>note[E000]:</code>. The <code>E000</code> is a placeholder for unique error codes that would allow documentation lookup in a larger compiler.</li>
+<li><strong>Location line</strong>: <code>--> file:line:col</code> mirrors rustc's style. If no file path is available, just <code>line:col</code> is shown.</li>
+<li><strong>Source line extraction</strong>: The offending line is retrieved from <code>source.lines()</code>. Since <code>Span.line</code> is 1-indexed and <code>.lines()</code> is 0-indexed, the conversion <code>(span.line - 1) as usize</code> is critical.</li>
+<li><strong>Underline caret</strong>: A <code>^</code> is placed under the span's starting column, repeated for the span width (<code>span.end - span.start</code>, minimum 1). This visually highlights the exact range of the error.</li>
+<li><strong>Notes</strong>: Each note is appended as <code>= note: message</code>, optionally with a location: <code>(at line:col)</code>.</li>
+</ul>
+
+<h3>Example Diagnostic Output</h3>
+
+<p>Given this erroneous L1S program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="str">"hello"</span>;
+}</code></pre>
+
+<p>The type checker would produce a diagnostic that formats as:</p>
+
+<pre><code><span style="color:var(--red)">error[E000]</span>: type mismatch: cannot assign &amp;char to i32
+  --> test.is:2:23
+   |
+ 2 |     let x: i32 = "hello";
+   |                   ^^^^^^^
+   = note: expected i32, found @char (at 2:23)
+   = note: see definition of 'x' (at 2:9)</code></pre>
+
+<p>This output tells the programmer everything they need: the file, the exact line and column, the problematic source text with the offending span highlighted, and two contextual notes explaining what was expected versus what was found.</p>
+
+<h3>Testing the Diagnostics</h3>
+
+<p>The diagnostics module has comprehensive unit tests covering all key behaviors:</p>
+
+<table class="file-table">
+<tr><th>Test</th><th>What It Verifies</th></tr>
+<tr><td><code>test_new_diagnostics_empty</code></td><td>A fresh collector has no diagnostics and no errors.</td></tr>
+<tr><td><code>test_error_diagnostic</code></td><td>An error is recorded and <code>has_errors()</code> returns true.</td></tr>
+<tr><td><code>test_warning_diagnostic</code></td><td>A warning is recorded but <code>has_errors()</code> returns false.</td></tr>
+<tr><td><code>test_mixed_diagnostics</code></td><td>Mixed errors + warnings + notes: <code>has_errors()</code> correctly reflects presence of at least one error.</td></tr>
+<tr><td><code>test_diagnostic_with_span</code></td><td>Formatted output contains the error label, file path, source line, and underline caret.</td></tr>
+<tr><td><code>test_diagnostic_with_note</code></td><td>Notes appear in the formatted output with <code>= note:</code> prefix.</td></tr>
+<tr><td><code>test_diagnostic_chain</code></td><td>Builder chaining (<code>.at().with_note().with_note()</code>) correctly accumulates notes.</td></tr>
+</table>
+
+<p>To run the diagnostics tests specifically:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- diag</code></pre>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+<li><strong>Missing source context</strong>: If <code>set_source</code> is never called, <code>format_diagnostic</code> produces a bare <code>error[E000]: message</code> with no source line or caret. Always call <code>set_source</code> early in the pipeline.</li>
+<li><strong>Off-by-one in line numbers</strong>: <code>source.lines()</code> returns 0-indexed lines, but <code>Span.line</code> is 1-indexed. Forgetting the <code>-1</code> conversion produces an off-by-one error or a panic (if <code>span.line</code> is 1, indexing with <code>0</code> is correct; indexing with <code>1</code> would skip the first line).</li>
+<li><strong>Zero-width spans</strong>: A span like <code>Span::new(5, 5, ...)</code> has zero width. The <code>.max(1)</code> in the width calculation ensures a single <code>^</code> caret is still displayed.</li>
+<li><strong>Standalone notes</strong>: The <code>note()</code> convenience method on <code>Diagnostics</code> creates a top-level note, which is unusual &mdash; notes are meant to annotate errors or warnings. In practice this is harmless but might confuse readers.</li>
+<li><strong>Error code placeholders</strong>: Every diagnostic uses <code>E000</code>. A production compiler would assign unique codes for documentation, searching, and automated suppression.</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="15-link.html">&larr; Chapter 15</a> &ensp; Chapter 16: Error Diagnostics &ensp; <a href="17-conclusion.html">Chapter 17 &rarr;</a></span>
+</div>
+
+</body>
+</html>

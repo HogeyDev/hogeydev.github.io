@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 7: The Type System &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="06-parser.html">&larr; Chapter 6</a> &ensp; Chapter 7: The Type System &ensp; <a href="08-symbols.html">Chapter 8 &rarr;</a></span>
+</div>
+
+<h2 id="types">7 &ensp; The Type System</h2>
+
+<h3>Why an Arena-Based Type System?</h3>
+
+<p>After parsing, we have an AST sprinkled with type annotations. But the AST types are just syntax &mdash; <code>AstType::Prim(PrimType::I32, ...)</code>, <code>AstType::Named("Point", ...)</code>. During semantic analysis, we need to <strong>resolve</strong> these to an internal representation that supports:</p>
+
+<ul>
+<li><strong>O(1) equality checking</strong>: Is <code>@i32</code> the same type as <code>@i32</code>? Yes. Is <code>Func&lt;i32, i32&gt;</code> the same as <code>Func&lt;i32, i32&gt;</code>? Yes &mdash; we should not have to recursively compare nodes every time.</li>
+<li><strong>Structural sharing</strong>: <code>@Point</code> appears in many places in the program. Each occurrence should point to the same <code>Ptr(Point)</code> node.</li>
+<li><strong>Late resolution</strong>: Type <code>Point</code> might be defined after it's used. We need forward-reference placeholders.</li>
+<li><strong>Size and alignment queries</strong>: Every type must be able to answer "how many bytes does this occupy?"</li>
+</ul>
+
+<p>L1S uses a <strong>TypeArena</strong> &mdash; an intern pool that stores each unique <code>TypeNode</code> exactly once. Types are referenced by <code>TypeId</code>, a lightweight <code>u32</code> wrapper. Equality is just <code>id1 == id2</code> (a <code>u32</code> comparison).</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Memory layout of the arena:</strong><br><br>
+<code>TypeArena {<br>
+&emsp;types:   [Void, I32, Ptr(%1), Func([%0,%0], %1), ...]<br>
+&emsp;structs: [StructInfo { name: "Point", fields: [...], size: 8, align: 4 }]<br>
+&emsp;enums:   [EnumInfo { name: "Color", variants: [...], noprefix: false }]<br>
+}</code><br><br>
+Each index is a <code>TypeId</code>, shown here as <code>%0</code>, <code>%1</code>, etc.
+</div>
+
+<h3>TypeId &mdash; The Handle</h3>
+
+<p>A <code>TypeId</code> is just a newtype over <code>u32</code>, but it has display formatting for debugging:</p>
+
+<div class="code-header"><span>src/types.rs &mdash; TypeId</span></div>
+<pre><code><span class="kw">use</span> std::fmt;
+
+<span class="pp">#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">TypeId</span>(u32);
+
+<span class="kw">impl</span> <span class="ty">TypeId</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(id: u32) -&gt; <span class="ty">Self</span> { <span class="ty">TypeId</span>(id) }
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">index</span>(<span class="kw">self</span>) -&gt; <span class="ty">usize</span> { <span class="kw">self</span>.0 <span class="kw">as</span> <span class="ty">usize</span> }
+}
+
+<span class="kw">impl</span> fmt::<span class="ty">Display</span> <span class="kw">for</span> <span class="ty">TypeId</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="kw">self</span>, f: &amp;<span class="kw">mut</span> fmt::<span class="ty">Formatter</span>&lt;<span class="str">'_</span>&gt;) -&gt; fmt::<span class="ty">Result</span> {
+        <span class="fn">write!</span>(f, <span class="str">"%{}"</span>, <span class="kw">self</span>.0)
+    }
+}</code></pre>
+
+<p>Deriving <code>Copy</code> and <code>Clone</code> means every use of a type ID is a cheap <code>u32</code> copy. No reference counting, no lifetime tracking, no garbage.</p>
+
+<h3>TypeNode &mdash; The Type Representation</h3>
+
+<p>Every type that can exist in L1S is represented by exactly one variant of this enum:</p>
+
+<div class="code-header"><span>src/types.rs &mdash; TypeNode enum</span></div>
+<pre><code><span class="pp">#[derive(Debug, Clone)]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">TypeNode</span> {
+    <span class="cm">// Primitives (13 variants)</span>
+    <span class="ty">Void</span>,
+    <span class="ty">Bool</span>,
+    <span class="ty">Char</span>,
+    <span class="ty">U8</span>, <span class="ty">I8</span>, <span class="ty">U16</span>, <span class="ty">I16</span>, <span class="ty">U32</span>, <span class="ty">I32</span>, <span class="ty">U64</span>, <span class="ty">I64</span>,
+    <span class="ty">Usize</span>, <span class="ty">Isize</span>,
+
+    <span class="cm">// Compound types</span>
+    <span class="ty">Ptr</span>(<span class="ty">TypeId</span>),               <span class="cm">// @T  &mdash; pointer to T</span>
+    <span class="ty">Array</span>(u64, <span class="ty">TypeId</span>),         <span class="cm">// [N]T &mdash; array of N x T</span>
+    <span class="ty">Func</span>(<span class="ty">Vec</span>&lt;<span class="ty">TypeId</span>&gt;, <span class="ty">TypeId</span>), <span class="cm">// Func&lt;ret, arg1, arg2, ...&gt;</span>
+
+    <span class="cm">// Named and aliased types</span>
+    <span class="ty">Named</span>(<span class="ty">String</span>, <span class="ty">TypeId</span>),     <span class="cm">// Forward reference: name + resolved ID</span>
+    <span class="ty">Alias</span>(<span class="ty">String</span>, <span class="ty">TypeId</span>),     <span class="cm">// typedef alias</span>
+
+    <span class="cm">// User-defined types (backed by StructInfo/EnumInfo)</span>
+    <span class="ty">Struct</span>(<span class="ty">TypeId</span>),             <span class="cm">// struct type, ID indexes into structs[]</span>
+    <span class="ty">Enum</span>(<span class="ty">TypeId</span>),               <span class="cm">// enum type, ID indexes into enums[]</span>
+
+    <span class="cm">// Spec (interface) type</span>
+    <span class="ty">Spec</span>(<span class="ty">String</span>, <span class="ty">Vec</span>&lt;(<span class="ty">String</span>, <span class="ty">TypeId</span>)&gt;),
+}</code></pre>
+
+<p><strong>TypeNode layout rationale:</strong></p>
+<ul>
+<li><strong>Primitives</strong> are standalone variants, not a nested <code>Prim</code> wrapper. This eliminates an indirection when matching.</li>
+<li><strong><code>Ptr</code> and <code>Array</code></strong> hold <code>TypeId</code>s, not boxed <code>TypeNode</code>s. This is the key to structural sharing &mdash; the <code>i32</code> inside <code>Ptr(i32)</code> is the same <code>TypeId(%1)</code> as every other reference to <code>i32</code>.</li>
+<li><strong><code>Named</code></strong> carries a <code>TypeId</code> alongside the name. Initially this is a placeholder; it gets resolved as the compiler encounters the type's definition.</li>
+<li><strong><code>Struct</code> and <code>Enum</code></strong> store a separate <code>TypeId</code> that indexes into the arena's parallel <code>structs</code>/<code>enums</code> vectors. This avoids making <code>TypeNode</code> carry heavy field/variant data.</li>
+</ul>
+
+<h3>TypeArena &mdash; The Intern Pool</h3>
+
+<p>The arena stores all types in a <code>Vec&lt;TypeNode&gt;</code>, plus separate vectors for struct and enum metadata:</p>
+
+<div class="code-header"><span>src/types.rs &mdash; TypeArena</span></div>
+<pre><code><span class="pp">#[derive(Debug)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">TypeArena</span> {
+    types: <span class="ty">Vec</span>&lt;<span class="ty">TypeNode</span>&gt;,
+    structs: <span class="ty">Vec</span>&lt;<span class="ty">StructInfo</span>&gt;,
+    enums: <span class="ty">Vec</span>&lt;<span class="ty">EnumInfo</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">TypeArena</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>() -&gt; <span class="ty">Self</span> {
+        <span class="ty">TypeArena</span> { types: <span class="ty">Vec</span>::<span class="fn">new</span>(), structs: <span class="ty">Vec</span>::<span class="fn">new</span>(), enums: <span class="ty">Vec</span>::<span class="fn">new</span>() }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">intern</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, node: <span class="ty">TypeNode</span>) -&gt; <span class="ty">TypeId</span> {
+        <span class="kw">let</span> id = <span class="kw">self</span>.<span class="fn">lookup</span>(&amp;node);
+        <span class="kw">match</span> id {
+            <span class="ty">Some</span>(tid) =&gt; tid,
+            <span class="ty">None</span> =&gt; {
+                <span class="kw">let</span> id = <span class="ty">TypeId</span>(<span class="kw">self</span>.types.<span class="fn">len</span>() <span class="kw">as</span> u32);
+                <span class="kw">self</span>.types.<span class="fn">push</span>(node);
+                id
+            }
+        }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">intern_no_dedup</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, node: <span class="ty">TypeNode</span>) -&gt; <span class="ty">TypeId</span> {
+        <span class="kw">let</span> id = <span class="ty">TypeId</span>(<span class="kw">self</span>.types.<span class="fn">len</span>() <span class="kw">as</span> u32);
+        <span class="kw">self</span>.types.<span class="fn">push</span>(node);
+        id
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">get</span>(&amp;<span class="kw">self</span>, id: <span class="ty">TypeId</span>) -&gt; &amp;<span class="ty">TypeNode</span> {
+        &amp;<span class="kw">self</span>.types[id.<span class="fn">index</span>()]
+    }
+}</code></pre>
+
+<p><strong><code>intern</code></strong> is the main insertion path. It looks up the node first; if it already exists, it returns the existing <code>TypeId</code>. This is structural deduplication.</p>
+
+<p><strong><code>intern_no_dedup</code></strong> skips the lookup. This is used for <code>Named</code> types (&quot;this is <code>Point</code> even if another type has the same shape&quot;) and for types that will be mutated later (placeholder structs).</p>
+
+<h3>Structural Equality: <code>nodes_equal</code></h3>
+
+<p>The dedup logic depends on <code>nodes_equal</code>, a recursive function that compares two <code>TypeNode</code>s structurally:</p>
+
+<div class="code-header"><span>src/types.rs &mdash; nodes_equal</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">nodes_equal</span>(a: &amp;<span class="ty">TypeNode</span>, b: &amp;<span class="ty">TypeNode</span>, arena: &amp;<span class="ty">TypeArena</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">match</span> (a, b) {
+        <span class="cm">// Primitives: same variant = equal (trivial, no data to compare)</span>
+        (<span class="ty">TypeNode::Void</span>, <span class="ty">TypeNode::Void</span>)
+        | (<span class="ty">TypeNode::Bool</span>, <span class="ty">TypeNode::Bool</span>)
+        | (<span class="ty">TypeNode::Char</span>, <span class="ty">TypeNode::Char</span>)
+        | (<span class="ty">TypeNode::U8</span>, <span class="ty">TypeNode::U8</span>)
+        ...
+        | (<span class="ty">TypeNode::Isize</span>, <span class="ty">TypeNode::Isize</span>) =&gt; <span class="kw">true</span>,
+
+        <span class="cm">// Compounds: compare inner TypeIds (which are themselves deduplicated)</span>
+        (<span class="ty">TypeNode::Ptr</span>(a), <span class="ty">TypeNode::Ptr</span>(b)) =&gt; a == b,
+        (<span class="ty">TypeNode::Array</span>(na, ta), <span class="ty">TypeNode::Array</span>(nb, tb)) =&gt; na == nb &amp;&amp; ta == tb,
+        (<span class="ty">TypeNode::Func</span>(a_args, a_ret), <span class="ty">TypeNode::Func</span>(b_args, b_ret)) =&gt; {
+            a_ret == b_ret
+            &amp;&amp; a_args.<span class="fn">len</span>() == b_args.<span class="fn">len</span>()
+            &amp;&amp; a_args.<span class="fn">iter</span>().<span class="fn">zip</span>(b_args).<span class="fn">all</span>(|(x, y)| x == y)
+        }
+
+        <span class="cm">// Named/Alias: compare by name (the inner TypeId may differ during</span>
+        <span class="cm">// resolution, but the name is the identity)</span>
+        (<span class="ty">TypeNode::Named</span>(a, _), <span class="ty">TypeNode::Named</span>(b, _)) =&gt; a == b,
+        (<span class="ty">TypeNode::Alias</span>(a, _), <span class="ty">TypeNode::Alias</span>(b, _)) =&gt; a == b,
+
+        <span class="cm">// Struct/Enum: compare the struct/enum ID (not the fields)</span>
+        (<span class="ty">TypeNode::Struct</span>(a), <span class="ty">TypeNode::Struct</span>(b)) =&gt; a == b,
+        (<span class="ty">TypeNode::Enum</span>(a), <span class="ty">TypeNode::Enum</span>(b)) =&gt; a == b,
+
+        <span class="cm">// Spec: compare by name</span>
+        (<span class="ty">TypeNode::Spec</span>(a, _), <span class="ty">TypeNode::Spec</span>(b, _)) =&gt; a == b,
+
+        <span class="cm">// Different variants: never equal</span>
+        _ =&gt; <span class="kw">false</span>,
+    }
+}</code></pre>
+
+<p><strong>The crucial insight:</strong> The outer <code>TypeId</code> comparison for compound types (<code>Ptr</code>, <code>Array</code>, <code>Func</code>) works <em>because</em> their inner types have already been deduplicated. When you build <code>Ptr(i32)</code>, the <code>i32</code> <code>TypeId</code> is already unique across the arena. So <code>a == b</code> for two <code>TypeId</code>s is a single <code>u32</code> comparison. The arena ensures structural equality <em>transitively</em>.</p>
+
+<div class="callout info">
+<strong>O(n) intern, O(1) equality:</strong> The <code>intern</code> method is O(n) in the number of types (linear scan). For small compilers this is fine. If performance becomes an issue, the scan can be replaced with a hash map keyed on a discriminant + inner IDs. But the O(1) equality (<code>TypeId == TypeId</code>) is a permanent benefit.
+</div>
+
+<h3>Building Types: A Worked Example</h3>
+
+<p>Let's trace the construction of <code>Func&lt;i32, i32, void&gt;</code> &mdash; a function that takes two <code>i32</code> parameters and returns <code>void</code>:</p>
+
+<table class="file-table">
+<tr><th>Step</th><th>Code</th><th>Arena State (new types)</th><th>Returned ID</th></tr>
+<tr><td>1</td><td><code>arena.intern(TypeNode::Void)</code></td><td><code>[Void]</code></td><td><code>%0</code></td></tr>
+<tr><td>2</td><td><code>arena.intern(TypeNode::I32)</code></td><td><code>[Void, I32]</code></td><td><code>%1</code></td></tr>
+<tr><td>3</td><td><code>arena.intern(TypeNode::I32)</code></td><td><code>[Void, I32]</code> (no change, dedup)</td><td><code>%1</code> (same!)</td></tr>
+<tr><td>4</td><td><code>arena.intern(TypeNode::Func([%1, %1], %0))</code></td><td><code>[Void, I32, Func([%1,%1],%0)]</code></td><td><code>%2</code></td></tr>
+</table>
+
+<p>Notice that <code>%2</code> stores references to <code>%1</code> and <code>%0</code> by ID, not by value. This is a DAG &mdash; not a tree. The <code>i32</code> node is shared between the two parameter slots.</p>
+
+<p>In code:</p>
+<pre><code><span class="kw">let</span> <span class="kw">mut</span> arena = <span class="ty">TypeArena</span>::<span class="fn">new</span>();
+<span class="kw">let</span> void = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>);
+<span class="kw">let</span> i32  = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+<span class="kw">let</span> ft   = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Func</span>(<span class="fn">vec!</span>[i32, i32], void));
+<span class="fn">assert_eq!</span>(arena.<span class="fn">get</span>(ft), &amp;<span class="ty">TypeNode::Func</span>(<span class="fn">vec!</span>[i32, i32], void));</code></pre>
+
+<p>Rebuilding <code>Func&lt;i32, i32, void&gt;</code> from scratch gives the same <code>TypeId</code>:</p>
+<pre><code><span class="kw">let</span> ft2 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Func</span>(<span class="fn">vec!</span>[i32, i32], void));
+<span class="fn">assert_eq!</span>(ft, ft2); <span class="cm">// O(1) equality, no recursive comparison</span></code></pre>
+
+<h3>Size and Alignment Computation</h3>
+
+<p>Every type must know its size (in bytes) and alignment requirement. These are computed by recursive functions on <code>TypeNode</code>. No layout is computed for <code>Named</code>, <code>Alias</code>, <code>Func</code>, <code>Spec</code>, or <code>Enum</code> (enums use the ABI size).</p>
+
+<div class="code-header"><span>src/types.rs &mdash; size_of and align_of</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">size_of</span>(&amp;<span class="kw">self</span>, id: <span class="ty">TypeId</span>) -&gt; u64 {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">get</span>(id) {
+        <span class="ty">TypeNode::Void</span> =&gt; 0,
+        <span class="ty">TypeNode::Bool</span> | <span class="ty">TypeNode::Char</span> | <span class="ty">TypeNode::U8</span> | <span class="ty">TypeNode::I8</span> =&gt; 1,
+        <span class="ty">TypeNode::U16</span> | <span class="ty">TypeNode::I16</span> =&gt; 2,
+        <span class="ty">TypeNode::U32</span> | <span class="ty">TypeNode::I32</span> =&gt; 4,
+        <span class="ty">TypeNode::U64</span> | <span class="ty">TypeNode::I64</span> | <span class="ty">TypeNode::Usize</span> | <span class="ty">TypeNode::Isize</span> =&gt; 8,
+        <span class="ty">TypeNode::Ptr</span>(_) =&gt; 8,
+        <span class="ty">TypeNode::Array</span>(n, elem) =&gt; n * <span class="kw">self</span>.<span class="fn">size_of</span>(*elem),
+        <span class="ty">TypeNode::Struct</span>(sid) =&gt; {
+            <span class="kw">let</span> idx = sid.<span class="fn">index</span>();
+            <span class="kw">if</span> idx &lt; <span class="kw">self</span>.structs.<span class="fn">len</span>() { <span class="kw">self</span>.structs[idx].size } <span class="kw">else</span> { 0 }
+        }
+        _ =&gt; 0,
+    }
+}
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">align_of</span>(&amp;<span class="kw">self</span>, id: <span class="ty">TypeId</span>) -&gt; u64 {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">get</span>(id) {
+        <span class="ty">TypeNode::Void</span> =&gt; 1,
+        <span class="ty">TypeNode::Bool</span> | <span class="ty">TypeNode::Char</span> | <span class="ty">TypeNode::U8</span> | <span class="ty">TypeNode::I8</span> =&gt; 1,
+        <span class="ty">TypeNode::U16</span> | <span class="ty">TypeNode::I16</span> =&gt; 2,
+        <span class="ty">TypeNode::U32</span> | <span class="ty">TypeNode::I32</span> =&gt; 4,
+        <span class="ty">TypeNode::U64</span> | <span class="ty">TypeNode::I64</span> | <span class="ty">TypeNode::Usize</span> | <span class="ty">TypeNode::Isize</span> =&gt; 8,
+        <span class="ty">TypeNode::Ptr</span>(_) =&gt; 8,
+        <span class="ty">TypeNode::Array</span>(_, elem) =&gt; <span class="kw">self</span>.<span class="fn">align_of</span>(*elem),
+        <span class="ty">TypeNode::Struct</span>(sid) =&gt; {
+            <span class="kw">let</span> idx = sid.<span class="fn">index</span>();
+            <span class="kw">if</span> idx &lt; <span class="kw">self</span>.structs.<span class="fn">len</span>() { <span class="kw">self</span>.structs[idx].align } <span class="kw">else</span> { 1 }
+        }
+        _ =&gt; 1,
+    }
+}</code></pre>
+
+<div class="callout warn">
+<strong>Note:</strong> These are <strong>ABI sizes</strong> without padding tracking. For structs, the size and alignment are computed externally by the struct layout pass and stored in <code>StructInfo</code>. The <code>size_of</code>/<code>align_of</code> methods just read those precomputed values. For arrays, size is <code>count * element_size</code> with no trailing padding.
+</div>
+
+<h3>Struct and Enum Info</h3>
+
+<p>Struct and enum metadata are stored in parallel vectors, separate from the <code>TypeNode</code> DAG. This keeps <code>TypeNode</code> lightweight and avoids cloning large field lists when interning.</p>
+
+<pre><code><span class="pp">#[derive(Debug, Clone)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">StructInfo</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> fields: <span class="ty">Vec</span>&lt;<span class="ty">FieldInfo</span>&gt;,
+    <span class="kw">pub</span> size: u64,
+    <span class="kw">pub</span> align: u64,
+}
+
+<span class="pp">#[derive(Debug, Clone)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">FieldInfo</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">TypeId</span>,
+    <span class="kw">pub</span> offset: u64,
+}
+
+<span class="pp">#[derive(Debug, Clone)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">EnumInfo</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> variants: <span class="ty">Vec</span>&lt;<span class="ty">VariantInfo</span>&gt;,
+    <span class="kw">pub</span> noprefix: <span class="ty">bool</span>,
+}
+
+<span class="pp">#[derive(Debug, Clone)]</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">VariantInfo</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> value: u64,
+}</code></pre>
+
+<p>The arena provides accessors:</p>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">add_struct</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, info: <span class="ty">StructInfo</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">let</span> id = <span class="ty">TypeId</span>(<span class="kw">self</span>.structs.<span class="fn">len</span>() <span class="kw">as</span> u32);
+    <span class="kw">let</span> tid = <span class="kw">self</span>.<span class="fn">intern</span>(<span class="ty">TypeNode::Struct</span>(id));
+    <span class="kw">self</span>.structs.<span class="fn">push</span>(info);
+    tid
+}
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">get_struct</span>(&amp;<span class="kw">self</span>, id: <span class="ty">TypeId</span>) -&gt; <span class="ty">Option</span>&lt;&amp;<span class="ty">StructInfo</span>&gt; {
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">TypeNode::Struct</span>(sid) = <span class="kw">self</span>.<span class="fn">get</span>(id) {
+        <span class="kw">self</span>.structs.<span class="fn">get</span>(sid.<span class="fn">index</span>())
+    } <span class="kw">else</span> { <span class="ty">None</span> }
+}</code></pre>
+
+<p>The <code>add_struct</code> method assigns the struct a <code>TypeId</code> first, interns the <code>Struct(id)</code> node, then pushes the metadata. This means any <code>TypeNode::Struct(id)</code> that appears before the info is pushed will return a placeholder until the struct is fully defined.</p>
+
+<h3>Forward References and Placeholders</h3>
+
+<p>L1S allows types to reference other types that are defined later in the source. For example, a linked list node:</p>
+<pre><code><span class="kw">struct</span> <span class="ty">Node</span> {
+    value: <span class="ty">i32</span>;
+    next: @<span class="ty">Node</span>;  <span class="cm">// forward reference to Node itself</span>
+}</code></pre>
+
+<p>To support this, the type resolution phase first creates <strong>placeholder</strong> struct and enum entries, then fills in their fields:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">add_struct_placeholder</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">let</span> id = <span class="ty">TypeId</span>(<span class="kw">self</span>.structs.<span class="fn">len</span>() <span class="kw">as</span> u32);
+    <span class="kw">let</span> info = <span class="ty">StructInfo</span> {
+        name: <span class="ty">String</span>::<span class="fn">new</span>(), fields: <span class="ty">Vec</span>::<span class="fn">new</span>(), size: 0, align: 1,
+    };
+    <span class="kw">let</span> tid = <span class="kw">self</span>.<span class="fn">intern</span>(<span class="ty">TypeNode::Struct</span>(id));
+    <span class="kw">self</span>.structs.<span class="fn">push</span>(info);
+    tid
+}
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">add_enum_placeholder</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">let</span> id = <span class="ty">TypeId</span>(<span class="kw">self</span>.enums.<span class="fn">len</span>() <span class="kw">as</span> u32);
+    <span class="kw">let</span> info = <span class="ty">EnumInfo</span> {
+        name: <span class="ty">String</span>::<span class="fn">new</span>(), variants: <span class="ty">Vec</span>::<span class="fn">new</span>(), noprefix: <span class="kw">false</span>,
+    };
+    <span class="kw">let</span> tid = <span class="kw">self</span>.<span class="fn">intern</span>(<span class="ty">TypeNode::Enum</span>(id));
+    <span class="kw">self</span>.enums.<span class="fn">push</span>(info);
+    tid
+}</code></pre>
+
+<p>The placeholder creates a struct/enum entry with empty fields. Before code generation, the compiler fills in the name, fields, size, and alignment using <code>get_struct_mut</code> or <code>get_enum_mut</code>. Any type that references a placeholder struct gets the correct <code>TypeId</code> immediately; only the field/offset data is deferred.</p>
+
+<h3>Testing the Type System</h3>
+
+<p>The test suite covers every <code>TypeNode</code> variant, deduplication, size/alignment computation, and struct/enum lifecycle:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">make_arena</span>() -&gt; <span class="ty">TypeArena</span> { <span class="ty">TypeArena</span>::<span class="fn">new</span>() }</code></pre>
+
+<p><strong>Deduplication:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_dedup</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> a = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="kw">let</span> b = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="fn">assert_eq!</span>(a, b); <span class="cm">// same ID</span>
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_ptr_dedup</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> i32 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="kw">let</span> a = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Ptr</span>(i32));
+    <span class="kw">let</span> b = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Ptr</span>(i32));
+    <span class="fn">assert_eq!</span>(a, b);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_array_dedup</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> i32 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="kw">let</span> a = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Array</span>(10, i32));
+    <span class="kw">let</span> b = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Array</span>(10, i32));
+    <span class="fn">assert_eq!</span>(a, b);
+}</code></pre>
+
+<p><strong>Size and alignment:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_size_of_primitives</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> void = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>);
+    <span class="kw">let</span> i8 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I8</span>);
+    <span class="kw">let</span> i16 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I16</span>);
+    <span class="kw">let</span> i32 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="kw">let</span> i64 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I64</span>);
+    <span class="kw">let</span> pi32 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Ptr</span>(i32));
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(void), 0);
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(i8), 1);
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(i16), 2);
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(i32), 4);
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(i64), 8);
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(pi32), 8);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_size_of_array</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> i32 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="kw">let</span> arr = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Array</span>(5, i32));
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(arr), 20); <span class="cm">// 5 * 4</span>
+}</code></pre>
+
+<p><strong>Struct lifecycle:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_struct</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> i32 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="kw">let</span> info = <span class="ty">StructInfo</span> {
+        name: <span class="str">"Point"</span>.<span class="fn">into</span>(),
+        fields: <span class="fn">vec!</span>[
+            <span class="ty">FieldInfo</span> { name: <span class="str">"x"</span>.<span class="fn">into</span>(), type_: i32, offset: 0 },
+            <span class="ty">FieldInfo</span> { name: <span class="str">"y"</span>.<span class="fn">into</span>(), type_: i32, offset: 4 },
+        ],
+        size: 8, align: 4,
+    };
+    <span class="kw">let</span> tid = arena.<span class="fn">add_struct</span>(info);
+    <span class="kw">let</span> s = arena.<span class="fn">get_struct</span>(tid).<span class="fn">unwrap</span>();
+    <span class="fn">assert_eq!</span>(s.name, <span class="str">"Point"</span>);
+    <span class="fn">assert_eq!</span>(s.fields.<span class="fn">len</span>(), 2);
+    <span class="fn">assert_eq!</span>(arena.<span class="fn">size_of</span>(tid), 8);
+}</code></pre>
+
+<p><strong>Func type with validation:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_func_type</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> i32 = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>);
+    <span class="kw">let</span> void = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>);
+    <span class="kw">let</span> ft = arena.<span class="fn">intern</span>(<span class="ty">TypeNode::Func</span>(<span class="fn">vec!</span>[i32, i32], void));
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">TypeNode::Func</span>(params, ret) = arena.<span class="fn">get</span>(ft) {
+        <span class="fn">assert_eq!</span>(params.<span class="fn">len</span>(), 2);
+        <span class="fn">assert_eq!</span>(*ret, void);
+    }
+}</code></pre>
+
+<p><strong>Enum:</strong></p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_enum</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> arena = <span class="fn">make_arena</span>();
+    <span class="kw">let</span> info = <span class="ty">EnumInfo</span> {
+        name: <span class="str">"Color"</span>.<span class="fn">into</span>(),
+        variants: <span class="fn">vec!</span>[
+            <span class="ty">VariantInfo</span> { name: <span class="str">"Red"</span>.<span class="fn">into</span>(), value: 0 },
+            <span class="ty">VariantInfo</span> { name: <span class="str">"Green"</span>.<span class="fn">into</span>(), value: 1 },
+        ], noprefix: <span class="kw">false</span>,
+    };
+    <span class="kw">let</span> tid = arena.<span class="fn">add_enum</span>(info);
+    <span class="kw">let</span> e = arena.<span class="fn">get_enum</span>(tid).<span class="fn">unwrap</span>();
+    <span class="fn">assert_eq!</span>(e.name, <span class="str">"Color"</span>);
+    <span class="fn">assert_eq!</span>(e.variants[1].value, 1);
+}</code></pre>
+
+<p>To run the type system tests:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- types</code></pre>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Missing dedup for compound types</strong>: The <code>nodes_equal</code> function must handle every compound variant. If you add a new <code>TypeNode</code> variant that contains <code>TypeId</code>s and forget to add it to <code>nodes_equal</code>, the match arm will fall through to <code>_ =&gt; false</code>, meaning every instance of the new type will be unique &mdash; defeating dedup. Always add a match arm, even if it's <code>_ =&gt; false</code> explicitly.</li>
+<li><strong>Circular types without placeholders</strong>: A struct that references itself (like <code>Node</code> with <code>next: @Node</code>) requires pre-allocating a <code>TypeId</code> via <code>add_struct_placeholder</code> before the fields are resolved. Without it, the struct's field types would need to reference the struct's own <code>TypeNode</code>, which is being built simultaneously.</li>
+<li><strong>Display format confusion</strong>: <code>TypeId</code> displays as <code>%0</code>, <code>%1</code>, etc. When debugging, print the <code>TypeNode</code> alongside the ID to understand what's stored.</li>
+<li><strong>Stylo</strong> Use <code>arena.get(id)</code> rather than indexing <code>arena.types</code> directly. The accessor method is stable even if the internal storage changes.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Debugging tip:</strong> Print the full arena state to understand type resolution:<br>
+<pre style="margin:0.5rem 0 0;font-size:0.8rem;"><code><span class="kw">fn</span> <span class="fn">dump_arena</span>(arena: &amp;<span class="ty">TypeArena</span>) {
+    <span class="kw">for</span> i <span class="kw">in</span> 0..arena.types.<span class="fn">len</span>() {
+        <span class="fn">eprintln!</span>(<span class="str">"  %{} = {:?}"</span>, i, arena.types[i]);
+    }
+}</code></pre>
+This shows every interned type with its ID. Cross-reference against <code>Assert</code> failures to find unexpected dedup or missing types.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="06-parser.html">&larr; Chapter 6</a> &ensp; Chapter 7: The Type System &ensp; <a href="08-symbols.html">Chapter 8 &rarr;</a></span>
+</div>
+
+</body>
+</html>

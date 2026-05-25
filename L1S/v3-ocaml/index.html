@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building a Compiler — v3 (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler</a> <span style="font-size:0.7rem;color:var(--fg2);">OCaml Edition</span></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme', this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function() {
+  var t = localStorage.getItem('v3ocaml-theme');
+  if (t) {
+    document.documentElement.setAttribute('data-theme', t);
+    document.getElementById('theme').value = t;
+  }
+  document.getElementById('theme').onchange = function() {
+    document.documentElement.setAttribute('data-theme', this.value);
+    localStorage.setItem('v3ocaml-theme', this.value);
+  };
+})();
+</script>
+
+<h2>Building a Compiler — OCaml Edition</h2>
+<p style="font-size:1.1rem;color:var(--fg2);margin-bottom:1.5rem;">
+  A hands-on, first-principles journey through compiler construction,
+  with all code shown in <strong>OCaml</strong>.
+</p>
+
+<div class="callout">
+<strong>What is this?</strong>
+This is a textbook that builds a complete compiler from the ground up, one chapter at a time.
+We don't start with a grand design. We start with a simple question — <em>"how does a computer understand my code?"</em>
+— and follow the thread wherever it leads. Each chapter solves one concrete problem.
+The next chapter introduces the problem that the previous solution creates.
+By the end, we'll have a working compiler in OCaml and a deep understanding of how it works.
+</div>
+
+<h3>Chapters</h3>
+<ol class="chapter-list">
+  <li><a href="00-introduction.html">The Spark</a><span>Why compilers? What will we build? The big picture.</span></li>
+  <li><a href="01-text-and-spans.html">Raw Materials</a><span>Source code as text. Positions, spans, reading files.</span></li>
+  <li><a href="02-lexing.html">Finding the Words</a><span>Breaking text into tokens. Keywords, identifiers, literals.</span></li>
+  <li><a href="03-parsing.html">Making Sense of Structure</a><span>From flat tokens to nested trees. Recursive descent parsing.</span></li>
+  <li><a href="04-ast.html">The Shape of a Program</a><span>The Abstract Syntax Tree. What the parser really builds.</span></li>
+  <li><a href="05-semantics.html">Does This Make Sense?</a><span>Type checking. Symbol tables. Catching mistakes.</span></li>
+  <li><a href="06-ir.html">Bridging the Gap</a><span>An intermediate language between AST and assembly.</span></li>
+  <li><a href="07-codegen.html">Speaking the Machine's Language</a><span>Generating x86-64 assembly. Registers, stack frames, calling conventions.</span></li>
+  <li><a href="08-assembly.html">The Final Mile</a><span>Driving the pipeline. Error reporting. Assembling and linking.</span></li>
+  <li><a href="09-whats-next.html">Where Next?</a><span>What we built. What comes next. Further exploration.</span></li>
+</ol>
+
+<div class="companion-box">
+<h3>Companion Code</h3>
+<p>Every line of code in this book is drawn from a real, working compiler:</p>
+<ul>
+  <li><strong>OCaml compiler</strong>: <code>code/ocaml/</code> — a complete implementation in OCaml</li>
+</ul>
+<p>To build the compiler, run <code>dune build</code> in the <code>code/ocaml/</code> directory.</p>
+</div>
+
+<div class="chapter-nav">
+  <span></span>
+  <a href="00-introduction.html" class="next">Start Reading</a>
+</div>
+
+</body>
+</html>

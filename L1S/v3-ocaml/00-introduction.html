@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Introduction — Building a Compiler (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">OCaml Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3ocaml-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3ocaml-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>0 · Introduction</h2>
+
+<p>You write code. The computer runs it. <strong>How?</strong></p>
+
+<p>That question is the entire story of this book. Between the text you type in your editor and the electrons racing through a CPU, there is a vast and beautiful transformation. A compiler is the bridge. And we are going to build one, together, from first principles.</p>
+
+<div class="companion-box">
+<h3>Companion Source Code</h3>
+<p>Every chapter has accompanying code. The OCaml compiler lives in <code>code/ocaml/</code>; a Rust companion implementation lives alongside it. Both compile the same language. Both are real, runnable compilers.</p>
+</div>
+
+<h3>What Is a Compiler?</h3>
+
+<p>A compiler is a program that translates source code from one language to another. Usually, the source is a high-level programming language and the target is a lower-level one — assembly language, bytecode, or machine code. The key insight is that this translation preserves <em>meaning</em>: the compiled program does exactly what the source program says, just in a different language.</p>
+
+<p>This is harder than it sounds. The source language is designed for human comprehension: it has named variables, structured control flow, and rich type annotations. The target language is designed for machine execution: registers, memory addresses, jump instructions. Bridging this gap is the compiler's job, and it requires a deep understanding of both the source language's semantics and the target architecture's capabilities.</p>
+
+<p>There is a famous result from Strachey: "A compiler is a function from source programs to target programs that preserves meaning." This is the mathematical ideal. Real compilers approximate it — they have bugs, they miss optimizations, they reject valid programs due to limitations in their analysis. But the ideal guides everything we do. Every phase of the compiler can be seen as a transformation that preserves meaning while changing representation.</p>
+
+<h3>What We're Building</h3>
+
+<p>We are building a compiler for a small but real systems language. It has functions, variables, types, arithmetic, control flow, and enough machinery to compile meaningful programs. Here is what a program looks like:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+  <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="num">42</span>;
+  <span class="kw">let</span> y: <span class="ty">i32</span> = x + <span class="num">1</span>;
+  <span class="kw">return</span> y;
+}</code></pre>
+
+<p>Every piece of that program means something. <span class="kw">func</span> declares a function. <span class="fn">main</span> is its name. <span class="ty">i32</span> after the name is the return type. Inside the body, <span class="kw">let</span> introduces variables, <code>:</code> gives them types, <code>=</code> assigns values, and <span class="kw">return</span> sends a value back to the caller. The language looks familiar because it borrows from C, Rust, and modern systems languages — but we keep it small so a single person can implement it end to end.</p>
+
+<h3>Language Design Philosophy</h3>
+
+<p>The language we compile is deliberately minimal. It is a statically typed, imperative systems language with a C-family syntax. Every feature we include has a pedagogical purpose:</p>
+
+<ul>
+  <li><strong>Static types</strong> — teach semantic analysis and type checking. Our type system includes integers of various widths, booleans, pointers, and arrays. This is rich enough to be interesting but simple enough to implement in one chapter.</li>
+  <li><strong>Functions</strong> — teach calling conventions, stack frames, and parameter passing. Functions are the fundamental unit of abstraction in most languages, and compiling them correctly is the cornerstone of a working compiler.</li>
+  <li><strong>Control flow</strong> (if, while) — teach branching and code generation for conditional execution. Our control flow constructs map directly to x86-64 conditional jumps, making the code generation phase straightforward.</li>
+  <li><strong>Mutable variables with let</strong> — teach stack allocation and memory operations. Unlike functional languages where variables are immutable by default, our language is imperative. This means we need to think about memory from day one.</li>
+  <li><strong>Pointers and arrays</strong> — teach memory addressing, pointer arithmetic, and bounds considerations. These are the features that make a systems language useful for low-level programming.</li>
+</ul>
+
+<p>What we deliberately exclude: objects, closures, generics, pattern matching (ironically, for a compiler written in OCaml), exceptions, concurrency, modules, inheritance, operator overloading. Each of these is a fascinating compilation challenge, but each would double the size of the compiler. The best way to learn compiler construction is to build a complete compiler for a small language, not a half-finished compiler for a large one.</p>
+
+<p>Our language includes these types:</p>
+
+<table class="file-table">
+  <tr><th>Type</th><th>Description</th></tr>
+  <tr><td><code>i32</code></td><td>32-bit signed integer</td></tr>
+  <tr><td><code>i64</code></td><td>64-bit signed integer</td></tr>
+  <tr><td><code>u32</code></td><td>32-bit unsigned integer</td></tr>
+  <tr><td><code>u64</code></td><td>64-bit unsigned integer</td></tr>
+  <tr><td><code>i8</code></td><td>8-bit signed integer (byte)</td></tr>
+  <tr><td><code>u8</code></td><td>8-bit unsigned integer</td></tr>
+  <tr><td><code>bool</code></td><td>Boolean (<span class="kw">true</span> / <span class="kw">false</span>)</td></tr>
+  <tr><td><code>void</code></td><td>No value (unit)</td></tr>
+  <tr><td><code>[N]Type</code></td><td>Array of N elements of Type</td></tr>
+  <tr><td><code>@Type</code></td><td>Pointer to Type</td></tr>
+</table>
+
+<h3>The Compiler Pipeline (30,000 Feet)</h3>
+
+<p>Every compiler, from the simplest toy to <code>clang</code> or <code>gcc</code>, follows the same basic structure. Source text goes in one end; machine code (or assembly) comes out the other. Between them, the compiler performs a series of transformations, each one converting the program from one representation to another, getting progressively closer to machine language.</p>
+
+<div class="diagram">Source ──▶ Lexer ──▶ Parser ──▶ Semantic Analysis ──▶ Codegen ──▶ Output
+                 tokens        AST          IR              asm</div>
+
+<p>There are four major phases, and we will dedicate a chapter (or more) to each one:</p>
+
+<ol>
+  <li><strong>Lexing</strong> (Chapter 2) — The lexer reads the raw source text and breaks it into tokens: keywords, identifiers, numbers, operators, punctuation. It discards whitespace and comments. The output is a stream of tokens, each annotated with its source position. The lexer is the simplest phase — it is essentially a character-by-character state machine with a few helper functions for numbers and identifiers.</li>
+  <li><strong>Parsing</strong> (Chapter 3) — The parser takes the token stream and builds a tree structure called an <em>abstract syntax tree</em> (AST). The AST captures the grammatical structure of the program: which expressions are nested inside which, which statements belong to which function, which declarations form the program. We use recursive descent with Pratt-style expression parsing, which gives us clean, readable code that mirrors the grammar directly.</li>
+  <li><strong>Semantic Analysis</strong> (Chapter 5) — The semantic analyzer walks the AST and checks things that the parser cannot: type correctness, variable scoping, function call arity, return path coverage. This phase produces a <em>typed AST</em> or intermediate representation (IR) with all semantic information resolved. In many compilers, this is where the majority of error messages come from.</li>
+  <li><strong>Code Generation</strong> (Chapter 7) — The code generator takes the analyzed IR and emits x86-64 assembly. This is where the abstract becomes concrete — variables become registers or stack slots, control flow becomes jumps and branches, function calls follow the System V AMD64 ABI. The output is assembly text that the system assembler (<code>nasm</code> or <code>gas</code>) can turn into an object file.</li>
+</ol>
+
+<p>Between parsing and code generation, we insert an intermediate representation (IR) phase (Chapter 6). The IR is a simplified, low-level representation that bridges the gap between the AST and assembly. It uses three-address code, has an infinite set of temporaries, and makes control flow explicit through basic blocks and jumps. The IR simplifies code generation dramatically — instead of generating assembly directly from the AST (which is complex), we first lower the AST to IR (which is straightforward), then generate assembly from IR (which is also straightforward).</p>
+
+<div class="diagram">AST ──▶ Lowering ──▶ IR ──▶ Codegen ──▶ Assembly
+         (ch6)            (ch7)</div>
+
+<p>This multi-stage pipeline is the defining architectural pattern of compilers. Each stage has a well-defined input and output representation. Each stage is independent — you can modify the parser without touching the code generator, as long as the AST stays the same. This modularity is what makes a large compiler project manageable.</p>
+
+<div class="callout info">
+<strong>Not just four phases</strong>
+<p>Real compilers have many more phases: preprocessing, optimization passes, register allocation, instruction scheduling. Our compiler will have all of these, but we start simple and add passes as we go. The pipeline architecture — a series of transformations between representations — is the key insight.</p>
+</div>
+
+<h3>Why OCaml for a Compiler?</h3>
+
+<p>This is the question we hope to answer on every page, but let us give the short version upfront.</p>
+
+<p>OCaml is an extraordinary language for writing compilers. It is not an accident. The ML family of languages (of which OCaml is the most prominent modern descendant) was <em>literally invented</em> for implementing programming languages. Robin Milner's work on LCF and the ML language in the 1970s set the stage, and the tradition continues today. The OCaml compiler itself is written in OCaml. The Coq proof assistant's extraction mechanism targets OCaml for producing verified compilers. When you write a compiler in OCaml, you stand on the shoulders of giants.</p>
+
+<p><strong>Algebraic data types (variants).</strong> An AST is an algebraic data type. Every kind of node in the tree — every expression, every statement, every type — is a variant constructor. OCaml lets you write this directly:</p>
+
+<pre><code><span class="kw">type</span> <span class="ty">expr</span> =
+  | <span class="fn">Int</span> <span class="kw">of</span> <span class="ty">int</span>
+  | <span class="fn">Var</span> <span class="kw">of</span> <span class="ty">string</span>
+  | <span class="fn">BinOp</span> <span class="kw">of</span> <span class="ty">expr</span> * <span class="ty">binop</span> * <span class="ty">expr</span>
+  | <span class="fn">Call</span> <span class="kw">of</span> <span class="ty">string</span> * <span class="ty">expr list</span></code></pre>
+
+<p>This is not a simulation of a tree — this <em>is</em> the tree. Every constructor tag is a node kind. The <code>of</code> clause says what children it carries. Pattern matching deconstructs it:</p>
+
+<pre><code><span class="kw">let</span> <span class="kw">rec</span> <span class="fn">string_of_expr</span> e =
+  <span class="kw">match</span> e <span class="kw">with</span>
+  | <span class="fn">Int</span> n       <span class="op">-&gt;</span> <span class="fn">string_of_int</span> n
+  | <span class="fn">Var</span> x       <span class="op">-&gt;</span> x
+  | <span class="fn">BinOp</span> (l,op,r) <span class="op">-&gt;</span> <span class="fn">Printf.sprintf</span> <span class="str">"(%s %s %s)"</span>
+      (<span class="fn">string_of_expr</span> l) (<span class="fn">string_of_binop</span> op) (<span class="fn">string_of_expr</span> r)
+  | <span class="fn">Call</span> (f,args) <span class="op">-&gt;</span> <span class="fn">Printf.sprintf</span> <span class="str">"%s(%s)"</span> f
+      (<span class="fn">String.concat</span> <span class="str">", "</span> (<span class="fn">List.map</span> string_of_expr args))</code></pre>
+
+<p>The compiler exhaustively checks every case. If you add a new node kind and forget to handle it somewhere, OCaml warns you. This is not a nice-to-have. It is a <em>compiler correctness guarantee</em> baked into the language.</p>
+
+<p><strong>Modules and functors.</strong> Compilers are large programs that need careful organization. OCaml's module system — with signatures, functors (parameterized modules), and first-class modules — lets you structure passes, register allocators, and optimization pipelines with genuine abstraction. No header files, no fragile include guards, no preprocessor. Just clean, compositional interfaces.</p>
+
+<p>Consider how a code generator pass might work. In OCaml, we can parameterize a pass module over its configuration:</p>
+
+<pre><code><span class="kw">module type</span> <span class="ty">CONFIG</span> = <span class="kw">sig</span>
+  <span class="kw">val</span> <span class="fn">target_arch</span> : <span class="ty">string</span>
+  <span class="kw">val</span> <span class="fn">optimization_level</span> : <span class="ty">int</span>
+<span class="kw">end</span>
+
+<span class="kw">module</span> <span class="fn">Codegen</span>(C : <span class="ty">CONFIG</span>) = <span class="kw">struct</span>
+  <span class="kw">let</span> arch = C.target_arch
+  <span class="kw">let</span> level = C.optimization_level
+  <span class="cm">(* ... implementation uses arch and level ... *)</span>
+<span class="kw">end</span></code></pre>
+
+<p>This is a functor — a module parameterized by another module. In Rust, you would use generics with trait bounds. Both approaches work, but OCaml's module system scales differently: it handles complex dependencies (multiple modules, nested signatures, recursive modules) with a uniformity that trait systems struggle to match.</p>
+
+<p><strong>The canonical textbook uses OCaml.</strong> Andrew Appel's <em>Modern Compiler Implementation in ML</em> is the classic. You are in good company. The ML tradition runs deep in compiler engineering — from the FLINT project at Yale to the OCaml compiler itself (written in OCaml, of course).</p>
+
+<div class="callout tip">
+<strong>Both OCaml and Rust</strong>
+<p>Every code example in this book appears in two languages. The OCaml version is the primary one — it appears first in every tab, it is the version we discuss in prose, and it is the version the companion compiler is written in. The Rust version is a companion translation, included so you can see how the same ideas express themselves in a different type system. If you know OCaml, read the OCaml tabs. If you know Rust, the Rust tabs will feel familiar. Either way, you will learn the compiler concepts.</p>
+</div>
+
+<h3>Companion Compiler Architecture</h3>
+
+<p>Let us look at the actual file layout of the OCaml companion compiler. Every file maps to a module, and every module maps to a chapter in this book:</p>
+
+<table class="file-table">
+  <tr><th>File</th><th>Chapter</th><th>Purpose</th></tr>
+  <tr><td><code>span.ml</code></td><td>1</td><td>Source position tracking</td></tr>
+  <tr><td><code>source_file.ml</code></td><td>1</td><td>Source text and line computation</td></tr>
+  <tr><td><code>token.ml</code></td><td>2</td><td>Token type definition</td></tr>
+  <tr><td><code>lexer.ml</code></td><td>2</td><td>Lexer implementation</td></tr>
+  <tr><td><code>ast.ml</code></td><td>4</td><td>AST type definitions</td></tr>
+  <tr><td><code>parser.ml</code></td><td>3</td><td>Recursive descent parser</td></tr>
+  <tr><td><code>analyzer.ml</code></td><td>5</td><td>Semantic analysis / type checking</td></tr>
+  <tr><td><code>ir.ml</code></td><td>6</td><td>Intermediate representation</td></tr>
+  <tr><td><code>codegen.ml</code></td><td>7</td><td>x86-64 code generation</td></tr>
+  <tr><td><code>driver.ml</code></td><td>-</td><td>Main entry point, orchestrates phases</td></tr>
+</table>
+
+<p>Each file is a module. The module names match the file names (OCaml convention). The build system (dune) compiles them in dependency order automatically. There are no header files, no Makefile rules to write, no include path gymnastics. OCaml's module system and dune's build system handle all of that.</p>
+
+<p>The Rust companion follows the same structure but using <code>mod</code> declarations in <code>main.rs</code> or <code>lib.rs</code>. The module boundaries are the same; only the module system syntax differs.</p>
+
+<h3>The Two-Compiler Approach</h3>
+
+<p>The companion <code>code/</code> directory contains two independent compilers for the same language:</p>
+
+<table class="file-table">
+  <tr><th>Directory</th><th>Language</th><th>Build System</th></tr>
+  <tr><td><code>code/ocaml/</code></td><td>OCaml</td><td>dune</td></tr>
+  <tr><td><code>code/rust/</code></td><td>Rust</td><td>cargo</td></tr>
+</table>
+
+<p>Both implement the same pipeline: lex, parse, analyze, generate code. Both compile the same source language to the same x86-64 assembly. Both are structured the same way — lexer module, parser module, AST types, semantic analysis pass, code generator. The difference is purely the host language.</p>
+
+<p>Why two? Because seeing the same algorithm in two different type systems is illuminating. OCaml's structural typing, polymorphic variants, and first-class modules lead to different (often more concise) solutions than Rust's trait system and ownership model. By comparing, you understand both the algorithm and the language better.</p>
+
+<h3>Chapter Roadmap</h3>
+
+<p>Here is what lies ahead:</p>
+
+<ol>
+  <li><strong>Text and Spans</strong> — We define how we track source positions. The <code>Span</code> type — a pair of indices into the source — is the foundation of error reporting.</li>
+  <li><strong>Lexing</strong> — We build a lexer that turns raw text into a stream of tokens. Variant types make this a direct transliteration of the language grammar.</li>
+  <li><strong>Parsing</strong> — We write a recursive descent parser with Pratt-style expression parsing. Pattern matching makes the parser read like a formal grammar.</li>
+  <li><strong>AST</strong> — We define the abstract syntax tree as an algebraic data type. This is the central data structure of the compiler.</li>
+  <li><strong>Semantic Analysis</strong> — We walk the AST and check types, resolve scopes, and build a symbol table. The infamous "type checker" — made clean with pattern matching.</li>
+  <li><strong>Intermediate Representation</strong> — We lower the AST to a simpler IR suitable for code generation.</li>
+  <li><strong>Code Generation</strong> — We emit x86-64 assembly. This is where theory meets the metal.</li>
+  <li><strong>Optimization</strong> — We add constant folding, dead code elimination, and register allocation.</li>
+</ol>
+
+<h3>What This Compiler Does Not Do</h3>
+
+<p>It is worth being explicit about what we are <em>not</em> building. This compiler does not have a linker — we produce assembly files and assume the system assembler and linker handle the rest. It does not have a standard library — the language is minimal enough that all programs are self-contained. It does not have separate compilation — every compilation unit is built monolithically. These are real concerns for production compilers, but they are orthogonal to the core pipeline we study.</p>
+
+<p>What the compiler <em>does</em> have is a complete pipeline from text to working assembly for x86-64 Linux. Every phase is implemented, every data structure is real, and every test file produces an executable that actually runs. You will write code, compile it with your compiler, and run it. That moment — when the first program you compiled yourself prints <code>42</code> to the terminal — is worth the entire journey.</p>
+
+<h3>Prerequisites</h3>
+
+<p>You should know OCaml — at least the basics of algebraic data types, pattern matching, modules, and the standard library. If you have worked through <em>Real World OCaml</em> or an introductory course, you are ready. You do not need to be an expert; the compiler itself will teach you more about OCaml.</p>
+
+<p>You should know basic compiler terminology (token, AST, code generation), but we define everything as we go.</p>
+
+<p>You should be comfortable with the command line, a text editor, and the idea of building software from source.</p>
+
+<h3>Setting Up Your Environment</h3>
+
+<p>Before we write a single line of compiler code, you need OCaml installed. We use OCaml 5.x with dune as the build system.</p>
+
+<div class="code-header"><span>Install OCaml via opam</span></div>
+<pre><code><span class="cm"># Install opam (the OCaml package manager)</span>
+bash -c <span class="str">"sh &lt;(curl -fsSL https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh)"</span>
+
+<span class="cm"># Initialize opam</span>
+opam init
+
+<span class="cm"># Install OCaml 5.x with dune</span>
+opam switch create 5.1.1
+opam install dune ocaml-lsp-server utop</code></pre>
+
+<p>Verify your setup:</p>
+
+<pre><code>ocamlc -version
+<span class="cm"># Should print 5.x.x</span>
+dune --version
+<span class="cm"># Should print 3.x</span></code></pre>
+
+<div class="callout info">
+<strong>Rust companion</strong>
+<p>If you want to follow along with the Rust compiler too, install Rust via <code>rustup</code> and run <code>cargo build</code> in <code>code/rust/</code>. The Rust compiler is a companion, not a requirement — every concept stands on its own in OCaml.</p>
+</div>
+
+<h3>How to Read This Book</h3>
+
+<p>Each chapter follows the same structure:</p>
+
+<ol>
+  <li><strong>The problem</strong> — What question does this phase of the compiler answer?</li>
+  <li><strong>The data structures</strong> — What types represent the information?</li>
+  <li><strong>The algorithm</strong> — How do we transform input to output?</li>
+  <li><strong>Implementation</strong> — The real code, in OCaml and Rust, with tabs.</li>
+  <li><strong>Exercises</strong> — Things to try on your own to deepen understanding.</li>
+</ol>
+
+<p>Code tabs always show OCaml first and active by default. The Rust version is below, hidden until you click the tab. This is deliberate — the primary exposition is in OCaml, and the Rust version is a translation for comparison.</p>
+
+<p>When you see a <span class="kw">code span</span> like this, it means we are referring to a specific syntactic element. Longer code blocks appear in pre-formatted blocks with syntax highlighting.</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>Exercise 0.1 — Install OCaml + dune</strong>
+<p>Follow the installation instructions above. Verify that <code>ocamlc -version</code> and <code>dune --version</code> both produce output. Create a new dune project with <code>dune init proj hello</code>, add a simple OCaml file, and build it.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 0.2 — Build the companion compiler</strong>
+<p>Navigate to <code>code/ocaml/</code> and run <code>dune build</code>. The compiler should compile without errors. Then run <code>dune exec -- ocamlcomp tests/example.l1s</code> to see it process a test file. If you have Rust installed, also build <code>code/rust/</code> with <code>cargo build</code>.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 0.3 — Read the first module</strong>
+<p>Open <code>code/ocaml/src/span.ml</code> and read it. You are looking at the very first piece of our compiler. Try to understand every line. If anything is unclear, do not worry — we discuss spans in detail in Chapter 1.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 0.4 — Think about the pipeline</strong>
+<p>Take a small program written in any language you know. Walk through the four compiler phases mentally: what tokens would the lexer produce? What shape would the AST have? What semantic errors could exist? What machine code would the output contain? This mental model will serve you throughout the book.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 0.5 — Explore the companion code structure</strong>
+<p>Run <code>find code/ocaml -name '*.ml' -o -name '*.mli' | sort</code> to see all OCaml source files. For each file, guess what it does based on its name. Then read the <code>dune-project</code> and <code>dune</code> files to understand the build configuration.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 0.6 — Write a "hello, compiler" program</strong>
+<p>Write the smallest possible program in our language (a <code>func main(i32) { return 0; }</code>), save it as <code>test.l1s</code>, and run the companion compiler on it. Disassemble the output with <code>objdump -d</code> and identify each instruction. You do not need to understand every byte — the goal is to see that your source text becomes real machine code.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 0.7 — Read Appel's Tiger language specification</strong>
+<p>Find a copy of Appel's <em>Modern Compiler Implementation in ML</em> and read the Tiger language specification in the appendix. Compare Tiger to our language. What features does Tiger have that we lack? What does our language have that Tiger lacks? Understanding another language design helps clarify your own design choices.</p>
+</div>
+
+<div class="callout warn">
+<strong>Compilers are deep</strong>
+<p>Do not expect to understand everything on the first pass. Compiler construction is a vertical slice through computer science — it touches formal language theory, data structures, algorithms, architecture, and systems programming. Each chapter builds on the last. Trust the process.</p>
+</div>
+
+<h3>A Note on Error Messages</h3>
+
+<p>Throughout this book, we use <code>failwith</code> and <code>Printf.eprintf</code> for error reporting. This is deliberately simple — we want to focus on the compiler's structure, not on error handling infrastructure. By the end of the book, you will have enough context to design a world-class error reporting system: spans with suggestions, multi-line error context, colorized output, and warning categories. But first, we must build the compiler that produces those errors.</p>
+
+<h3>Closing Thoughts</h3>
+
+<p>Appel's <em>Modern Compiler Implementation in ML</em> opens with the same observation we did: <em>you write code, the computer runs it</em>. The gap between those two facts is where compilers live. In the decades since Appel wrote, OCaml has only gotten better — better runtime, better tooling, better libraries. The ML approach to compilers has been vindicated by practice.</p>
+
+<p>There is a deeper point here too. Compiler construction is one of the few areas of software engineering where the problem is well-defined enough that we can reason about correctness, and the solution is rich enough that every computer science concept finds a home: trees, graphs, type theory, formal languages, optimization, architecture, systems programming. Building a compiler makes you a better programmer in every language.</p>
+
+<p>Let us build a compiler. Let us see how deep the rabbit hole goes.</p>
+
+<div class="chapter-nav">
+  <span></span>
+  <a href="01-text-and-spans.html" class="next">1 · Text and Spans</a>
+</div>
+
+</body>
+</html>

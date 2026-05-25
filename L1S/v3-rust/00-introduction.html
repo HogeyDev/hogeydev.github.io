@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Introduction — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h1>Chapter 00: Introduction — The Compiler Pipeline</h1>
+
+<p class="subtitle">You write code. The computer runs it. How?</p>
+
+<div class="callout info">
+  <strong>What you'll learn in this chapter:</strong> What a compiler does, the stages of compilation, why Rust is an exceptional language for building compilers, and how this book is structured.
+</div>
+
+<h2>The Magic Trick</h2>
+
+<p>You write code. The computer runs it. How?</p>
+
+<p>At first this seems like magic. You type letters into a file — <code>func main(i32) { return 42; }</code> — and somehow the electrons in your CPU arrange themselves to return 42. But there's no magic, just a series of well-defined transformations. Each transformation takes one representation and produces another, moving from text toward machine code.</p>
+
+<p>That chain of transformations is a <em>compiler</em>. And you're going to build one.</p>
+
+<p>By the end of this book you'll have built a working compiler for a small but real language called L1. It will have functions, variables, arithmetic, control flow, and first-class types. You'll write the lexer, parser, semantic analyzer, code generator, and enough runtime to execute real programs.</p>
+
+<h2>Your First Compiled Program</h2>
+
+<p>Here's a complete L1 program:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>example/main.l1</span></div>
+    <pre><code><span class="kw">func</span> main(i32) {
+  <span class="kw">return</span> 42;
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>example/main.l1</span></div>
+    <pre><code><span class="kw">func</span> main(i32) {
+  <span class="kw">return</span> 42;
+}</code></pre>
+  </div>
+</div>
+
+<p>Every piece here means something:</p>
+
+<table class="file-table">
+  <tr>
+    <th>Token</th>
+    <th>Meaning</th>
+  </tr>
+  <tr>
+    <td><code>func</code></td>
+    <td>Declare a function. Like <code>fn</code> in Rust.</td>
+  </tr>
+  <tr>
+    <td><code>main</code></td>
+    <td>The function name (entry point, like <code>fn main()</code> in Rust).</td>
+  </tr>
+  <tr>
+    <td><code>(i32)</code></td>
+    <td>Return type: this function returns a 32-bit signed integer.</td>
+  </tr>
+  <tr>
+    <td><code>{ return 42; }</code></td>
+    <td>Function body: evaluates <code>42</code> and returns it to the caller.</td>
+  </tr>
+</table>
+
+<p>The compiler's job is to take this text, understand its structure (a function named <code>main</code> returning <code>i32</code> with a body that returns <code>42</code>), verify it's well-formed, and generate code that a computer can execute.</p>
+
+<h2>The Pipeline at 30,000 Feet</h2>
+
+<p>A modern compiler is organized as a series of phases. Each phase transforms the program from one representation to the next, gradually moving from source text toward machine code:</p>
+
+<div class="diagram">
+<pre><code>Source text
+    │
+    ▼
+┌─────────────┐
+│   LEXER     │  &rarr; Tokens: <span class="kw">func</span>, main, (, i32, ), {, <span class="kw">return</span>, 42, ;, }
+└─────────────┘
+    │
+    ▼
+┌─────────────┐
+│   PARSER    │  &rarr; AST: FuncDecl "main" (body: Return(Int(42)))
+└─────────────┘
+    │
+    ▼
+┌─────────────┐
+│  SEMANTICS  │  &rarr; Type-checked AST, symbol table
+└─────────────┘
+    │
+    ▼
+┌─────────────┐
+│  LOWERING   │  &rarr; IR: basic blocks, instructions
+└─────────────┘
+    │
+    ▼
+┌─────────────┐
+│   CODEGEN   │  &rarr; Assembly / machine code
+└─────────────┘
+    │
+    ▼
+   Output</code></pre>
+</div>
+
+<p>Each phase:</p>
+
+<ol>
+  <li><strong>Lexing</strong> — Groups characters into tokens (words, numbers, operators, punctuation). Turns <code>return 42</code> into <code>[Keyword("return"), Int(42)]</code>.</li>
+  <li><strong>Parsing</strong> — Organizes tokens into a tree according to grammar rules. Discovers that <code>return 42</code> is a return statement with an integer expression.</li>
+  <li><strong>Semantic Analysis</strong> — Checks types, resolves names, ensures rules are followed. Verifies that <code>42</code> is a valid <code>i32</code> and that <code>main</code> returns the right type.</li>
+  <li><strong>Lowering / IR Generation</strong> — Transforms the high-level AST into a low-level intermediate representation suitable for optimization.</li>
+  <li><strong>Code Generation</strong> — Emits actual machine instructions or assembly.</li>
+</ol>
+
+<p>This book covers all five phases, building up from nothing to a complete, working compiler.</p>
+
+<h2>Why Rust for a Compiler?</h2>
+
+<p>Rust and compiler construction are a perfect match. The language features that make Rust a joy for systems programming are the <em>same features</em> that make it exceptional for building compilers.</p>
+
+<h3>Enums Are Algebraic Data Types</h3>
+
+<p>An AST is a tree of nodes. In Rust, every kind of node is a variant of an enum:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>ast.rs</span></div>
+    <pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstExpr</span> {
+    <span class="ty">Int</span>(i64),
+    <span class="ty">Bool</span>(<span class="kw">bool</span>),
+    <span class="ty">Ident</span>(<span class="ty">String</span>),
+    <span class="ty">Binary</span> {
+        left: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+        op: <span class="ty">BinaryOp</span>,
+        right: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+    },
+    <span class="ty">Call</span> {
+        callee: <span class="kw">Box</span>&lt;<span class="ty">AstExpr</span>&gt;,
+        args: <span class="kw">Vec</span>&lt;<span class="ty">AstExpr</span>&gt;,
+    },
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">ast_expr</span> =
+  | <span class="ty">Int</span> of int64
+  | <span class="ty">Bool</span> of bool
+  | <span class="ty">Ident</span> of string
+  | <span class="ty">Binary</span> of ast_expr * binary_op * ast_expr
+  | <span class="ty">Call</span> of ast_expr * ast_expr list</code></pre>
+  </div>
+</div>
+
+<p>If you know OCaml, this pattern is familiar — it's an algebraic data type. If you only know Rust, you already understand ADTs: every <code>enum</code> in Rust <em>is</em> an algebraic data type with pattern matching. This means ASTs are not just representable in Rust; they're <em>idiomatic</em>.</p>
+
+<h3>Option and Result for Errors</h3>
+
+<p>Compilers are error-handling machines. Every phase can fail:</p>
+
+<ul>
+  <li>The lexer hits an invalid character.</li>
+  <li>The parser sees an unexpected token.</li>
+  <li>The semantic analyzer finds a type mismatch.</li>
+</ul>
+
+<p>Rust's <code>Option</code> and <code>Result</code> types model these failures exactly. The <code>?</code> operator threads errors through the pipeline naturally:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>parser.rs</span></div>
+    <pre><code><span class="kw">fn</span> parse_statement(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">AstStmt</span>, <span class="ty">ParseError</span>&gt; {
+    <span class="kw">match</span> <span class="kw">self</span>.peek() {
+        <span class="ty">Some</span>(<span class="ty">Token::Keyword</span>(<span class="ty">Kw::Return</span>)) =&gt; {
+            <span class="kw">self</span>.advance();
+            <span class="kw">let</span> expr = <span class="kw">self</span>.parse_expr()?;
+            <span class="kw">self</span>.expect(<span class="ty">Token::Semicolon</span>)?;
+            <span class="ty">Ok</span>(<span class="ty">AstStmt::Return</span>(expr))
+        }
+        _ =&gt; <span class="kw">self</span>.parse_expr_stmt(),
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>parser.ml</span></div>
+    <pre><code><span class="kw">let</span> parse_statement parser =
+  <span class="kw">match</span> peek parser <span class="kw">with</span>
+  | <span class="ty">Some</span> (<span class="ty">Token_Keyword</span> <span class="ty">Kw_Return</span>) -&gt;
+      advance parser;
+      <span class="kw">let</span> expr = parse_expr parser <span class="kw">in</span>
+      expect parser <span class="ty">Token_Semicolon</span>;
+      <span class="ty">AstStmt_Return</span> expr
+  | _ -&gt; parse_expr_stmt parser</code></pre>
+  </div>
+</div>
+
+<p>Rust forces you to handle every case — exactly what a compiler needs. No null pointers, no uncaught exceptions, no surprises at runtime.</p>
+
+<h3>Pattern Matching Walks Trees</h3>
+
+<p>Once you have an AST as an enum, <code>match</code> is your tree-walking superpower:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>codegen.rs</span></div>
+    <pre><code><span class="kw">fn</span> gen_expr(&amp;<span class="kw">self</span>, expr: &amp;<span class="ty">AstExpr</span>) -&gt; <span class="ty">Value</span> {
+    <span class="kw">match</span> expr {
+        <span class="ty">AstExpr::Int</span>(n) =&gt; <span class="kw">self</span>.emit_const(*n),
+        <span class="ty">AstExpr::Bool</span>(b) =&gt; <span class="kw">self</span>.emit_const(*b <span class="kw">as</span> i64),
+        <span class="ty">AstExpr::Ident</span>(name) =&gt; <span class="kw">self</span>.emit_load_var(name),
+        <span class="ty">AstExpr::Binary</span> { left, op, right } =&gt; {
+            <span class="kw">let</span> l = <span class="kw">self</span>.gen_expr(left);
+            <span class="kw">let</span> r = <span class="kw">self</span>.gen_expr(right);
+            <span class="kw">self</span>.emit_binary(op, l, r)
+        }
+        <span class="ty">AstExpr::Call</span> { callee, args } =&gt; {
+            <span class="kw">let</span> compiled_args: <span class="kw">Vec</span>&lt;_&gt; =
+                args.iter().map(|a| <span class="kw">self</span>.gen_expr(a)).collect();
+            <span class="kw">self</span>.emit_call(<span class="kw">self</span>.gen_expr(callee), &amp;compiled_args)
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>codegen.ml</span></div>
+    <pre><code><span class="kw">let</span> rec gen_expr env = <span class="kw">function</span>
+  | <span class="ty">AstExpr_Int</span> n -&gt; emit_const env n
+  | <span class="ty">AstExpr_Bool</span> b -&gt; emit_const env (<span class="kw">if</span> b <span class="kw">then</span> 1L <span class="kw">else</span> 0L)
+  | <span class="ty">AstExpr_Ident</span> name -&gt; emit_load_var env name
+  | <span class="ty">AstExpr_Binary</span> (l, op, r) -&gt;
+      <span class="kw">let</span> lv = gen_expr env l <span class="kw">in</span>
+      <span class="kw">let</span> rv = gen_expr env r <span class="kw">in</span>
+      emit_binary env op lv rv
+  | <span class="ty">AstExpr_Call</span> (callee, args) -&gt;
+      <span class="kw">let</span> args = <span class="kw">List</span>.map (gen_expr env) args <span class="kw">in</span>
+      emit_call env (gen_expr env callee) args</code></pre>
+  </div>
+</div>
+
+<p>Pattern matching is exhaustive — if you add a variant to <code>AstExpr</code>, the compiler will tell you every place you need to handle it. In a compiler with dozens of node types across multiple phases, this is invaluable.</p>
+
+<h3>Ownership and the Pipeline</h3>
+
+<p>Compilation is a pipeline: data flows forward and is consumed. The lexer produces tokens, the parser consumes them to produce an AST, the semantic analyzer consumes the AST, and so on. This is a <em>linear flow</em>, and Rust's ownership model captures it perfectly.</p>
+
+<p>Each phase <em>moves</em> its input, guaranteeing that no phase accidentally mutates shared state. There's no garbage collector tracing through old token streams — once a phase is done, its data is freed. The borrow checker statically prevents the kinds of aliasing bugs that plague compilers written in languages with shared mutable state.</p>
+
+<h2>Two Compilers, One Language</h2>
+
+<p>This book describes two implementations of the same compiler side by side:</p>
+
+<table class="file-table">
+  <tr>
+    <th>Implementation</th>
+    <th>Language</th>
+    <th>Focus</th>
+  </tr>
+  <tr>
+    <td><strong>Rust</strong></td>
+    <td>Rust</td>
+    <td>Primary — idiomatic Rust, ownership, zero-cost abstractions</td>
+  </tr>
+  <tr>
+    <td><strong>OCaml</strong></td>
+    <td>OCaml</td>
+    <td>Companion — functional purity, algebraic types, pattern matching roots</td>
+  </tr>
+</table>
+
+<p>Code examples appear in tabs throughout the book. The Rust version is shown by default, and the OCaml version is one click away. You don't need to know OCaml to follow along — the concepts translate directly. But seeing both implementations deepens your understanding: Rust proves you can have zero-cost abstractions with ADTs, while OCaml shows the purely functional roots of the approach.</p>
+
+<h2>What You'll Build</h2>
+
+<p>By the end of this book, your compiler will handle programs like this:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>example/fib.l1</span></div>
+    <pre><code><span class="kw">func</span> fib(i32, n: i32) {
+  <span class="kw">if</span> (n &lt; 2) {
+    <span class="kw">return</span> n;
+  }
+  <span class="kw">return</span> fib(n - 1) + fib(n - 2);
+}
+
+<span class="kw">func</span> main(i32) {
+  <span class="kw">let</span> result: i32 = fib(10);
+  <span class="kw">return</span> result;
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>example/fib.l1</span></div>
+    <pre><code><span class="kw">func</span> fib(i32, n: i32) {
+  <span class="kw">if</span> (n &lt; 2) {
+    <span class="kw">return</span> n;
+  }
+  <span class="kw">return</span> fib(n - 1) + fib(n - 2);
+}
+
+<span class="kw">func</span> main(i32) {
+  <span class="kw">let</span> result: i32 = fib(10);
+  <span class="kw">return</span> result;
+}</code></pre>
+  </div>
+</div>
+
+<p>This program demonstrates every major feature of the language: functions with parameters, conditionals, recursion, variables, arithmetic, and multiple return paths. Your compiler will lex, parse, analyze, and execute this program end to end.</p>
+
+<h2>How to Read This Book</h2>
+
+<p>Each chapter follows the same structure:</p>
+
+<ol>
+  <li><strong>The problem</strong> — What we're trying to solve at this stage of compilation.</li>
+  <li><strong>The approach</strong> — The conceptual framework and algorithm.</li>
+  <li><strong>Code</strong> — The Rust implementation (with OCaml tabs for comparison).</li>
+  <li><strong>Walkthrough</strong> — Tracing through a concrete example.</li>
+  <li><strong>Exercises</strong> — Extensions and modifications to deepen understanding.</li>
+</ol>
+
+<p>You should have Rust installed and be comfortable with enums, pattern matching, <code>Option</code>/<code>Result</code>, and basic trait usage. If you can write a recursive function on a linked list enum, you're ready.</p>
+
+<p>The companion source code lives alongside this book. Every code snippet in the book comes from real, runnable source files. You should compile and run the code as you read — the compiler is the ultimate test of understanding.</p>
+
+<div class="callout tip">
+  <strong>Tip:</strong> When you encounter a code tab with a filename like <code>src/lexer.rs</code>, open that file in the companion source directory. Read the full implementation, not just the snippet. The context around each function matters.
+</div>
+
+<h2>Chapter Roadmap</h2>
+
+<table class="file-table">
+  <tr>
+    <th>Chapter</th>
+    <th>Topic</th>
+    <th>You'll Build</th>
+  </tr>
+  <tr>
+    <td>00</td>
+    <td>Introduction</td>
+    <td>Set up your environment, understand the pipeline</td>
+  </tr>
+  <tr>
+    <td>01</td>
+    <td>Text and Spans</td>
+    <td>Source positions, error reporting infrastructure</td>
+  </tr>
+  <tr>
+    <td>02</td>
+    <td>Lexing</td>
+    <td>Character-by-character tokenizer</td>
+  </tr>
+  <tr>
+    <td>03</td>
+    <td>Parsing</td>
+    <td>Recursive descent + Pratt expression parser</td>
+  </tr>
+  <tr>
+    <td>04</td>
+    <td>The AST</td>
+    <td>Abstract syntax tree types and display</td>
+  </tr>
+  <tr>
+    <td>05</td>
+    <td>Semantic Analysis</td>
+    <td>Symbol tables, type checking, name resolution</td>
+  </tr>
+  <tr>
+    <td>06</td>
+    <td>Lowering and IR</td>
+    <td>Intermediate representation, basic blocks</td>
+  </tr>
+  <tr>
+    <td>07</td>
+    <td>Code Generation</td>
+    <td>Register allocation, instruction emission</td>
+  </tr>
+  <tr>
+    <td>08</td>
+    <td>Runtime and FFI</td>
+    <td>Runtime library, system calls, I/O</td>
+  </tr>
+  <tr>
+    <td>09</td>
+    <td>Optimization</td>
+    <td>Constant folding, dead code elimination</td>
+  </tr>
+  <tr>
+    <td>10</td>
+    <td>Self-Hosted</td>
+    <td>Compiling the compiler with itself</td>
+  </tr>
+</table>
+
+<h2>Exercises</h2>
+
+<div class="exercise">
+  <h3>Exercise 0.1: Install Rust</h3>
+  <p>If you don't already have Rust installed, install it via <code>rustup</code>:</p>
+  <pre><code>curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh</code></pre>
+  <p>Verify the installation:</p>
+  <pre><code>rustc --version
+cargo --version</code></pre>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 0.2: Explore the Companion Repository</h3>
+  <p>Clone the companion compiler repository and explore its structure:</p>
+  <pre><code>git clone &lt;companion-repo-url&gt;
+cd l1-compiler
+ls -R src/</code></pre>
+  <p>Identify which files correspond to which compiler phase (lexer, parser, semantics, codegen). Read the <code>Cargo.toml</code> to understand the project structure.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 0.3: Compile and Run the Companion</h3>
+  <p>Build the Rust compiler and run it on a test program:</p>
+  <pre><code>cargo build --release
+echo "func main(i32) { return 42; }" > /tmp/test.l1
+./target/release/l1 /tmp/test.l1
+echo $?</code></pre>
+  <p>The exit code should be 42. If so, your compiler works.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 0.4: Modify a Test Program</h3>
+  <p>Change the test program to return a different value, recompile, and verify the new exit code. Then try a program that returns <code>2 + 2</code> instead of a literal:</p>
+  <pre><code>func main(i32) { return 2 + 2; }</code></pre>
+  <p>Does it work? If not, don't worry — we'll build the infrastructure to handle this in the coming chapters.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 0.5: Draw Your Own Pipeline</h3>
+  <p>Take a piece of paper and draw the compiler pipeline diagram from this chapter. Add notes about what each phase produces. Then for each phase, write down what data structure it consumes and what it produces. This mental model will serve you through the entire book.</p>
+</div>
+
+<h2>How Computers Execute Code</h2>
+
+<p>It's worth pausing to understand what a compiler actually does at the hardware level. A CPU understands one thing: <strong>machine code</strong> — sequences of bytes that encode instructions like "load this value into a register," "add two registers," "compare and branch if equal."</p>
+
+<p>Machine code looks like this (x86-64):</p>
+
+<pre><code><span class="cm">; return 42 on x86-64</span>
+b8 2a 00 00 00    <span class="cm">mov eax, 42</span>
+c3                <span class="cm">ret</span></code></pre>
+
+<p>No one writes this by hand. We write:</p>
+
+<pre><code><span class="kw">func</span> main(i32) { <span class="kw">return</span> 42; }</code></pre>
+
+<p>The compiler bridges this gap. It takes the human-friendly representation and systematically transforms it into the machine-friendly one. Every phase of the compiler is a step on this journey from abstract (text, trees, types) to concrete (registers, instructions, bytes).</p>
+
+<p>What's remarkable is that this isn't magic — it's a series of completely mechanical transformations. Given the same input, a correct compiler always produces the same output. Every choice the compiler makes — how to lay out a struct in memory, which register to use for a variable, how to order instructions — is determined by rules. Our job is to encode those rules in code.</p>
+
+<h2>What Makes a Good Compiler?</h2>
+
+<p>As you build your compiler, keep these properties in mind:</p>
+
+<table class="file-table">
+  <tr>
+    <th>Property</th>
+    <th>Why It Matters</th>
+  </tr>
+  <tr>
+    <td><strong>Correctness</strong></td>
+    <td>The compiled program must behave exactly as the source specifies. A compiler bug can corrupt data, crash systems, or worse.</td>
+  </tr>
+  <tr>
+    <td><strong>Good errors</strong></td>
+    <td>The compiler must tell you <em>what</em> went wrong and <em>where</em>. Vague error messages waste developer time.</td>
+  </tr>
+  <tr>
+    <td><strong>Speed</strong></td>
+    <td>Compilation should be fast. Developers compile frequently; every second of compile time adds up.</td>
+  </tr>
+  <tr>
+    <td><strong>Generated code quality</strong></td>
+    <td>The output should be efficient. A slow compiled program is a frustrating program.</td>
+  </tr>
+</table>
+
+<p>In this book, we prioritize correctness and good errors above all else. Speed and code quality come from good architecture, not premature optimization. Our compiler will be clean, correct, and reasonably fast — and we'll have a clear path to optimization in later chapters.</p>
+
+<h2>The Development Workflow</h2>
+
+<p>Building a compiler is iterative. The typical workflow looks like this:</p>
+
+<ol>
+  <li><strong>Write a test</strong> — a small L1 program that exercises a specific feature.</li>
+  <li><strong>Run the compiler</strong> — see if it handles the test correctly.</li>
+  <li><strong>Check the output</strong> — does it compile? Does the result match expectations?</li>
+  <li><strong>Read the errors</strong> — if something fails, the error messages tell you which phase failed and why.</li>
+  <li><strong>Fix and repeat</strong> — address the issue and re-run.</li>
+</ol>
+
+<p>We'll use Rust's testing infrastructure (<code>#[test]</code> and <code>cargo test</code>) to automate this. Each chapter adds tests alongside the code. By the end of the book, you'll have a comprehensive test suite that verifies every phase of the compiler.</p>
+
+<div class="callout tip">
+  <strong>Compilers are testable:</strong> Unlike many software systems, compilers have a clean input/output contract. Source code goes in, a program (or error) comes out. This makes them exceptionally testable. Write a program, compile it, run it, check the exit code. Every feature can be tested this way. We'll take full advantage of this throughout the book.
+</div>
+
+<h2>What's Next</h2>
+
+<p>Before we lex or parse anything, we need to talk about <em>location</em>. When the compiler finds an error — and it will, especially during development — it needs to tell you <em>where</em> in the source code the error occurred. That means representing positions in source files, converting between byte offsets and human-readable line:column pairs, and rendering error messages with underlines.</p>
+
+<p>That's the subject of <a href="01-text-and-spans.html">Chapter 1: Text and Spans</a>.</p>
+
+<div class="chapter-nav">
+  <span class="prev"></span>
+  <a href="01-text-and-spans.html" class="next">Next: Text and Spans</a>
+</div>
+
+</body>
+</html>

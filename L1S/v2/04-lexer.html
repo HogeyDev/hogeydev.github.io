@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 4: The Lexer &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="03-tokens.html">&larr; Chapter 3</a> &ensp; Chapter 4: The Lexer &ensp; <a href="05-ast.html">Chapter 5 &rarr;</a></span>
+</div>
+
+<h2 id="lexer">4 &ensp; The Lexer</h2>
+
+<h3>4.1 &ensp; What Is Lexical Analysis?</h3>
+
+<p><strong>Concept.</strong> Every compiler begins by reading a stream of characters &mdash; the raw source file. The first transformation is to group these characters into meaningful atoms called <strong>tokens</strong>. This phase is <strong>lexical analysis</strong> (lexing or tokenizing).</p>
+
+<p>Think of it as splitting a sentence into words:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Input:</strong> <code>func main(i32) { return 42; }</code><br><br>
+<strong>Output:</strong><br>
+<code>Func &ensp; Ident("main") &ensp; OpenParen &ensp; I32 &ensp; CloseParen &ensp; OpenBrace &ensp; Return &ensp; NumLiteral("42") &ensp; Semicolon &ensp; CloseBrace &ensp; Eof</code>
+</div>
+
+<p>The lexer does not understand semantics &mdash; it doesn't know that <code>main</code> is a function name or that <code>42</code> is an integer literal. It merely classifies spans of characters into token categories. The parser consumes these tokens to build structure.</p>
+
+<p>The fundamental lexer loop is universal:</p>
+
+<ol>
+<li>Skip whitespace and comments</li>
+<li>Look at the next character</li>
+<li>Decide what kind of token it starts</li>
+<li>Consume characters belonging to that token</li>
+<li>Emit the token with its source location</li>
+<li>Repeat until EOF</li>
+</ol>
+
+<p>Lexing is a <strong>deterministic finite automaton</strong> (DFA) in practice: at each step, the current character determines the next state. There is no backtracking and no ambiguity once the character class is known.</p>
+
+<h3>4.2 &ensp; Design Space: How to Build a Lexer</h3>
+
+<p><strong>Tradeoffs.</strong> There are three main approaches to building a lexer:</p>
+
+<table class="file-table">
+<tr><th>Approach</th><th>Pros</th><th>Cons</th></tr>
+<tr>
+  <td><strong>Generator (lex/flex)</strong></td>
+  <td>Declarative regex rules, fast generated C code, battle-tested</td>
+  <td>External tool, build dependency, opaque generated code, poor error messages</td>
+</tr>
+<tr>
+  <td><strong>Hand-written DFA table</strong></td>
+  <td>Fastest possible, small code, data-driven</td>
+  <td>Hard to maintain, table generation is error-prone, worse for simple languages</td>
+</tr>
+<tr>
+  <td><strong>Hand-written recursive</strong></td>
+  <td>Easy to read and debug, exact error positions, no build deps, flexible</td>
+  <td>Slightly slower per character, more code to write</td>
+</tr>
+</table>
+
+<p>L1S uses a <strong>hand-written recursive lexer</strong>. For a language with ~40 token types, this is the sweet spot. The lexer is about 400 lines of straightforward Rust with no external dependencies. Every character is examined exactly once (O(n)), and the performance difference from a generated lexer is negligible for any realistic input file.</p>
+
+<div class="callout info">
+<strong>Why not flex?</strong> Flex-generated lexers excel for languages with many token patterns (C's preprocessor, FORTRAN). For a simple C-like language, the complexity of integrating a code generator into the build pipeline outweighs the benefits. Hand-written lexers are the norm in modern compilers: Rust, Go, Zig, and Clang all use hand-written lexers.
+</div>
+
+<h3>4.3 &ensp; Core Types</h3>
+
+<p>Before the lexer itself, we need the types it produces. The three building blocks are <code>Span</code>, <code>Token</code>, and <code>SpannedToken</code>.</p>
+
+<p><strong>Span</strong> encodes a source location: byte offsets plus line/column numbers. Every token carries one, enabling precise error messages downstream.</p>
+
+<p><strong>Token</strong> is a flat enum with a variant for every keyword, operator, delimiter, and literal in the language. The full enum is defined in <code>src/token.rs</code> and contains ~50 variants.</p>
+
+<p><strong>LexError</strong> pairs an error message with a Span:</p>
+
+<div class="code-header"><span>src/lexer.rs &mdash; LexError</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">LexError</span> {
+    <span class="kw">pub</span> message: <span class="ty">String</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">LexError</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(message: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;, span: <span class="ty">Span</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">LexError</span> { message: message.<span class="fn">into</span>(), span }
+    }
+}</code></pre>
+
+<p>The <code>impl Into&lt;String&gt;</code> parameter lets callers pass either <code>&amp;str</code> or <code>String</code> without an explicit conversion. The span always points to the exact character(s) that caused the error, so downstream diagnostics can highlight the offending region.</p>
+
+<h3>4.4 &ensp; The Lexer Struct &amp; Position Model</h3>
+
+<p><strong>Concept.</strong> A lexer is a stateful transducer. It holds a reference to the source text, a cursor into that text, and accumulates tokens and errors as it advances. The position model must handle two concerns: <strong>byte offsets</strong> (for slicing the source) and <strong>human-readable coordinates</strong> (for error messages).</p>
+
+<p><strong>Tradeoff: Byte offsets vs character indices.</strong> Rust's <code>str::CharIndices</code> yields <code>(usize, char)</code> pairs, giving us byte offsets automatically. Some lexers store character indices and convert to byte offsets only when needed. Byte offsets are more general &mdash; they let us slice the source directly &mdash; and Rust's UTF-8 guarantees make them equally convenient.</p>
+
+<div class="code-header"><span>src/lexer.rs &mdash; Lexer struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Lexer</span>&lt;'a&gt; {
+    source: &amp;<span class="ty">str</span>,
+    chars: <span class="ty">Peekable</span>&lt;<span class="ty">CharIndices</span>&lt;'a&gt;&gt;,
+    pos: <span class="ty">usize</span>,
+    line: <span class="ty">u32</span>,
+    col: <span class="ty">u32</span>,
+    errors: <span class="ty">Vec</span>&lt;<span class="ty">LexError</span>&gt;,
+}</code></pre>
+
+<p><strong>The fields in detail:</strong></p>
+
+<ul>
+<li><strong><code>source</code></strong> &mdash; Borrowed input string. Never modified, only referenced.</li>
+<li><strong><code>chars</code></strong> &mdash; A <code>Peekable&lt;CharIndices&gt;</code>. <code>CharIndices</code> yields <code>(byte_offset, char)</code> pairs. <code>Peekable</code> gives us one character of lookahead without consuming it, which is essential for multi-character operators like <code>==</code>.</li>
+<li><strong><code>pos</code></strong> &mdash; Current byte offset. Monotonically increases as characters are consumed.</li>
+<li><strong><code>line</code>, <code>col</code></strong> &mdash; 1-based line and column numbers, updated by <code>advance()</code>.</li>
+<li><strong><code>errors</code></strong> &mdash; Accumulated errors. The lexer never panics; it records the error and continues.</li>
+</ul>
+
+<p><strong>Tradeoff: Lifetime parameter.</strong> The <code>'a</code> lifetime ties the lexer to the source string. This means the lexer borrows the input rather than owning it. An alternative would be to copy the source into an owned <code>String</code>, but borrowing avoids an allocation and keeps the API zero-cost.</p>
+
+<p><strong>Position tracking</strong> is centralized in a single method:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">advance</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">char</span>&gt; {
+    <span class="kw">match</span> <span class="kw">self</span>.chars.<span class="fn">next</span>() {
+        <span class="ty">Some</span>((_, c)) =&gt; {
+            <span class="kw">let</span> len = c.<span class="fn">len_utf8</span>();
+            <span class="kw">self</span>.pos += len;
+            <span class="kw">if</span> c == <span class="str">'\n'</span> {
+                <span class="kw">self</span>.line += 1;
+                <span class="kw">self</span>.col = 1;
+            } <span class="kw">else</span> {
+                <span class="kw">self</span>.col += 1;
+            }
+            <span class="ty">Some</span>(c)
+        }
+        <span class="ty">None</span> =&gt; <span class="ty">None</span>,
+    }
+}</code></pre>
+
+<p>Having all position updates in one place is essential for correctness. Every character consumed anywhere in the lexer goes through <code>advance()</code>, so <code>pos</code>, <code>line</code>, and <code>col</code> are always consistent. The complement is <code>peek()</code>, which looks ahead without consuming:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">peek</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">char</span>&gt; {
+    <span class="kw">self</span>.chars.<span class="fn">peek</span>().<span class="fn">map</span>(|&amp;(_, c)| c)
+}</code></pre>
+
+<div class="callout info">
+<strong>UTF-8 safety.</strong> <code>CharIndices</code> yields complete Unicode characters. The <code>len_utf8()</code> call returns the byte width of the character (1&ndash;4 bytes), so <code>pos</code> always lands on a valid UTF-8 boundary. Emoji, CJK characters, and accented letters in comments or string literals are handled correctly without any special logic.
+</div>
+
+<h3>4.5 &ensp; The Main Loop: <code>tokenize()</code></h3>
+
+<p><strong>Concept.</strong> Every lexer's entry point is a loop that drives the state machine: skip ignorable input, lex one token, emit it. The loop must handle three outcomes: a valid token (emit), an unrecognized character (record error, skip), or end of input (emit EOF and stop).</p>
+
+<p><strong>Tradeoff: Error accumulation vs Result.</strong> L1S collects errors in a <code>Vec&lt;LexError&gt;</code> and returns them alongside the tokens. The alternative would be to return <code>Result&lt;Vec&lt;SpannedToken&gt;&gt;</code>, stopping at the first error. Error accumulation is friendlier: the user sees all errors in one compilation, not one at a time with recompilation between fixes.</p>
+
+<div class="code-header"><span>src/lexer.rs &mdash; tokenize()</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">tokenize</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; (<span class="ty">Vec</span>&lt;<span class="ty">SpannedToken</span>&gt;, <span class="ty">Vec</span>&lt;<span class="ty">LexError</span>&gt;) {
+    <span class="kw">let</span> <span class="kw">mut</span> tokens = <span class="ty">Vec</span>::<span class="fn">new</span>();
+
+    <span class="kw">loop</span> {
+        <span class="kw">self</span>.<span class="fn">skip_whitespace</span>();
+        <span class="kw">self</span>.<span class="fn">skip_comment</span>();
+        <span class="kw">self</span>.<span class="fn">skip_whitespace</span>();
+
+        <span class="kw">if</span> <span class="kw">self</span>.chars.<span class="fn">peek</span>().<span class="fn">is_none</span>() {
+            <span class="kw">break</span>;
+        }
+
+        <span class="kw">let</span> start_pos = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> start_line = <span class="kw">self</span>.line;
+        <span class="kw">let</span> start_col = <span class="kw">self</span>.col;
+
+        <span class="kw">let</span> token = <span class="kw">self</span>.<span class="fn">lex_token</span>();
+        <span class="kw">let</span> end_pos = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(start_pos, end_pos, start_line, start_col);
+
+        <span class="kw">match</span> token {
+            <span class="ty">Some</span>(tok) =&gt; {
+                tokens.<span class="fn">push</span>(<span class="ty">SpannedToken</span>::<span class="fn">new</span>(tok, span));
+                <span class="kw">if</span> tok == <span class="ty">Token::Eof</span> { <span class="kw">break</span>; }
+            }
+            <span class="ty">None</span> =&gt; {
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>((_, c)) = <span class="kw">self</span>.chars.<span class="fn">next</span>() {
+                    <span class="kw">let</span> len = c.<span class="fn">len_utf8</span>();
+                    <span class="kw">self</span>.pos += len;
+                    <span class="kw">self</span>.col += 1;
+                    <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(start_pos, <span class="kw">self</span>.pos, start_line, start_col);
+                    <span class="kw">self</span>.errors.<span class="fn">push</span>(<span class="ty">LexError</span>::<span class="fn">new</span>(
+                        <span class="fn">format!</span>(<span class="str">"unexpected character '{}'"</span>, c), span));
+                }
+            }
+        }
+    }
+
+    <span class="kw">if</span> tokens.<span class="fn">last</span>().<span class="fn">map</span>(|t| &amp;t.token) != <span class="ty">Some</span>(&amp;<span class="ty">Token::Eof</span>) {
+        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(<span class="kw">self</span>.pos, <span class="kw">self</span>.pos, <span class="kw">self</span>.line, <span class="kw">self</span>.col);
+        tokens.<span class="fn">push</span>(<span class="ty">SpannedToken</span>::<span class="fn">new</span>(<span class="ty">Token::Eof</span>, span));
+    }
+
+    (tokens, std::mem::<span class="fn">take</span>(&amp;<span class="kw">self</span>.errors))
+}</code></pre>
+
+<p><strong>Key design decisions in this loop:</strong></p>
+
+<ul>
+<li><strong>Whitespace/comments before every token</strong> &mdash; we skip twice (before and after comments), which handles the edge case of whitespace between <code>//</code> and the following token.</li>
+<li><strong>Span captured before and after lexing</strong> &mdash; the start position is saved before <code>lex_token()</code> runs; the end position is read after. This gives accurate bounds for every token.</li>
+<li><strong>EOF guarantee</strong> &mdash; the loop ensures at least one <code>Token::Eof</code> is emitted, even for empty input. The parser depends on this sentinel to avoid checking bounds.</li>
+<li><strong><code>std::mem::take</code></strong> &mdash; swaps <code>self.errors</code> with an empty vec, leaving the lexer in a clean state for potential reuse.</li>
+</ul>
+
+<h3>4.6 &ensp; The Comment Ambiguity</h3>
+
+<p><strong>Concept.</strong> Many languages use the same starting character for comments and operators: <code>/</code> starts both division (<code>/</code>) and line comments (<code>//</code>). The lexer cannot know which it is from the first character alone &mdash; it must look at the <em>next</em> character to decide.</p>
+
+<p><strong>Tradeoff: Save/restore vs two-pass.</strong> One approach is to lex <code>/</code> in <code>lex_token()</code> only after comments have been pre-skipped. But comments are supposed to be invisible to later stages, so they need to be consumed before token dispatch. L1S uses a <strong>save/restore</strong> pattern: tentatively consume the <code>/</code>, peek at the next character, and either consume the comment or restore the saved state so <code>lex_token()</code> sees <code>/</code> as a division operator.</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">skip_comment</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'/'</span>) {
+        <span class="kw">let</span> saved = <span class="kw">self</span>.chars.<span class="fn">clone</span>();
+        <span class="kw">let</span> saved_pos = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> saved_line = <span class="kw">self</span>.line;
+        <span class="kw">let</span> saved_col = <span class="kw">self</span>.col;
+
+        <span class="kw">self</span>.<span class="fn">advance</span>();
+        <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'/'</span>) {
+            <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+                <span class="kw">if</span> c == <span class="str">'\n'</span> { <span class="kw">break</span>; }
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+            }
+        } <span class="kw">else</span> {
+            <span class="kw">self</span>.chars = saved;
+            <span class="kw">self</span>.pos = saved_pos;
+            <span class="kw">self</span>.line = saved_line;
+            <span class="kw">self</span>.col = saved_col;
+        }
+    }
+}</code></pre>
+
+<p>The iterator is cloneable because <code>Peekable&lt;CharIndices&gt;</code> is backed by a slice iterator, which is <code>Clone</code>. When <code>/</code> is followed by something other than <code>/</code>, we restore the entire lexer state, and the <code>/</code> is lexed as <code>Token::Slash</code> during the next call to <code>lex_token()</code>.</p>
+
+<div class="callout warn">
+<strong>Performance note.</strong> Restoring the iterator means we'll re-examine the <code>/</code> character. In a correct lexer this is unavoidable &mdash; you must peek ahead to disambiguate. The cost is minimal because this pattern only fires when the character is <code>/</code> (rare in typical source code).
+</div>
+
+<h3>4.7 &ensp; Operator Dispatch</h3>
+
+<p><strong>Concept.</strong> A lexer's dispatch table maps the first character of a potential token to either a single token or a more complex handler. Operators fall into three categories: single-character (<code>+</code>, <code>*</code>, <code>(</code>), two-character (<code>==</code>, <code>!=</code>, <code>&amp;&amp;</code>), and compound starting with a prefix that matches a single operator (<code>-</code> can be <code>-&gt;</code>).</p>
+
+<p><strong>Tradeoff: Character matching vs table-driven.</strong> A match expression on the first character is the simplest approach. For a language with ~30 operators it's perfectly readable. An alternative is a lookup table from <code>(char, Option&lt;char&gt;)</code> to <code>Token</code>, but this sacrifices clarity for negligible speed gain.</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_token</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">let</span> c = <span class="kw">self</span>.<span class="fn">peek</span>()?;
+
+    <span class="kw">match</span> c {
+        <span class="str">'+'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::Plus</span>) }
+        <span class="str">'-'</span> =&gt; {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'>'</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">Some</span>(<span class="ty">Token::Arrow</span>)
+            } <span class="kw">else</span> {
+                <span class="ty">Some</span>(<span class="ty">Token::Minus</span>)
+            }
+        }
+        <span class="str">'('</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::OpenParen</span>) }
+        <span class="str">')'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::CloseParen</span>) }
+        <span class="str">'{'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::OpenBrace</span>) }
+        <span class="str">'}'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::CloseBrace</span>) }
+        <span class="str">'&amp;'</span> =&gt; {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'&amp;'</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">Some</span>(<span class="ty">Token::AmpAmp</span>)
+            } <span class="kw">else</span> {
+                <span class="ty">Some</span>(<span class="ty">Token::Amp</span>)
+            }
+        }
+        <span class="str">'='</span> =&gt; {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'='</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">Some</span>(<span class="ty">Token::EqEq</span>)
+            } <span class="kw">else</span> {
+                <span class="ty">Some</span>(<span class="ty">Token::Eq</span>)
+            }
+        }
+        <span class="str">'"'</span>  =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_string</span>()),
+        <span class="str">'\''</span> =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_char</span>()),
+        <span class="str">'0'</span>..=<span class="str">'9'</span> =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_number</span>()),
+        c <span class="kw">if</span> <span class="fn">is_ident_start</span>(c) =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_identifier_or_keyword</span>()),
+        _ =&gt; <span class="ty">None</span>,
+    }
+}</code></pre>
+
+<p>The pattern for multi-character operators is consistent: advance past the first character, peek at the second, and either return the compound token or fall back to the single-character one. This pattern repeats for <code>!</code>/<code>!=</code>, <code>&lt;</code>/<code>&lt;=</code>/<code>&lt;&lt;</code>, <code>&gt;</code>/<code>&gt;=</code>/<code>&gt;&gt;</code>, and <code>|</code>/<code>||</code>.</p>
+
+<h3>4.8 &ensp; Number Lexing</h3>
+
+<p><strong>Concept.</strong> A numeric literal is a sequence of digits, optionally with a radix prefix. The lexer must distinguish decimal, hexadecimal (<code>0x</code>), binary (<code>0b</code>), and octal (<code>0o</code>) literals, and allow underscores as visual separators.</p>
+
+<p><strong>Tradeoff: Validate now or later?</strong> L1S lexes numbers as raw strings without validating their content. <code>0xGG</code> is happily lexed as <code>NumLiteral("0xGG")</code>. The parser or type checker is responsible for rejecting invalid values. This keeps the lexer simple and decouples concerns. The alternative is to parse and validate the number in the lexer, which means error messages about invalid literals come from the lexer instead of being unified with other diagnostics.</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_number</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> raw = <span class="ty">String</span>::<span class="fn">new</span>();
+
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'0'</span>) {
+        <span class="kw">self</span>.<span class="fn">advance</span>();
+        raw.<span class="fn">push</span>(<span class="str">'0'</span>);
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">Some</span>(<span class="str">'x'</span> | <span class="str">'X'</span>) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(<span class="str">'x'</span>);
+                <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+                    <span class="kw">if</span> c.<span class="fn">is_ascii_hexdigit</span>() || c == <span class="str">'_'</span> {
+                        <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(c);
+                    } <span class="kw">else</span> { <span class="kw">break</span>; }
+                }
+            }
+            <span class="ty">Some</span>(<span class="str">'b'</span> | <span class="str">'B'</span>) =&gt; { <span class="cm">/* binary: 0-1 and _ */</span> }
+            <span class="ty">Some</span>(<span class="str">'o'</span> | <span class="str">'O'</span>) =&gt; { <span class="cm">/* octal: 0-7 and _ */</span> }
+            _ =&gt; { <span class="cm">/* decimal starting with 0 */</span> }
+        }
+    } <span class="kw">else</span> {
+        <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="kw">if</span> c.<span class="fn">is_ascii_digit</span>() || c == <span class="str">'_'</span> {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(c);
+            } <span class="kw">else</span> { <span class="kw">break</span>; }
+        }
+    }
+    <span class="ty">Token::NumLiteral</span>(raw)
+}</code></pre>
+
+<div class="callout info">
+<strong>Underscore behavior.</strong> Underscores are accepted anywhere in a number: <code>1_000</code>, <code>0x_FF_EE</code>, <code>0b_1010_1111</code>. They are included verbatim in the raw string and must be stripped during parsing. This is the simplest approach &mdash; validating underscore placement is left to a later stage.
+</div>
+
+<h3>4.9 &ensp; String and Character Lexing</h3>
+
+<p><strong>Concept.</strong> String literals require a stateful sub-loop: enter on <code>"</code>, consume characters until the closing <code>"</code>, handling escape sequences (like <code>\n</code>, <code>\t</code>, <code>\xHH</code>) along the way. Character literals follow the same pattern but produce a single byte.</p>
+
+<p><strong>Tradeoff: Resolve escapes or keep raw?</strong> L1S resolves escape sequences during lexing, so <code>"\n"</code> becomes <code>StrLiteral("\n")</code> (one newline character), not <code>StrLiteral("\\n")</code>. This means downstream stages never need to understand escape sequences. The alternative is to keep the raw string and resolve escapes on demand, which is more flexible but pushes complexity into every consumer of string tokens.</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_string</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> content = <span class="ty">String</span>::<span class="fn">new</span>();
+    <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume opening '"'</span>
+
+    <span class="kw">loop</span> {
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">None</span> =&gt; {
+                <span class="kw">self</span>.errors.<span class="fn">push</span>(<span class="ty">LexError</span>::<span class="fn">new</span>(<span class="str">"unclosed string literal"</span>, span));
+                <span class="kw">break</span>;
+            }
+            <span class="ty">Some</span>(<span class="str">'"'</span>) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="kw">break</span>; }
+            <span class="ty">Some</span>(<span class="str">'\\'</span>) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">advance</span>() {
+                    <span class="ty">Some</span>(<span class="str">'n'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\n'</span>),
+                    <span class="ty">Some</span>(<span class="str">'t'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\t'</span>),
+                    <span class="ty">Some</span>(<span class="str">'\\'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\\'</span>),
+                    <span class="ty">Some</span>(<span class="str">'"'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'"'</span>),
+                    <span class="ty">Some</span>(<span class="str">'0'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\0'</span>),
+                    <span class="ty">Some</span>(<span class="str">'x'</span>) =&gt; {
+                        <span class="kw">let</span> hex = <span class="kw">self</span>.<span class="fn">lex_hex_escape</span>();
+                        content.<span class="fn">push</span>(hex <span class="kw">as</span> <span class="ty">char</span>);
+                    }
+                    <span class="ty">Some</span>(c) =&gt; {
+                        <span class="cm">// invalid escape: record error, push char anyway</span>
+                        content.<span class="fn">push</span>(c);
+                    }
+                    <span class="ty">None</span> =&gt; <span class="kw">break</span>,
+                }
+            }
+            <span class="ty">Some</span>(_) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>().<span class="fn">map</span>(|c| content.<span class="fn">push</span>(c));
+            }
+        }
+    }
+    <span class="ty">Token::StrLiteral</span>(content)
+}</code></pre>
+
+<p>Character lexing is the same pattern but constrained to a single character and producing <code>CharLiteral(u8)</code>. Both share <code>lex_hex_escape()</code> for <code>\xHH</code> sequences:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_hex_escape</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">u8</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> hex = <span class="ty">String</span>::<span class="fn">with_capacity</span>(2);
+    <span class="kw">for</span> _ <span class="kw">in</span> 0..2 {
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">Some</span>(c) <span class="kw">if</span> c.<span class="fn">is_ascii_hexdigit</span>() =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); hex.<span class="fn">push</span>(c);
+            }
+            _ =&gt; <span class="kw">break</span>,
+        }
+    }
+    <span class="ty">u8</span>::<span class="fn">from_str_radix</span>(&amp;hex, 16).<span class="fn">unwrap_or</span>(0)
+}</code></pre>
+
+<h3>4.10 &ensp; Identifiers and Keywords</h3>
+
+<p><strong>Concept.</strong> Identifiers and keywords share the same character class: they start with a letter or underscore and continue with letters, digits, and underscores. The lexer consumes the entire word, then checks whether it matches a reserved keyword. This is the simplest and most common approach.</p>
+
+<p><strong>Tradeoff: Keyword-as-identifier vs keyword filtering.</strong> Some lexers check for keywords character-by-character during consumption. L1S uses the simpler "consume then classify" approach: read the whole identifier, then look it up in a keyword table. This separates the concerns of "what is an identifier" (a simple regex) from "what is a keyword" (a set membership test).</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_identifier_or_keyword</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> ident = <span class="ty">String</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="kw">if</span> c.<span class="fn">is_alphanumeric</span>() || c == <span class="str">'_'</span> {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            ident.<span class="fn">push</span>(c);
+        } <span class="kw">else</span> { <span class="kw">break</span>; }
+    }
+    <span class="fn">keyword_token</span>(&amp;ident).<span class="fn">unwrap_or</span>(<span class="ty">Token::Ident</span>(ident))
+}</code></pre>
+
+<p>The keyword dispatch is a single function in <code>token.rs</code> that maps string names to token variants:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">keyword_token</span>(word: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">match</span> word {
+        <span class="str">"func"</span>   =&gt; <span class="ty">Some</span>(<span class="ty">Token::Func</span>),
+        <span class="str">"let"</span>    =&gt; <span class="ty">Some</span>(<span class="ty">Token::Let</span>),
+        <span class="str">"return"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Return</span>),
+        <span class="str">"if"</span>     =&gt; <span class="ty">Some</span>(<span class="ty">Token::If</span>),
+        <span class="str">"else"</span>   =&gt; <span class="ty">Some</span>(<span class="ty">Token::Else</span>),
+        <span class="str">"true"</span>   =&gt; <span class="ty">Some</span>(<span class="ty">Token::True</span>),
+        <span class="str">"false"</span>  =&gt; <span class="ty">Some</span>(<span class="ty">Token::False</span>),
+        <span class="str">"i32"</span>    =&gt; <span class="ty">Some</span>(<span class="ty">Token::I32</span>),
+        <span class="str">"u32"</span>    =&gt; <span class="ty">Some</span>(<span class="ty">Token::U32</span>),
+        <span class="cm">// ... 30+ more entries for all keywords and type names</span>
+        _ =&gt; <span class="ty">None</span>,
+    }
+}</code></pre>
+
+<p><strong>Adding a new keyword</strong> requires exactly two changes: add a variant to the <code>Token</code> enum, and add a match arm to <code>keyword_token</code>. The lexer never changes. This separation of concerns is the hallmark of a well-structured lexer.</p>
+
+<h3>4.11 &ensp; Error Recovery Strategy</h3>
+
+<p><strong>Concept.</strong> A lexer for a production compiler must handle malformed input gracefully. The goal is to report as many errors as possible in a single pass, so the user doesn't have to repeatedly compile to discover each mistake.</p>
+
+<p><strong>Tradeoffs in error recovery:</strong></p>
+
+<ul>
+<li><strong>Panic on first error</strong> &mdash; Simplest, but terrible UX. One missing quote hides every subsequent error.</li>
+<li><strong>Synchronized recovery</strong> &mdash; Skip tokens until a synchronization point (like <code>;</code> or <code>}</code>). Better for the parser; overkill for the lexer.</li>
+<li><strong>Record-and-continue</strong> &mdash; Record the error, skip the offending character(s), carry on. This is what L1S does.</li>
+</ul>
+
+<p>L1S never panics. Every error path records a <code>LexError</code> and advances past the bad input. The three error categories are:</p>
+
+<table class="file-table">
+<tr><th>Error</th><th>Recovery</th></tr>
+<tr><td>Unrecognized character (e.g., <code>$</code>)</td><td>Consume and skip it</td></tr>
+<tr><td>Unclosed string literal</td><td>Close it at EOF, return partial content</td></tr>
+<tr><td>Invalid or unterminated escape sequence</td><td>Push the raw character and continue</td></tr>
+</table>
+
+<div class="callout tip">
+<strong>Never crash, never hang.</strong> Every loop in the lexer has an exit condition that is guaranteed to be reached: the iterator runs out of characters. There are no recursive descent spirals or unbounded lookahead loops. This is a property worth verifying for any lexer you write.
+</div>
+
+<h3>4.12 &ensp; Traced Example</h3>
+
+<p>Here is the full token stream for a small program, showing each token, its span, and the source text it covers:</p>
+
+<div class="code-header"><span>Input: src/examples/ret.l1s</span></div>
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> 42;
+}</code></pre>
+
+<table class="file-table">
+<tr><th>#</th><th>Token</th><th>Span</th><th>Source</th></tr>
+<tr><td>1</td><td><code>Func</code></td><td>1:1 &ndash; 1:5</td><td><code>func</code></td></tr>
+<tr><td>2</td><td><code>Ident("main")</code></td><td>1:6 &ndash; 1:10</td><td><code>main</code></td></tr>
+<tr><td>3</td><td><code>OpenParen</code></td><td>1:10 &ndash; 1:11</td><td><code>(</code></td></tr>
+<tr><td>4</td><td><code>I32</code></td><td>1:11 &ndash; 1:14</td><td><code>i32</code></td></tr>
+<tr><td>5</td><td><code>CloseParen</code></td><td>1:14 &ndash; 1:15</td><td><code>)</code></td></tr>
+<tr><td>6</td><td><code>OpenBrace</code></td><td>1:16 &ndash; 1:17</td><td><code>{</code></td></tr>
+<tr><td>7</td><td><code>Return</code></td><td>2:5 &ndash; 2:11</td><td><code>return</code></td></tr>
+<tr><td>8</td><td><code>NumLiteral("42")</code></td><td>2:12 &ndash; 2:14</td><td><code>42</code></td></tr>
+<tr><td>9</td><td><code>Semicolon</code></td><td>2:14 &ndash; 2:15</td><td><code>;</code></td></tr>
+<tr><td>10</td><td><code>CloseBrace</code></td><td>3:1 &ndash; 3:2</td><td><code>}</code></td></tr>
+<tr><td>11</td><td><code>Eof</code></td><td>3:2 &ndash; 3:2</td><td>&lt;end&gt;</td></tr>
+</table>
+
+<p>Notice that <code>func</code> is recognized as a keyword, <code>main</code> is an identifier, and <code>i32</code> is a primitive type keyword. The comment <code>// this is a comment\nfunc</code> would produce only <code>Func</code> followed by <code>Eof</code> &mdash; comments are invisible to the token stream.</p>
+
+<h3>4.13 &ensp; Testing the Lexer</h3>
+
+<p><strong>Concept.</strong> A lexer is one of the easiest compiler components to test because it has a pure functional interface: source text in, tokens out. Every test follows the pattern <code>lex(input) == expected_tokens</code>.</p>
+
+<p>The test module defines two helpers:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex</span>(source: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">Lexer</span>::<span class="fn">new</span>(source);
+    <span class="kw">let</span> (tokens, errors) = lexer.<span class="fn">tokenize</span>();
+    <span class="fn">assert!</span>(errors.<span class="fn">is_empty</span>(), <span class="str">"Lex errors: {:?}"</span>, errors);
+    tokens.<span class="fn">into_iter</span>().<span class="fn">map</span>(|st| st.token).<span class="fn">collect</span>()
+}
+
+<span class="kw">fn</span> <span class="fn">lex_with_errors</span>(source: &amp;<span class="ty">str</span>) -&gt; (<span class="ty">Vec</span>&lt;<span class="ty">Token</span>&gt;, <span class="ty">Vec</span>&lt;<span class="ty">LexError</span>&gt;) {
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">Lexer</span>::<span class="fn">new</span>(source);
+    lexer.<span class="fn">tokenize</span>()
+}</code></pre>
+
+<p>Test categories cover:</p>
+
+<ul>
+<li><strong>Empty and whitespace-only input</strong> &mdash; produces only <code>Eof</code></li>
+<li><strong>Keywords and identifiers</strong> &mdash; <code>func</code> vs <code>foo</code>, <code>if</code> vs <code>x123</code></li>
+<li><strong>Number formats</strong> &mdash; decimal, hex, binary, octal, underscores</li>
+<li><strong>String escapes</strong> &mdash; <code>\n</code>, <code>\t</code>, <code>\\</code>, <code>\xHH</code></li>
+<li><strong>Single and double operators</strong> &mdash; all operator variants</li>
+<li><strong>Delimiters</strong> &mdash; parens, braces, brackets, semicolons, commas, colons</li>
+<li><strong>Comments</strong> &mdash; <code>//</code> is skipped</li>
+<li><strong>Error paths</strong> &mdash; unclosed strings, invalid escapes, unexpected characters</li>
+<li><strong>Line tracking</strong> &mdash; multi-line input produces correct spans</li>
+</ul>
+
+<p>To run the lexer tests:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- lexer</code></pre>
+
+<p><strong>Example: testing number lexing</strong></p>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_numbers</span>() {
+    <span class="kw">let</span> tokens = <span class="fn">lex</span>(<span class="str">"42 0x1A 0b1010 0o77 1_000"</span>);
+    <span class="fn">assert_eq!</span>(tokens[0], <span class="ty">Token::NumLiteral</span>(<span class="str">"42"</span>.<span class="fn">into</span>()));
+    <span class="fn">assert_eq!</span>(tokens[1], <span class="ty">Token::NumLiteral</span>(<span class="str">"0x1A"</span>.<span class="fn">into</span>()));
+    <span class="fn">assert_eq!</span>(tokens[4], <span class="ty">Token::NumLiteral</span>(<span class="str">"1_000"</span>.<span class="fn">into</span>()));
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_unexpected_character</span>() {
+    <span class="kw">let</span> (_, errors) = <span class="fn">lex_with_errors</span>(<span class="str">"foo $ bar"</span>);
+    <span class="fn">assert!</span>(errors.<span class="fn">iter</span>().<span class="fn">any</span>(|e| e.message.<span class="fn">contains</span>(<span class="str">"unexpected character"</span>)));
+}</code></pre>
+
+<div class="callout tip">
+<strong>Debugging tip.</strong> When the token stream doesn't match expectations, insert a temporary dump in <code>tokenize()</code>:
+<pre style="margin:0.5rem 0 0;font-size:0.8rem;"><code><span class="fn">eprintln!</span>(<span class="str">"token: {:?} at {}"</span>, tok, span);</code></pre>
+This prints every token with its source location as it is emitted, which makes mismatches immediately obvious.
+</div>
+
+<h3>4.14 &ensp; Common Pitfalls</h3>
+
+<ol>
+<li><strong>Line/column off by one.</strong> Initialize <code>line: 1, col: 1</code>. On newline, increment <code>line</code> and reset <code>col</code> to 1. Test with multi-line input early.</li>
+<li><strong>Comment/division ambiguity.</strong> Without the save/restore pattern, a lone <code>/</code> is consumed by <code>skip_comment</code> and lost. Always test <code>x / y</code> alongside <code>// comment</code>.</li>
+<li><strong>Unclosed strings hanging the lexer.</strong> Ensure every sub-loop has an EOF exit. The string lexer must handle <code>"hello</code> (no closing quote) without entering an infinite loop.</li>
+<li><strong>Multi-byte UTF-8 confusion.</strong> Never index into the source string by character position. Always use <code>CharIndices</code> or equivalent. A byte offset that lands in the middle of a multi-byte character is a crash waiting to happen.</li>
+<li><strong>Identifier starting with a digit.</strong> <code>123foo</code> should NOT be an identifier. If <code>lex_number</code> accepts non-digit characters (as L1S currently does), the error is caught later. Decide deliberately where to validate.</li>
+<li><strong>Overlapping multi-character sequences.</strong> <code>&gt;&gt;</code> and <code>&gt;=&gt;</code> can be ambiguous if you don't handle them left-to-right. L1S always peeks at the immediate next character and greedily forms the longest valid token.</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="03-tokens.html">&larr; Chapter 3</a> &ensp; Chapter 4: The Lexer &ensp; <a href="05-ast.html">Chapter 5 &rarr;</a></span>
+</div>
+
+</body>
+</html>

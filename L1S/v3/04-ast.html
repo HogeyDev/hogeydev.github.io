@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Shape of a Program — Building a Compiler</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler</a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+</script>
+
+<h2>4. The Shape of a Program</h2>
+
+<p>
+The parser gives us structure &mdash; but what does that structure actually <em>look like</em>? When <code>parse_func_decl</code> returns, what does it return? We have been hand-waving with names like <code>FuncDecl</code> and <code>Expr::Binary</code>, but we have not pinned down what these things <em>are</em>.
+</p>
+
+<p>
+This chapter fixes that. We will define the data types that represent parsed programs &mdash; the <strong>Abstract Syntax Tree</strong> (AST). The AST is the skeleton of our compiler. Every phase after parsing works with the AST, not with source text or tokens.
+</p>
+
+<h3>What the Parser Built</h3>
+
+<p>
+Consider this program:
+</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, <span class="ty">a</span>: <span class="ty">i32</span>, <span class="ty">b</span>: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p>
+The parser consumed tokens and produced a tree. Let us draw that tree:
+</p>
+
+<div class="diagram">Program
+  decls
+    FuncDecl
+      name:       "add"
+      ret_type:   Prim("i32")
+      params:     [ Param { name: "a", ty: Prim("i32") },
+                    Param { name: "b", ty: Prim("i32") } ]
+      body:
+        Block
+          stmts:
+            Return
+              expr:
+                Binary
+                  op:    Add
+                  lhs:   Ident("a")
+                  rhs:   Ident("b")</div>
+
+<p>
+This tree is the AST. Every node is a data structure that captures the <em>meaning</em> of the corresponding source construct, stripped of purely syntactic decoration.
+</p>
+
+<div class="callout">
+<strong>What we throw away</strong>
+Notice what is <em>not</em> in the tree: semicolons, braces, parentheses around the parameter list, commas between parameters. These are syntactic sugar &mdash; they helped the parser navigate, but the rest of the compiler does not need them. The AST is a cleaner, more abstract representation.
+</div>
+
+<h3>Defining the AST Types</h3>
+
+<p>
+Our language needs a handful of node types. We will define them once, and both our Rust and OCaml compilers will use the same conceptual structure.
+</p>
+
+<h4>The Top Level: Program and Declarations</h4>
+
+<p>
+A program is a list of declarations. A declaration is either a function or a global variable:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ast.rs</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">Program</span> {
+    <span class="kw">pub</span> decls: <span class="hl">Vec</span>&lt;<span class="ty">Decl</span>&gt;,
+}
+
+<span class="kw">pub enum</span> <span class="ty">Decl</span> {
+    Func(<span class="ty">FuncDecl</span>),
+    Var(<span class="ty">VarDecl</span>),
+}
+
+<span class="kw">pub struct</span> <span class="ty">FuncDecl</span> {
+    <span class="kw">pub</span> name: <span class="hl">String</span>,
+    <span class="kw">pub</span> ret_type: <span class="ty">Type</span>,
+    <span class="kw">pub</span> params: <span class="hl">Vec</span>&lt;<span class="ty">Param</span>&gt;,
+    <span class="kw">pub</span> body: <span class="ty">Block</span>,
+}
+
+<span class="kw">pub struct</span> <span class="ty">Param</span> {
+    <span class="kw">pub</span> name: <span class="hl">String</span>,
+    <span class="kw">pub</span> ty: <span class="ty">Type</span>,
+}
+
+<span class="kw">pub struct</span> <span class="ty">VarDecl</span> {
+    <span class="kw">pub</span> name: <span class="hl">String</span>,
+    <span class="kw">pub</span> ty: <span class="ty">Type</span>,
+    <span class="kw">pub</span> init: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span></div>
+    <pre><code><span class="kw">type</span> program = {
+  decls: decl list;
+}
+
+<span class="kw">type</span> decl =
+  | Func of func_decl
+  | Var  of var_decl
+
+<span class="kw">and</span> func_decl = {
+  name:     string;
+  ret_type: typ;
+  params:   param list;
+  body:     block;
+}
+
+<span class="kw">and</span> param = {
+  name: string;
+  ty:   typ;
+}
+
+<span class="kw">and</span> var_decl = {
+  name: string;
+  ty:   typ;
+  init: expr;
+}</code></pre>
+  </div>
+</div>
+
+<div class="callout info">
+<strong><code>and</code> in OCaml</strong>
+OCaml uses <code>and</code> to connect mutually recursive type definitions. Since <code>decl</code> mentions <code>func_decl</code>, which mentions <code>block</code>, which mentions <code>stmt</code>, which mentions <code>expr</code> &mdash; these are all circular. The <code>and</code> keyword lets us define them together.
+</div>
+
+<h4>Statements</h4>
+
+<p>
+A <code>Block</code> is a list of statements. Each statement is one of the things that can appear inside a function body:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ast.rs</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">Block</span> {
+    <span class="kw">pub</span> stmts: <span class="hl">Vec</span>&lt;<span class="ty">Stmt</span>&gt;,
+}
+
+<span class="kw">pub enum</span> <span class="ty">Stmt</span> {
+    Return {
+        expr: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+    },
+    VarDecl {
+        name: <span class="hl">String</span>,
+        ty: <span class="ty">Type</span>,
+        init: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+    },
+    If {
+        cond: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+        then_block: <span class="ty">Block</span>,
+        else_block: <span class="hl">Option</span>&lt;<span class="ty">Block</span>&gt;,
+    },
+    While {
+        cond: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+        body: <span class="ty">Block</span>,
+    },
+    Block(<span class="ty">Block</span>),
+    Expr(<span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span></div>
+    <pre><code><span class="kw">and</span> block = {
+  stmts: stmt list;
+}
+
+<span class="kw">and</span> stmt =
+  | Return  of { expr: expr }
+  | VarDecl of { name: string; ty: typ; init: expr }
+  | If      of { cond: expr; then_block: block; else_block: block option }
+  | While   of { cond: expr; body: block }
+  | Block   of block
+  | Expr    of expr</code></pre>
+  </div>
+</div>
+
+<p>
+Each variant corresponds to a production rule in our grammar. The <code>Return</code> variant wraps a single expression. The <code>If</code> variant has a condition, a then-block, and an optional else-block. The <code>Expr</code> variant handles expression statements like <code>x = 5;</code>.
+</p>
+
+<h4>Expressions</h4>
+
+<p>
+Expressions are the richest part of the AST. They nest arbitrarily through the <code>Binary</code> and <code>Unary</code> variants:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ast.rs</span></div>
+    <pre><code><span class="kw">pub enum</span> <span class="ty">Expr</span> {
+    Int(<span class="ty">i64</span>),
+    Bool(<span class="ty">bool</span>),
+    Ident(<span class="hl">String</span>),
+    Binary {
+        op: <span class="ty">BinaryOp</span>,
+        lhs: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+        rhs: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+    },
+    Unary {
+        op: <span class="ty">UnaryOp</span>,
+        rhs: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+    },
+    Call {
+        callee: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+        args: <span class="hl">Vec</span>&lt;<span class="ty">Expr</span>&gt;,
+    },
+    Cast {
+        expr: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+        target: <span class="ty">Type</span>,
+    },
+    Assign {
+        target: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+        value: <span class="hl">Box</span>&lt;<span class="ty">Expr</span>&gt;,
+    },
+}
+
+<span class="kw">pub enum</span> <span class="ty">BinaryOp</span> {
+    Add, Sub, Mul, Div,
+    Eq, Neq, Lt, Gt, Le, Ge,
+}
+
+<span class="kw">pub enum</span> <span class="ty">UnaryOp</span> {
+    Neg, Not,
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span></div>
+    <pre><code><span class="kw">and</span> expr =
+  | Int    of int
+  | Bool   of bool
+  | Ident  of string
+  | Binary of { op: binary_op; lhs: expr; rhs: expr }
+  | Unary  of { op: unary_op; rhs: expr }
+  | Call   of { callee: expr; args: expr list }
+  | Cast   of { expr: expr; target: typ }
+  | Assign of { target: expr; value: expr }
+
+<span class="kw">and</span> binary_op =
+  | Add | Sub | Mul | Div
+  | Eq | Neq | Lt | Gt | Le | Ge
+
+<span class="kw">and</span> unary_op =
+  | Neg | Not</code></pre>
+  </div>
+</div>
+
+<h4>Types</h4>
+
+<p>
+Types are simple for now &mdash; primitive names (like <code>i32</code>), pointers, and arrays:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/ast.rs</span></div>
+    <pre><code><span class="kw">pub enum</span> <span class="ty">Type</span> {
+    Prim(<span class="hl">String</span>),     <span class="cm">// i32, bool, etc.</span>
+    Ptr(<span class="hl">Box</span>&lt;<span class="ty">Type</span>&gt;),    <span class="cm">// *i32</span>
+    Array(<span class="hl">Box</span>&lt;<span class="ty">Type</span>&gt;, <span class="hl">Option</span>&lt;<span class="ty">usize</span>&gt;), <span class="cm">// [i32; 10] or []i32</span>
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>ast.ml</span></div>
+    <pre><code><span class="kw">and</span> typ =
+  | Prim  of string           <span class="cm">(* i32, bool, etc. *)</span>
+  | Ptr   of typ              <span class="cm">(* *i32 *)</span>
+  | Array of typ * int option <span class="cm">(* [i32; 10] or []i32 *)</span></code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>Why <code>Box</code> in Rust?</strong>
+Rust needs to know the size of every type at compile time. An <code>Expr</code> contains <code>Binary</code>, which contains two <code>Expr</code>s &mdash; this would be infinitely large! <code>Box&lt;Expr&gt;</code> puts the child on the heap, giving us a fixed-size pointer. In OCaml, this is not an issue because all types are heap-allocated by default.
+</div>
+
+<h3>AST vs. CST: What We Discard and Why</h3>
+
+<p>
+The parser actually builds a <strong>Concrete Syntax Tree</strong> (CST) first &mdash; a tree that preserves every token, every parenthesis, every semicolon. Then we transform it into the AST by discarding the noise.
+</p>
+
+<table class="file-table">
+  <tr><th>Feature</th><th>CST (Concrete)</th><th>AST (Abstract)</th></tr>
+  <tr><td>Semicolons</td><td>Present</td><td>Absent</td></tr>
+  <tr><td>Braces <code>{ }</code></td><td>Present</td><td>Absent (replaced by <code>Block</code> node)</td></tr>
+  <tr><td>Parentheses <code>( )</code></td><td>Present (for grouping)</td><td>Absent (grouping is implicit in tree shape)</td></tr>
+  <tr><td>Commas</td><td>Present</td><td>Absent</td></tr>
+  <tr><td>Keywords (<code>return</code>, <code>let</code>)</td><td>Present as tokens</td><td>Replaced by variant/constructor name</td></tr>
+  <tr><td>Whitespace/comments</td><td>Absent (lexer stripped them)</td><td>Absent</td></tr>
+  <tr><td>Operator precedence</td><td>Flat (from tokens)</td><td>Hierarchical (from tree shape)</td></tr>
+</table>
+
+<p>
+<strong>Why bother discarding things?</strong> Because the rest of the compiler &mdash; type checking, code generation &mdash; does not care about semicolons. They are syntax, not semantics. Carrying them forward would mean every later phase has to deal with noise. The AST is the <em>essence</em> of the program, stripped of the accidentals of textual representation.
+</p>
+
+<div class="diagram">Source text:
+  return a + b;
+
+CST (concrete):
+  ReturnKeyword
+    Ident("a")
+    Plus
+    Ident("b")
+    Semicolon
+
+AST (abstract):
+  Return
+    Binary(Add, Ident("a"), Ident("b"))</div>
+
+<h3>Walking Through the Full AST</h3>
+
+<p>
+Let us build the complete AST for a slightly larger program and visualize it:
+</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> <span class="ty">x</span>: <span class="ty">i32</span> = <span class="num">10</span>;
+    <span class="kw">let</span> <span class="ty">y</span>: <span class="ty">i32</span> = x * <span class="num">2</span>;
+    <span class="kw">if</span> (y &gt; <span class="num">5</span>) {
+        <span class="kw">return</span> y;
+    } <span class="kw">else</span> {
+        <span class="kw">return</span> <span class="num">0</span>;
+    }
+}</code></pre>
+
+<div class="diagram">Program
+  decls:
+    FuncDecl
+      name:       "main"
+      ret_type:   Prim("i32")
+      params:     []
+      body:
+        Block
+          stmts:
+            [0] VarDecl
+                  name: "x"
+                  ty:   Prim("i32")
+                  init: Int(10)
+            [1] VarDecl
+                  name: "y"
+                  ty:   Prim("i32")
+                  init: Binary
+                          op:  Mul
+                          lhs: Ident("x")
+                          rhs: Int(2)
+            [2] If
+                  cond: Binary
+                          op:  Gt
+                          lhs: Ident("y")
+                          rhs: Int(5)
+                  then_block:
+                    Block
+                      stmts:
+                        Return
+                          expr: Ident("y")
+                  else_block:
+                    Block
+                      stmts:
+                        Return
+                          expr: Int(0)</code></pre>
+
+<p>
+Trace through it: the function body is a <code>Block</code> with three statements. The first two are variable declarations; their <code>init</code> expressions are an integer literal and a binary multiplication. The third is an <code>If</code> whose condition is a comparison. Each branch is another <code>Block</code> containing a single <code>Return</code>.
+</p>
+
+<h3>What the AST Enables</h3>
+
+<p>
+With the AST defined, we have a language-independent representation of the program. This is powerful because:
+</p>
+
+<ul>
+  <li><strong>Multiple passes:</strong> We can walk the tree multiple times, each pass doing one thing. First pass: collect all function names. Second pass: type check. Third pass: generate code.</li>
+  <li><strong>Correctness:</strong> The tree structure guarantees well-formedness. You cannot construct a <code>Return</code> with two expressions, or a <code>Binary</code> with one child &mdash; the type system prevents it.</li>
+  <li><strong>Transformations:</strong> We can rewrite the tree. Want to inline a function? Replace a <code>Call</code> node with a copy of the function body. Want to constant-fold? Replace <code>Binary(Add, Int(2), Int(3))</code> with <code>Int(5)</code>.</li>
+  <li><strong>Frontend/backend independence:</strong> The AST is the contract between the frontend (lexing + parsing + type checking) and the backend (code generation). As long as both sides agree on the AST types, we can change the source language syntax without touching the code generator.</li>
+</ul>
+
+<div class="callout">
+<strong>The AST is the spine of the compiler</strong>
+Everything from here on operates on the AST. The lexer and parser are behind us. Type checking walks the AST. Code generation walks the AST. The AST is the world that the rest of the compiler inhabits.
+</div>
+
+<h3>Pretty-Printing the AST</h3>
+
+<p>
+A useful exercise is to write a function that converts the AST back into source code. This is called <strong>pretty-printing</strong> or <strong>unparsing</strong>. It is a great way to debug your parser &mdash; parse a file, then pretty-print the resulting AST, and compare with the original.
+</p>
+
+<p>
+The pretty-printer is a recursive traversal of the tree, emitting strings for each node:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/pretty.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">pretty_expr</span>(expr: &amp;<span class="ty">Expr</span>) -&gt; <span class="hl">String</span> {
+    <span class="kw">match</span> expr {
+        Expr::Int(n)     =&gt; n.<span class="fn">to_string</span>(),
+        Expr::Bool(<span class="kw">true</span>) =&gt; <span class="str">"true"</span>.<span class="fn">to_string</span>(),
+        Expr::Bool(<span class="kw">false</span>) =&gt; <span class="str">"false"</span>.<span class="fn">to_string</span>(),
+        Expr::Ident(s)   =&gt; s.<span class="fn">clone</span>(),
+        Expr::Binary { op, lhs, rhs } =&gt; {
+            <span class="hl">format!</span>(<span class="str">"({} {} {})"</span>,
+                <span class="fn">pretty_expr</span>(lhs),
+                <span class="fn">pretty_op</span>(op),
+                <span class="fn">pretty_expr</span>(rhs))
+        }
+        Expr::Unary { op, rhs } =&gt; {
+            <span class="hl">format!</span>(<span class="str">"({}{})"</span>, <span class="fn">pretty_unary</span>(op), <span class="fn">pretty_expr</span>(rhs))
+        }
+        _ =&gt; <span class="str">"&lt;expr&gt;"</span>.<span class="fn">to_string</span>(),
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>pretty.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="kw">rec</span> <span class="fn">pretty_expr</span> = <span class="kw">function</span>
+  | Int n      -&gt; <span class="hl">string_of_int</span> n
+  | Bool <span class="kw">true</span>  -&gt; <span class="str">"true"</span>
+  | Bool <span class="kw">false</span> -&gt; <span class="str">"false"</span>
+  | Ident s    -&gt; s
+  | Binary { op; lhs; rhs } -&gt;
+      <span class="hl">Printf.sprintf</span> <span class="str">"(%s %s %s)"</span>
+        (<span class="fn">pretty_expr</span> lhs) (<span class="fn">pretty_op</span> op) (<span class="fn">pretty_expr</span> rhs)
+  | Unary { op; rhs } -&gt;
+      <span class="hl">Printf.sprintf</span> <span class="str">"(%s%s)"</span> (<span class="fn">pretty_unary</span> op) (<span class="fn">pretty_expr</span> rhs)
+  | _ -&gt; <span class="str">"&lt;expr&gt;"</span></code></pre>
+  </div>
+</div>
+
+<h3>What Comes Next</h3>
+
+<p>
+We have defined the shape of our programs. The AST is a clean, recursive data structure that captures everything the compiler needs to know about the source code, and nothing it does not.
+</p>
+
+<p>
+But the AST is just a tree of nodes. It does not know what names are in scope, what types expressions have, or whether <code>return</code> is used in a non-void function. Those are <em>semantic</em> questions, and they are the subject of the next chapter.
+</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Pretty-printer for declarations</strong>
+Extend the pretty-printer to handle <code>FuncDecl</code> and <code>VarDecl</code>. Pretty-print <code>func add(i32, a: i32, b: i32) { return a + b; }</code> and verify the output matches the input (modulo whitespace).
+</div>
+
+<div class="exercise">
+<strong>2. AST differ</strong>
+Write a function that compares two ASTs for structural equality (ignoring positions/spans). Use it to verify that parsing and pretty-printing is a round-trip: <code>source == pretty(parse(source))</code>.
+</div>
+
+<div class="exercise">
+<strong>3. Add a node type: <code>Break</code></strong>
+Extend the AST with a <code>Break</code> statement for breaking out of loops. What does this require in <code>Stmt</code>? Does it change any existing nodes? How does the parser know it is inside a loop?
+</div>
+
+<div class="exercise">
+<strong>4. String literals</strong>
+Add string literals to the AST. What node type do you need? What about escape sequences like <code>\n</code>? Does the lexer or the parser handle escapes?
+</div>
+
+<div class="exercise">
+<strong>5. AST visitor pattern</strong>
+Implement a generic AST visitor that walks every node in the tree and calls a callback. Then implement a "count variables" pass using only the visitor. This pattern is useful for analyses that do not need to modify the tree.
+</div>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="03-parsing.html" class="prev">Making Sense of Structure</a>
+  <a href="05-semantics.html" class="next">Does This Make Sense?</a>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AST — Building a Compiler (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">OCaml Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3ocaml-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3ocaml-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>4 · The Abstract Syntax Tree</h2>
+
+<h3>The Central Data Structure</h3>
+
+<p>The abstract syntax tree (AST) is the spine of the compiler. Every phase before parsing produces input for it; every phase after parsing consumes it. The lexer produces tokens, the parser builds the AST, and the semantic analyzer, optimizer, and code generator all walk it.</p>
+
+<p>An AST is a tree representation of the program's grammatical structure. It is "abstract" because it omits syntactic details that are not meaningful for analysis — semicolons, parentheses, braces. The concrete syntax <code>let x: i32 = 1 + 2;</code> becomes something like:</p>
+
+<div class="diagram">LetStmt
+  ├─ name: "x"
+  ├─ ty: TyI32
+  └─ init: BinOp
+            ├─ lhs: IntLit(1)
+            ├─ op: Add
+            └─ rhs: IntLit(2)</div>
+
+<p>Notice what is missing: the <code>let</code> keyword, the colon, the equals sign, the semicolon. Those are concrete syntax — they guide the parser but carry no semantic content. The AST captures only what matters: <em>what</em> the program does, not <em>how</em> it was written.</p>
+
+<h3>The AST as an Algebraic Data Type</h3>
+
+<p>OCaml was made for this. An AST is an algebraic data type — each variant is a kind of node, and the children of each node are the arguments to its constructor. The type definition <em>is</em> the specification of the language's abstract syntax:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>ast.ml — types</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">ident</span> = <span class="ty">string</span>
+
+<span class="kw">type</span> <span class="ty">binop</span> =
+  | <span class="fn">Add</span> | <span class="fn">Sub</span> | <span class="fn">Mul</span> | <span class="fn">Div</span>
+  | <span class="fn">Eq</span>  | <span class="fn">Neq</span> | <span class="fn">Lt</span> | <span class="fn">Gt</span> | <span class="fn">Leq</span> | <span class="fn">Geq</span>
+
+<span class="kw">type</span> <span class="ty">unop</span> =
+  | <span class="fn">Neg</span> | <span class="fn">Not</span>
+
+<span class="kw">type</span> <span class="ty">ty</span> =
+  | <span class="fn">TyI32</span>  | <span class="fn">TyI64</span>  | <span class="fn">TyU32</span>  | <span class="fn">TyU64</span>
+  | <span class="fn">TyI8</span>   | <span class="fn">TyU8</span>
+  | <span class="fn">TyBool</span> | <span class="fn">TyVoid</span>
+  | <span class="fn">TyArray</span> <span class="kw">of</span> <span class="ty">int</span> * <span class="ty">ty</span>
+  | <span class="fn">TyPtr</span>   <span class="kw">of</span> <span class="ty">ty</span>
+
+<span class="kw">type</span> <span class="ty">expr</span> =
+  | <span class="fn">IntLit</span>   <span class="kw">of</span> <span class="ty">int</span>
+  | <span class="fn">FloatLit</span> <span class="kw">of</span> <span class="ty">float</span>
+  | <span class="fn">StrLit</span>   <span class="kw">of</span> <span class="ty">string</span>
+  | <span class="fn">BoolLit</span>  <span class="kw">of</span> <span class="ty">bool</span>
+  | <span class="fn">Var</span>      <span class="kw">of</span> <span class="ty">ident</span>
+  | <span class="fn">BinOp</span>    <span class="kw">of</span> <span class="ty">expr</span> * <span class="ty">binop</span> * <span class="ty">expr</span>
+  | <span class="fn">Unary</span>    <span class="kw">of</span> <span class="ty">unop</span> * <span class="ty">expr</span>
+  | <span class="fn">Assign</span>   <span class="kw">of</span> <span class="ty">expr</span> * <span class="ty">expr</span>
+  | <span class="fn">Call</span>     <span class="kw">of</span> <span class="ty">ident</span> * <span class="ty">expr list</span>
+  | <span class="fn">Cast</span>     <span class="kw">of</span> <span class="ty">ty</span> * <span class="ty">expr</span>
+  | <span class="fn">ArrayIdx</span> <span class="kw">of</span> <span class="ty">expr</span> * <span class="ty">expr</span>
+
+<span class="kw">type</span> <span class="ty">stmt</span> =
+  | <span class="fn">Let</span>   <span class="kw">of</span> { name: <span class="ty">ident</span>; ty: <span class="ty">ty</span>; init: <span class="ty">expr</span> }
+  | <span class="fn">If</span>    <span class="kw">of</span> { cond: <span class="ty">expr</span>; then_block: <span class="ty">stmt list</span>; else_block: <span class="ty">stmt list option</span> }
+  | <span class="fn">While</span> <span class="kw">of</span> { cond: <span class="ty">expr</span>; body: <span class="ty">stmt list</span> }
+  | <span class="fn">Return</span> <span class="kw">of</span> <span class="ty">expr</span>
+  | <span class="fn">Expr</span>  <span class="kw">of</span> <span class="ty">expr</span>
+
+<span class="kw">type</span> <span class="ty">func_decl</span> = {
+  name:   <span class="ty">ident</span>;
+  params: <span class="ty">param list</span>;
+  ret_type: <span class="ty">ty option</span>;
+  body:   <span class="ty">stmt list</span>;
+}
+
+<span class="kw">and</span> <span class="ty">param</span> = {
+  name: <span class="ty">ident</span>;
+  ty:   <span class="ty">ty</span>;
+}
+
+<span class="kw">type</span> <span class="ty">decl</span> =
+  | <span class="fn">FuncDecl</span> <span class="kw">of</span> <span class="ty">func_decl</span>
+
+<span class="kw">type</span> <span class="ty">program</span> = <span class="ty">decl list</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/ast.rs — types</span></div>
+    <pre><code><span class="kw">pub type</span> <span class="ty">Ident</span> = <span class="ty">String</span>;
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub enum</span> <span class="ty">BinOp</span> {
+    <span class="fn">Add</span>, <span class="fn">Sub</span>, <span class="fn">Mul</span>, <span class="fn">Div</span>,
+    <span class="fn">Eq</span>, <span class="fn">Neq</span>, <span class="fn">Lt</span>, <span class="fn">Gt</span>, <span class="fn">Leq</span>, <span class="fn">Geq</span>,
+}
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub enum</span> <span class="ty">UnOp</span> {
+    <span class="fn">Neg</span>, <span class="fn">Not</span>,
+}
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub enum</span> <span class="ty">Ty</span> {
+    <span class="fn">I32</span>, <span class="fn">I64</span>, <span class="fn">U32</span>, <span class="fn">U64</span>,
+    <span class="fn">I8</span>, <span class="fn">U8</span>, <span class="fn">Bool</span>, <span class="fn">Void</span>,
+    <span class="fn">Array</span>(<span class="ty">usize</span>, <span class="fn">Box</span>&lt;<span class="ty">Ty</span>&gt;),
+    <span class="fn">Ptr</span>(<span class="fn">Box</span>&lt;<span class="ty">Ty</span>&gt;),
+}
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub enum</span> <span class="ty">Expr</span> {
+    <span class="fn">IntLit</span>(<span class="ty">i64</span>),
+    <span class="fn">FloatLit</span>(<span class="ty">f64</span>),
+    <span class="fn">StrLit</span>(<span class="ty">String</span>),
+    <span class="fn">BoolLit</span>(<span class="ty">bool</span>),
+    <span class="fn">Var</span>(<span class="ty">Ident</span>),
+    <span class="fn">BinOp</span>(<span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;, <span class="ty">BinOp</span>, <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+    <span class="fn">Unary</span>(<span class="ty">UnOp</span>, <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+    <span class="fn">Assign</span>(<span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;, <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+    <span class="fn">Call</span>(<span class="ty">Ident</span>, <span class="ty">Vec</span>&lt;<span class="ty">Expr</span>&gt;),
+    <span class="fn">Cast</span>(<span class="ty">Ty</span>, <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+    <span class="fn">ArrayIdx</span>(<span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;, <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+}
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub enum</span> <span class="ty">Stmt</span> {
+    <span class="fn">Let</span> { name: <span class="ty">Ident</span>, ty: <span class="ty">Ty</span>, init: <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt; },
+    <span class="fn">If</span> { cond: <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;, then_block: <span class="ty">Vec</span>&lt;<span class="ty">Stmt</span>&gt;,
+          else_block: <span class="ty">Option</span>&lt;<span class="ty">Vec</span>&lt;<span class="ty">Stmt</span>&gt;&gt; },
+    <span class="fn">While</span> { cond: <span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;, body: <span class="ty">Vec</span>&lt;<span class="ty">Stmt</span>&gt; },
+    <span class="fn">Return</span>(<span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+    <span class="fn">Expr</span>(<span class="fn">Box</span>&lt;<span class="ty">Expr</span>&gt;),
+}
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub struct</span> <span class="ty">FuncDecl</span> {
+    <span class="kw">pub</span> name:   <span class="ty">Ident</span>,
+    <span class="kw">pub</span> params: <span class="ty">Vec</span>&lt;<span class="ty">Param</span>&gt;,
+    <span class="kw">pub</span> ret_type: <span class="ty">Option</span>&lt;<span class="ty">Ty</span>&gt;,
+    <span class="kw">pub</span> body:   <span class="ty">Vec</span>&lt;<span class="ty">Stmt</span>&gt;,
+}
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub struct</span> <span class="ty">Param</span> {
+    <span class="kw">pub</span> name: <span class="ty">Ident</span>,
+    <span class="kw">pub</span> ty:   <span class="ty">Ty</span>,
+}
+
+<span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub enum</span> <span class="ty">Decl</span> {
+    <span class="fn">FuncDecl</span>(<span class="ty">FuncDecl</span>),
+}
+
+<span class="kw">pub type</span> <span class="ty">Program</span> = <span class="ty">Vec</span>&lt;<span class="ty">Decl</span>&gt;;</code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>OCaml was made for this</strong>
+<p>Read the OCaml type definition slowly. Each constructor is a node kind. The arguments to each constructor are the children of that node. <code>BinOp of expr * binop * expr</code> means a binary operation node has three children: left expression, operator, right expression. <code>stmt list</code> means a block is a list of statements. <code>ty option</code> means a return type is optional (functions can omit it, defaulting to <code>void</code>).</p>
+<p>The clarity is not accidental. ML's type system was designed for exactly this kind of tree representation. Every other representation — abstract base classes in C++, interfaces in Java, traits in Rust — is a workaround. OCaml gives you the real thing.</p>
+</div>
+
+<h3>Recursive Types and Mutability</h3>
+
+<p>Notice that <code>expr</code> and <code>stmt</code> are defined independently but refer to each other: <code>stmt</code> has an <code>Expr of expr</code> variant, and in a richer language, <code>expr</code> might contain inline blocks. OCaml handles this naturally because type definitions can be mutually recursive using <code>type ... and ...</code>.</p>
+
+<p>Also notice that <code>Let</code> in <code>stmt</code> uses a <strong>inline record syntax</strong> — <code>Let of { name: ident; ty: ty; init: expr }</code>. This is OCaml 4.03+ feature that gives us named fields for variant constructors. Before this feature, you had to define a separate record type. Now the constructor carries its own labeled fields. This is perfect for AST nodes with multiple children — you do not have to remember positional argument order.</p>
+
+<p>Rust cannot do inline records in enums and uses struct fields or tuple variants instead. OCaml's approach is cleaner for ASTs because every node is self-documenting.</p>
+
+<h3>Walking the AST</h3>
+
+<p>The AST is useless if we cannot traverse it. Consider a function that collects all variable references in an expression:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>ast.ml — collecting variable references</span></div>
+    <pre><code><span class="kw">let</span> <span class="kw">rec</span> <span class="fn">vars_of_expr</span> acc = <span class="kw">function</span>
+  | <span class="fn">Var</span> name     <span class="op">-&gt;</span> name :: acc
+  | <span class="fn">IntLit</span> _ | <span class="fn">FloatLit</span> _ | <span class="fn">StrLit</span> _ | <span class="fn">BoolLit</span> _ <span class="op">-&gt;</span> acc
+  | <span class="fn">BinOp</span> (l, _, r) <span class="op">-&gt;</span>
+      acc <span class="op">|&gt;</span> <span class="fn">vars_of_expr</span> l <span class="op">|&gt;</span> <span class="fn">vars_of_expr</span> r
+  | <span class="fn">Unary</span> (_, e)   <span class="op">-&gt;</span> <span class="fn">vars_of_expr</span> acc e
+  | <span class="fn">Assign</span> (l, r)  <span class="op">-&gt;</span> acc <span class="op">|&gt;</span> <span class="fn">vars_of_expr</span> l <span class="op">|&gt;</span> <span class="fn">vars_of_expr</span> r
+  | <span class="fn">Call</span> (_, args) <span class="op">-&gt;</span>
+      <span class="fn">List.fold_left</span> <span class="fn">vars_of_expr</span> acc args
+  | <span class="fn">Cast</span> (_, e)    <span class="op">-&gt;</span> <span class="fn">vars_of_expr</span> acc e
+  | <span class="fn">ArrayIdx</span> (a, i) <span class="op">-&gt;</span>
+      acc <span class="op">|&gt;</span> <span class="fn">vars_of_expr</span> a <span class="op">|&gt;</span> <span class="fn">vars_of_expr</span> i
+
+<span class="kw">let</span> <span class="kw">rec</span> <span class="fn">vars_of_stmt</span> acc = <span class="kw">function</span>
+  | <span class="fn">Let</span> { init; _ }        <span class="op">-&gt;</span> <span class="fn">vars_of_expr</span> acc init
+  | <span class="fn">If</span> { cond; then_block; else_block } <span class="op">-&gt;</span>
+      <span class="kw">let</span> acc = <span class="fn">vars_of_expr</span> acc cond <span class="kw">in</span>
+      <span class="kw">let</span> acc = <span class="fn">List.fold_left</span> <span class="fn">vars_of_stmt</span> acc then_block <span class="kw">in</span>
+      (<span class="kw">match</span> else_block <span class="kw">with</span>
+       | <span class="fn">Some</span> b <span class="op">-&gt;</span> <span class="fn">List.fold_left</span> <span class="fn">vars_of_stmt</span> acc b
+       | <span class="fn">None</span>   <span class="op">-&gt;</span> acc)
+  | <span class="fn">While</span> { cond; body }    <span class="op">-&gt;</span>
+      <span class="kw">let</span> acc = <span class="fn">vars_of_expr</span> acc cond <span class="kw">in</span>
+      <span class="fn">List.fold_left</span> <span class="fn">vars_of_stmt</span> acc body
+  | <span class="fn">Return</span> e <span class="op">-&gt;</span> <span class="fn">vars_of_expr</span> acc e
+  | <span class="fn">Expr</span> e   <span class="op">-&gt;</span> <span class="fn">vars_of_expr</span> acc e</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/ast.rs — collecting variable references</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">vars_of_expr</span>(expr: &amp;<span class="ty">Expr</span>) <span class="op">-&gt;</span> <span class="ty">Vec</span>&lt;<span class="ty">Ident</span>&gt; {
+    <span class="kw">match</span> expr {
+        <span class="fn">Expr::Var</span>(name) <span class="op">=&gt;</span> <span class="fn">vec!</span>[name.<span class="fn">clone</span>()],
+        <span class="fn">Expr::IntLit</span>(_) | <span class="fn">Expr::FloatLit</span>(_)
+      | <span class="fn">Expr::StrLit</span>(_) | <span class="fn">Expr::BoolLit</span>(_) <span class="op">=&gt;</span> <span class="fn">vec!</span>[],
+        <span class="fn">Expr::BinOp</span>(l, _, r) <span class="op">=&gt;</span> {
+            <span class="kw">let mut</span> v = <span class="fn">vars_of_expr</span>(l);
+            v.<span class="fn">extend</span>(<span class="fn">vars_of_expr</span>(r));
+            v
+        }
+        <span class="fn">Expr::Unary</span>(_, e) <span class="op">=&gt;</span> <span class="fn">vars_of_expr</span>(e),
+        <span class="fn">Expr::Assign</span>(l, r) <span class="op">=&gt;</span> {
+            <span class="kw">let mut</span> v = <span class="fn">vars_of_expr</span>(l);
+            v.<span class="fn">extend</span>(<span class="fn">vars_of_expr</span>(r));
+            v
+        }
+        <span class="fn">Expr::Call</span>(_, args) <span class="op">=&gt;</span> {
+            args.<span class="fn">iter</span>().<span class="fn">flat_map</span>(<span class="fn">vars_of_expr</span>).<span class="fn">collect</span>()
+        }
+        <span class="fn">Expr::Cast</span>(_, e) <span class="op">=&gt;</span> <span class="fn">vars_of_expr</span>(e),
+        <span class="fn">Expr::ArrayIdx</span>(a, i) <span class="op">=&gt;</span> {
+            <span class="kw">let mut</span> v = <span class="fn">vars_of_expr</span>(a);
+            v.<span class="fn">extend</span>(<span class="fn">vars_of_expr</span>(i));
+            v
+        }
+    }
+}</code></pre>
+  </div>
+</div>
+
+<p>This is the canonical pattern for working with ASTs: a recursive function that pattern-matches on each variant, processes the children recursively, and combines the results. The OCaml version uses an accumulator parameter passed via the <code>|&gt;</code> operator (forward pipe), which reads naturally left-to-right. Each branch is concise, exhaustive, and obviously correct.</p>
+
+<p>The forward pipe <code>|&gt;</code> is worth noting: <code>acc |&gt; vars_of_expr l |&gt; vars_of_expr r</code> means "take acc, pass it to <code>vars_of_expr l</code>, pass the result to <code>vars_of_expr r</code>". This reads much more naturally than the nested function call version: <code>vars_of_expr r (vars_of_expr l acc)</code>.</p>
+
+<div class="callout info">
+<strong>Exhaustiveness is a correctness guarantee</strong>
+<p>When you add a new variant to <code>expr</code> — say, <code>StructAccess</code> — the OCaml compiler will warn you about every <code>match</code> that does not handle it. The warnings are not optional; they are the compiler telling you that your semantic analysis, your pretty-printer, your code generator, and every other AST-walking function is now incomplete. Fix them all, and you can be confident that the new feature is properly integrated. No runtime bugs from forgotten dispatch cases. This is the power of algebraic data types in a compiler.</p>
+</div>
+
+<h3>The Type Type</h3>
+
+<p>The <code>ty</code> type is itself an algebraic data type, separate from the parser's token set. This is important: types in the AST are abstract. They are not "the token <code>i32</code>" — they are the <em>concept</em> of a 32-bit integer. The parser converts <code>I32</code> tokens to <code>TyI32</code> constructors; the semantic analyzer works with the <code>ty</code> type directly.</p>
+
+<p>This separation means the type system is uniform regardless of how types are written in source code. Whether the source says <code>i32</code>, <code>int32_t</code>, or <code>Int32</code>, the AST internally uses <code>TyI32</code>. The concrete syntax is a parser concern; the AST is concerned only with meaning.</p>
+
+<h3>The Program and Declarations</h3>
+
+<p>A <code>program</code> is simply a list of declarations. Currently only <code>FuncDecl</code> exists, but the <code>decl</code> type is a variant precisely so that we can add <code>GlobalDecl</code>, <code>StructDecl</code>, <code>ImportDecl</code>, or anything else without changing the top-level structure. Every function that processes a program now only needs to handle the cases that exist, and the compiler will warn us when we add new ones.</p>
+
+<h3>Designing the AST: Philosophy and Tradeoffs</h3>
+
+<p>AST design is a balancing act. Every design decision has downstream consequences for every compiler phase that walks the tree. Here are the key axes of the design space:</p>
+
+<p><strong>Fat vs. thin nodes.</strong> A "fat" AST node carries all information that any phase might need — spans, inferred types, symbol table references, optimization flags. A "thin" AST node carries only what the parser produces. Our AST is deliberately thin: each node carries its syntactic children and nothing more. Type information, scoping data, and other analysis results are stored separately. This keeps the AST definition simple and makes it easy to reason about. The tradeoff is that analysis phases must carry their own auxiliary data structures (symbol tables, type environments) rather than piggybacking on the AST.</p>
+
+<p><strong>Desugaring in the AST.</strong> Should <code>for</code> loops exist as a first-class AST node, or should the parser desugar them into <code>while</code> loops? We chose to keep the AST minimal — if a construct can be expressed in terms of simpler constructs, we desugar it early. This reduces the number of cases in every traversal. The cost is that error messages refer to the desugared form, which may not match the source code the user wrote.</p>
+
+<p><strong>Position storage.</strong> We store spans alongside AST nodes using tuples: <code>(decl * Span.t)</code>. An alternative is to store the span directly inside each node. We chose the tuple approach because it keeps the AST type clean — the span is metadata, not part of the tree. When we compare ASTs for equality (in tests), we can ignore spans by comparing only the first element.</p>
+
+<p>These three axes — fat vs. thin, desugaring strategy, position storage — are the fundamental design decisions that shape every AST. There are no universally correct answers, only tradeoffs. Our choices favor clarity and maintainability over performance. As the compiler grows, you may find reasons to move in a different direction.</p>
+
+<h3>The AST as a Contract</h3>
+
+<p>One way to think about the AST is as a <em>contract</em> between the frontend (lexer + parser) and the backend (analysis + code generation). The frontend promises to produce a well-formed AST. The backend promises to handle every node kind. The contract is enforced by OCaml's type system — the frontend can only produce nodes that exist, and the backend must handle every variant (or explicitly decide not to, catching the inevitable runtime error).</p>
+
+<p>This contract is more valuable than any documentation. Documentation rots. Type definitions do not. When you read an OCaml AST type definition, you are reading the authoritative, always-up-to-date specification of what the compiler's intermediate representation looks like. Every other description — comments, design documents, blog posts — is secondary.</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>Exercise 4.1 — Add a struct type</strong>
+<p>Add a <code>TyStruct</code> variant to <code>ty</code> and a corresponding <code>StructAccess</code> variant to <code>expr</code>. Structs introduce named fields: <code>s.field</code>. Update <code>vars_of_expr</code> to handle the new case. You will need a <code>StructDecl</code> variant in <code>decl</code> as well.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.2 — AST pretty-printer</strong>
+<p>Write a <code>string_of_expr</code> function that converts an <code>expr</code> back to source text. Then write <code>string_of_stmt</code> and <code>string_of_decl</code>. This is a recursive traversal that mirrors <code>vars_of_expr</code> but produces output instead of collecting names. Test it by round-tripping: parse a program, print it, parse the output, and compare the ASTs.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.3 — AST comparison for testing</strong>
+<p>Write a function <code>equal_expr</code> that compares two expressions for structural equality, ignoring spans. This is useful in tests: you can parse expected output and actual output and check that they match. Note that OCaml's built-in <code>=</code> already does structural equality on variants — but only if they do not carry functions or mutable state. Verify that <code>expr</code>, <code>stmt</code>, and <code>ty</code> are all structurally comparable.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.4 — AST transformation</strong>
+<p>Write a function <code>map_expr : (expr -> expr) -> expr -> expr</code> that applies a transformation to every sub-expression of an expression. Then implement constant folding (replacing <code>BinOp(IntLit(1), Add, IntLit(2))</code> with <code>IntLit(3)</code>) as a transformation passed to <code>map_expr</code>. This is the first compiler optimization pass and it is remarkably easy to express with functional transformations on algebraic data types.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.5 — Exhaustiveness experiment</strong>
+<p>Intentionally add a new variant to the <code>expr</code> type (e.g., <code>Tuple of expr list</code>) and try to compile the compiler. Count how many functions need updating. This experiment demonstrates why OCaml is the gold standard for compiler implementation — the type system catches every place that needs attention, no matter how deeply buried in the codebase.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.6 — Compare with Appel's AST</strong>
+<p>Open Appel's <em>Modern Compiler Implementation in ML</em> and compare his AST definitions with ours. How are they similar? How are they different? What design decisions did he make that we did not, and vice versa? This comparative exercise builds the judgment needed to design your own ASTs for future languages.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.7 — AST visitor pattern</strong>
+<p>Implement a generic AST visitor. Define a type <code>visitor</code> that has methods for each expression and statement kind, with default implementations that recurse into children. Then implement a "count variables" pass by overriding only the <code>visit_var</code> method. This is the functional version of the visitor pattern, and it is much cleaner in OCaml than the classical OOP visitor pattern because default implementations are just recursive functions that you partially override using function composition.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.8 — Annotated AST</strong>
+<p>Create a second AST type, <code>typed_expr</code>, that is identical to <code>expr</code> but each node carries an additional field: its inferred type. Write a function <code>annotate : expr -> typed_expr</code> that copies the tree and fills in type information. This is the simplest form of a "typed AST" and is the first step toward the semantic analysis we will do in Chapter 5.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 4.9 — GADTs for well-typed ASTs</strong>
+<p>If you know OCaml's generalized algebraic data types (GADTs), try to define a version of <code>expr</code> that is indexed by its type: <code>type _ expr = IntLit : int -> int expr | BinOp : int expr * binop * int expr -> int expr | ...</code>. This makes ill-typed ASTs unrepresentable — the type checker enforces typing at the AST level. This is an advanced exercise, but it demonstrates the depths of OCaml's type system and its connection to compiler correctness. (Appel's Tiger compiler does not use GADTs; this is a modern innovation.)</p>
+</div>
+
+<div class="callout info">
+<strong>The AST is the pivot point</strong>
+<p>Everything before the AST produces it. Everything after the AST consumes it. Getting the AST right is the single most important design decision in a compiler. A good AST makes semantic analysis straightforward, code generation clean, and optimization passes natural. A bad AST makes everything harder. Take your time. Add variants cautiously. The algebraic data type grows with the language, and OCaml will warn you when you forget to update a traversal.</p>
+</div>
+
+<div class="chapter-nav">
+  <a href="03-parsing.html" class="prev">3 · Parsing</a>
+  <a href="05-semantics.html" class="next">5 · Semantic Analysis</a>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 3: The Token System &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="02-span.html">&larr; Chapter 2</a> &ensp; Chapter 3: The Token System &ensp; <a href="04-lexer.html">Chapter 4 &rarr;</a></span>
+</div>
+
+<h2 id="tokens">3 &ensp; The Token System</h2>
+
+<h3>What is a Token?</h3>
+
+<p>A <strong>token</strong> is the smallest meaningful unit of a program. Where the source file is a flat sequence of characters, a token is a structured piece of data that says "this is a keyword," "this is an identifier," "this is an operator." The lexer's job is to convert characters to tokens; the parser's job is to convert tokens to an AST.</p>
+
+<p>Every compiler has a token type. L1S defines its tokens in a single file <code>src/token.rs</code> &mdash; the single source of truth shared by the lexer, parser, and all downstream tools.</p>
+
+<div class="callout info">
+<strong>Why a dedicated token file?</strong> Both the lexer (which produces tokens) and the parser (which consumes them) need to reference the same token types. Putting them in <code>token.rs</code> avoids circular dependencies and keeps the token definitions independent of both the lexing and parsing implementations.
+</div>
+
+<h3>The Token Enum</h3>
+
+<p>The core of the system is a <code>Token</code> enum with variants organized into five categories:</p>
+
+<div class="code-header"><span>src/token.rs &mdash; Token enum</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">Token</span> {
+    <span class="cm">// Keywords</span>
+    <span class="ty">Func</span>, <span class="ty">Let</span>, <span class="ty">Return</span>, <span class="ty">If</span>, <span class="ty">Else</span>,
+    <span class="ty">While</span>, <span class="ty">For</span>, <span class="ty">Struct</span>, <span class="ty">Enum</span>, <span class="ty">Spec</span>,
+    <span class="ty">Impl</span>, <span class="ty">Import</span>, <span class="ty">Asm</span>, <span class="ty">Cast</span>, <span class="ty">Pub</span>,
+    <span class="ty">Static</span>, <span class="ty">Typedef</span>, <span class="ty">Noprefix</span>, <span class="ty">True</span>, <span class="ty">False</span>,
+
+    <span class="cm">// Primitive types</span>
+    <span class="ty">Void</span>, <span class="ty">Bool</span>, <span class="ty">Char</span>, <span class="ty">Usize</span>, <span class="ty">Isize</span>,
+    <span class="ty">U64</span>, <span class="ty">I64</span>, <span class="ty">U32</span>, <span class="ty">I32</span>, <span class="ty">U16</span>, <span class="ty">I16</span>, <span class="ty">U8</span>, <span class="ty">I8</span>,
+
+    <span class="cm">// Literals</span>
+    <span class="ty">NumLiteral</span>(<span class="ty">String</span>),
+    <span class="ty">StrLiteral</span>(<span class="ty">String</span>),
+    <span class="ty">CharLiteral</span>(<span class="ty">u8</span>),
+
+    <span class="cm">// Identifiers</span>
+    <span class="ty">Ident</span>(<span class="ty">String</span>),
+
+    <span class="cm">// Operators</span>
+    <span class="ty">Plus</span>, <span class="ty">Minus</span>, <span class="ty">Star</span>, <span class="ty">Slash</span>, <span class="ty">Percent</span>,
+    <span class="ty">Amp</span>, <span class="ty">Pipe</span>, <span class="ty">Caret</span>, <span class="ty">Tilde</span>, <span class="ty">Bang</span>,
+    <span class="ty">Eq</span>, <span class="ty">EqEq</span>, <span class="ty">BangEq</span>, <span class="ty">Lt</span>, <span class="ty">Gt</span>,
+    <span class="ty">LtEq</span>, <span class="ty">GtEq</span>, <span class="ty">AmpAmp</span>, <span class="ty">PipePipe</span>,
+    <span class="ty">LtLt</span>, <span class="ty">GtGt</span>, <span class="ty">Arrow</span>, <span class="ty">Dot</span>, <span class="ty">At</span>,
+
+    <span class="cm">// Delimiters</span>
+    <span class="ty">OpenParen</span>, <span class="ty">CloseParen</span>,
+    <span class="ty">OpenBrace</span>, <span class="ty">CloseBrace</span>,
+    <span class="ty">OpenBracket</span>, <span class="ty">CloseBracket</span>,
+    <span class="ty">Semicolon</span>, <span class="ty">Comma</span>, <span class="ty">Colon</span>,
+
+    <span class="cm">// Special</span>
+    <span class="ty">Eof</span>,
+}</code></pre>
+
+<h4>Category 1: Keywords (20 variants)</h4>
+
+<p>Keywords are reserved words that have special meaning in the language. They are <strong>not</strong> identifiers &mdash; you cannot name a variable <code>func</code> or <code>let</code>:</p>
+
+<table class="file-table">
+<tr><th>Token Variant</th><th>Source Text</th><th>Purpose</th></tr>
+<tr><td><code>Func</code></td><td><code>func</code> or <code>Func</code></td><td>Function declaration</td></tr>
+<tr><td><code>Let</code></td><td><code>let</code></td><td>Variable binding</td></tr>
+<tr><td><code>Return</code></td><td><code>return</code></td><td>Return from function</td></tr>
+<tr><td><code>If</code></td><td><code>if</code></td><td>Conditional branch</td></tr>
+<tr><td><code>Else</code></td><td><code>else</code></td><td>Alternative branch</td></tr>
+<tr><td><code>While</code></td><td><code>while</code></td><td>While loop</td></tr>
+<tr><td><code>For</code></td><td><code>for</code></td><td>For loop</td></tr>
+<tr><td><code>Struct</code></td><td><code>struct</code></td><td>Structure definition</td></tr>
+<tr><td><code>Enum</code></td><td><code>enum</code></td><td>Enumeration definition</td></tr>
+<tr><td><code>Spec</code></td><td><code>spec</code></td><td>Trait/specification declaration</td></tr>
+<tr><td><code>Impl</code></td><td><code>impl</code></td><td>Implementation block</td></tr>
+<tr><td><code>Import</code></td><td><code>import</code></td><td>Module import</td></tr>
+<tr><td><code>Asm</code></td><td><code>asm</code></td><td>Inline assembly</td></tr>
+<tr><td><code>Cast</code></td><td><code>cast</code></td><td>Type cast expression</td></tr>
+<tr><td><code>Pub</code></td><td><code>pub</code></td><td>Visibility modifier</td></tr>
+<tr><td><code>Static</code></td><td><code>static</code></td><td>Static variable declaration</td></tr>
+<tr><td><code>Typedef</code></td><td><code>typedef</code></td><td>Type alias definition</td></tr>
+<tr><td><code>Noprefix</code></td><td><code>noprefix</code></td><td>Enum attribute: omit prefix</td></tr>
+<tr><td><code>True</code></td><td><code>true</code></td><td>Boolean literal: true</td></tr>
+<tr><td><code>False</code></td><td><code>false</code></td><td>Boolean literal: false</td></tr>
+</table>
+
+<div class="callout tip">
+<strong>Why are <code>true</code> and <code>false</code> keywords, not identifiers?</strong> In L1S, boolean literals are keywords so the parser can distinguish them from regular identifiers without symbol table lookups. This is a common design &mdash; Rust, Java, and Python all treat boolean literals as reserved. The alternative (lexing them as <code>Ident("true")</code> and relying on the parser to classify them) adds complexity for no benefit.
+</div>
+
+<h4>Category 2: Primitive Types (13 variants)</h4>
+
+<p>Every built-in type has its own token variant. This is a <strong>deliberate design choice</strong>: primitive types are not lexed as identifiers and then resolved later. They are first-class tokens from the start:</p>
+
+<table class="file-table">
+<tr><th>Token Variant</th><th>Source Text</th><th>Description</th></tr>
+<tr><td><code>Void</code></td><td><code>void</code></td><td>No return type / unit type</td></tr>
+<tr><td><code>Bool</code></td><td><code>bool</code></td><td>Boolean (1 byte)</td></tr>
+<tr><td><code>Char</code></td><td><code>char</code></td><td>Single byte character</td></tr>
+<tr><td><code>Usize</code></td><td><code>usize</code></td><td>Pointer-sized unsigned int</td></tr>
+<tr><td><code>Isize</code></td><td><code>isize</code></td><td>Pointer-sized signed int</td></tr>
+<tr><td><code>U64</code> / <code>I64</code></td><td><code>u64</code> / <code>i64</code></td><td>64-bit unsigned/signed int</td></tr>
+<tr><td><code>U32</code> / <code>I32</code></td><td><code>u32</code> / <code>i32</code></td><td>32-bit unsigned/signed int</td></tr>
+<tr><td><code>U16</code> / <code>I16</code></td><td><code>u16</code> / <code>i16</code></td><td>16-bit unsigned/signed int</td></tr>
+<tr><td><code>U8</code> / <code>I8</code></td><td><code>u8</code> / <code>i8</code></td><td>8-bit unsigned/signed int</td></tr>
+</table>
+
+<div class="callout warn">
+<strong>Keywords vs. identifiers: the critical tradeoff</strong> A typical two-phase design (lex everything as <code>Ident</code>, then classify in the parser) is simpler for the lexer but pushes complexity downstream. L1S's approach &mdash; making keywords and primitives distinct tokens &mdash; means the lexer itself handles classification, so the parser gets unambiguous tokens. The tradeoff is that adding a new keyword requires a new enum variant <em>and</em> a match arm in <code>keyword_token</code>. However, this is minor: both changes happen in the same file.
+</div>
+
+<h4>Category 3: Literals</h4>
+
+<p>Literals carry embedded data. They are the only token variants that hold values:</p>
+
+<table class="file-table">
+<tr><th>Token Variant</th><th>Data</th><th>Source Example</th><th>Stored As</th></tr>
+<tr><td><code>NumLiteral</code></td><td><code>String</code></td><td><code>42</code>, <code>0xFF</code></td><td>Raw source text (not parsed integer)</td></tr>
+<tr><td><code>StrLiteral</code></td><td><code>String</code></td><td><code>"hello"</code></td><td>Content with escapes resolved</td></tr>
+<tr><td><code>CharLiteral</code></td><td><code>u8</code></td><td><code>'x'</code></td><td>Single byte value</td></tr>
+</table>
+
+<p><strong>Why store <code>NumLiteral</code> as a <code>String</code> rather than an <code>i64</code> or similar?</strong> The lexer does not know the expected type of the literal. <code>42</code> could be <code>i32</code>, <code>u64</code>, or even a pointer. The raw string is preserved (including radix prefixes like <code>0x</code> and underscores) and parsed into a numeric value during semantic analysis when the target type is known.</p>
+
+<p><strong>Why store <code>StrLiteral</code> with escapes resolved?</strong> Escape sequences (<code>\n</code>, <code>\x48</code>, <code>\t</code>) are lexer concerns &mdash; they describe how characters are encoded in source, not what the string content actually is. Resolving them in the lexer means downstream passes see <code>"\n"</code> as a single newline byte, not a backslash followed by <code>n</code>.</p>
+
+<p><strong>Why <code>u8</code> for <code>CharLiteral</code>?</strong> L1S does not support multi-byte character literals. A character literal is always exactly one byte.</p>
+
+<h4>Category 4: Operators (24 variants)</h4>
+
+<p>Every operator is a distinct token. Multi-character operators (<code>==</code>, <code>!=</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code>, <code>-&gt;</code>, <code>&lt;=</code>, <code>&gt;=</code>) each get their own variant rather than being sequences of single-character tokens:</p>
+
+<table class="file-table">
+<tr><th>Token</th><th>Source</th><th>Token</th><th>Source</th><th>Token</th><th>Source</th></tr>
+<tr><td><code>Plus</code></td><td><code>+</code></td><td><code>Minus</code></td><td><code>-</code></td><td><code>Star</code></td><td><code>*</code></td></tr>
+<tr><td><code>Slash</code></td><td><code>/</code></td><td><code>Percent</code></td><td><code>%</code></td><td><code>Amp</code></td><td><code>&amp;</code></td></tr>
+<tr><td><code>Pipe</code></td><td><code>|</code></td><td><code>Caret</code></td><td><code>^</code></td><td><code>Tilde</code></td><td><code>~</code></td></tr>
+<tr><td><code>Bang</code></td><td><code>!</code></td><td><code>Eq</code></td><td><code>=</code></td><td><code>EqEq</code></td><td><code>==</code></td></tr>
+<tr><td><code>BangEq</code></td><td><code>!=</code></td><td><code>Lt</code></td><td><code>&lt;</code></td><td><code>Gt</code></td><td><code>&gt;</code></td></tr>
+<tr><td><code>LtEq</code></td><td><code>&lt;=</code></td><td><code>GtEq</code></td><td><code>&gt;=</code></td><td><code>AmpAmp</code></td><td><code>&amp;&amp;</code></td></tr>
+<tr><td><code>PipePipe</code></td><td><code>||</code></td><td><code>LtLt</code></td><td><code>&lt;&lt;</code></td><td><code>GtGt</code></td><td><code>&gt;&gt;</code></td></tr>
+<tr><td><code>Arrow</code></td><td><code>-&gt;</code></td><td><code>Dot</code></td><td><code>.</code></td><td><code>At</code></td><td><code>@</code></td></tr>
+</table>
+
+<div class="callout info">
+<strong>Why separate multi-character operators?</strong> If <code>==</code> were lexed as <code>Eq Eq</code> (two <code>=</code> tokens), the parser would need unbounded lookahead to distinguish <code>if a = b</code> (assignment in condition, likely an error) from <code>if a == b</code> (comparison). By making <code>==</code> a single token, the parser can decide immediately upon seeing it. This is a classic tradeoff: more token variants vs. simpler parsing.
+</div>
+
+<h4>Category 5: Delimiters (9 variants)</h4>
+
+<table class="file-table">
+<tr><th>Token</th><th>Source</th><th>Token</th><th>Source</th><th>Token</th><th>Source</th></tr>
+<tr><td><code>OpenParen</code></td><td><code>(</code></td><td><code>CloseParen</code></td><td><code>)</code></td><td><code>OpenBrace</code></td><td><code>{</code></td></tr>
+<tr><td><code>CloseBrace</code></td><td><code>}</code></td><td><code>OpenBracket</code></td><td><code>[</code></td><td><code>CloseBracket</code></td><td><code>]</code></td></tr>
+<tr><td><code>Semicolon</code></td><td><code>;</code></td><td><code>Comma</code></td><td><code>,</code></td><td><code>Colon</code></td><td><code>:</code></td></tr>
+</table>
+
+<p>Note: unlike C or Rust, L1S uses semicolons as statement terminators, not statement separators, so every statement ends with <code>Token::Semicolon</code>.</p>
+
+<h4>Category 6: Eof</h4>
+
+<p>A single <code>Eof</code> variant signals the end of input. The lexer guarantees exactly one <code>Eof</code> token at the end of the token stream, even for empty input.</p>
+
+<h3>The SpannedToken Wrapper</h3>
+
+<p>Tokens rarely travel alone. Every token needs its source location so errors can point back to the right place. The <code>SpannedToken</code> struct pairs a token with its <code>Span</code>:</p>
+
+<div class="code-header"><span>src/token.rs &mdash; SpannedToken</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">SpannedToken</span> {
+    <span class="kw">pub</span> token: <span class="ty">Token</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">SpannedToken</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(token: <span class="ty">Token</span>, span: <span class="ty">Span</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">SpannedToken</span> { token, span }
+    }
+}</code></pre>
+
+<div class="callout tip">
+<strong>Why a separate struct instead of embedding Span in Token?</strong> Two reasons. First, not every context needs a span &mdash; for example, tests that check token sequences don't care about positions. Second, <code>Span</code> is a property of the token's <em>occurrence</em> in source, not of the token itself. A <code>Token::Func</code> variant doesn't inherently have a position; a <code>SpannedToken</code> with <code>Token::Func</code> does. This separation models the domain correctly.
+</div>
+
+<h3>The <code>keyword_token()</code> Function</h3>
+
+<p>This is the bridge function that maps identifier-like strings to their keyword counterparts:</p>
+
+<div class="code-header"><span>src/token.rs &mdash; keyword_token()</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">keyword_token</span>(word: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">match</span> word {
+        <span class="str">"func"</span> | <span class="str">"Func"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Func</span>),
+        <span class="str">"let"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Let</span>),
+        <span class="str">"return"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Return</span>),
+        <span class="str">"if"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::If</span>),
+        <span class="str">"else"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Else</span>),
+        <span class="str">"while"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::While</span>),
+        <span class="str">"for"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::For</span>),
+        <span class="str">"struct"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Struct</span>),
+        <span class="str">"enum"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Enum</span>),
+        <span class="str">"spec"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Spec</span>),
+        <span class="str">"impl"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Impl</span>),
+        <span class="str">"import"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Import</span>),
+        <span class="str">"asm"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Asm</span>),
+        <span class="str">"cast"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Cast</span>),
+        <span class="str">"pub"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Pub</span>),
+        <span class="str">"static"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Static</span>),
+        <span class="str">"typedef"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Typedef</span>),
+        <span class="str">"noprefix"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Noprefix</span>),
+        <span class="str">"true"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::True</span>),
+        <span class="str">"false"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::False</span>),
+        <span class="str">"void"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Void</span>),
+        <span class="str">"bool"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Bool</span>),
+        <span class="str">"char"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Char</span>),
+        <span class="str">"usize"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Usize</span>),
+        <span class="str">"isize"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::Isize</span>),
+        <span class="str">"u64"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::U64</span>),
+        <span class="str">"i64"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::I64</span>),
+        <span class="str">"u32"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::U32</span>),
+        <span class="str">"i32"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::I32</span>),
+        <span class="str">"u16"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::U16</span>),
+        <span class="str">"i16"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::I16</span>),
+        <span class="str">"u8"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::U8</span>),
+        <span class="str">"i8"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Token::I8</span>),
+        _ =&gt; <span class="ty">None</span>,
+    }
+}</code></pre>
+
+<p>This is a <strong>pure function</strong>: given a string, it returns either the matching keyword token or <code>None</code>. It has no side effects and no dependencies. The lexer calls it like this:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_identifier_or_keyword</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> ident = <span class="ty">String</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="kw">if</span> c.<span class="fn">is_alphanumeric</span>() || c == <span class="str">'_'</span> {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            ident.<span class="fn">push</span>(c);
+        } <span class="kw">else</span> { <span class="kw">break</span>; }
+    }
+    <span class="fn">keyword_token</span>(&amp;ident).<span class="fn">unwrap_or</span>(<span class="ty">Token::Ident</span>(ident))
+}</code></pre>
+
+<div class="callout info">
+<strong>Note that <code>Func</code> matches both <code>"func"</code> and <code>"Func"</code>.</strong> L1S supports capitalized function names for type constructor functions (like <code>StructName(val)</code>), while <code>func</code> remains the keyword form. Both map to the same <code>Token::Func</code> variant; the parser distinguishes them by context.
+</div>
+
+<h3>Why <code>keyword_token</code> Is the Right Abstraction</h3>
+
+<p>The design of having a centralized <code>keyword_token</code> function is a <strong>key architectural decision</strong>. Consider the alternatives:</p>
+
+<ul>
+<li><strong>No keyword classification in the lexer</strong>: Lex every alphanumeric sequence as <code>Ident</code> and let the parser decide. This forces the parser to carry a keyword table, complicates error messages ("expected keyword 'func', found identifier 'func'"?), and makes the token stream less informative.</li>
+<li><strong>Hardcode keyword detection in the lexer</strong>: Put a giant <code>match</code> directly inside <code>lex_identifier_or_keyword</code>. This works but couples the lexer to the keyword list, making it harder to reuse the token definitions in other tools (formatters, linters, syntax highlighters).</li>
+<li><strong>Use a hashmap</strong>: Populate a <code>HashMap&lt;&amp;str, Token&gt;</code> at startup. This is more flexible but adds allocation and initialization overhead, and the match-based approach is faster (the compiler optimizes string matches into a perfect hash or jump table).</li>
+</ul>
+
+<p>The <code>keyword_token</code> approach is the sweet spot: it's a standalone, testable, pure function that the lexer delegates to, and that any other tool can also use.</p>
+
+<h3>Traced Example: The Token Stream</h3>
+
+<p>Let's trace what happens when the lexer processes this program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p>The lexer calls <code>lex_identifier_or_keyword</code> for each alphanumeric sequence. Here is the decision path for each identifier-like token:</p>
+
+<table class="file-table">
+<tr><th>Source Text</th><th>Collected String</th><th><code>keyword_token()</code> Returns</th><th>Final Token</th></tr>
+<tr><td><code>func</code></td><td><code>"func"</code></td><td><code>Some(Func)</code></td><td><code>Func</code></td></tr>
+<tr><td><code>add</code></td><td><code>"add"</code></td><td><code>None</code></td><td><code>Ident("add")</code></td></tr>
+<tr><td><code>i32</code></td><td><code>"i32"</code></td><td><code>Some(I32)</code></td><td><code>I32</code></td></tr>
+<tr><td><code>a</code></td><td><code>"a"</code></td><td><code>None</code></td><td><code>Ident("a")</code></td></tr>
+<tr><td><code>i32</code></td><td><code>"i32"</code></td><td><code>Some(I32)</code></td><td><code>I32</code></td></tr>
+<tr><td><code>b</code></td><td><code>"b"</code></td><td><code>None</code></td><td><code>Ident("b")</code></td></tr>
+<tr><td><code>return</code></td><td><code>"return"</code></td><td><code>Some(Return)</code></td><td><code>Return</code></td></tr>
+</table>
+
+<p>The complete token stream with spans:</p>
+
+<table class="file-table">
+<tr><th>#</th><th>Token</th><th>Span (line:col)</th><th>Source Text</th></tr>
+<tr><td>1</td><td><code>Func</code></td><td>1:1 &ndash; 1:5</td><td><code>func</code></td></tr>
+<tr><td>2</td><td><code>Ident("add")</code></td><td>1:6 &ndash; 1:9</td><td><code>add</code></td></tr>
+<tr><td>3</td><td><code>OpenParen</code></td><td>1:9 &ndash; 1:10</td><td><code>(</code></td></tr>
+<tr><td>4</td><td><code>I32</code></td><td>1:10 &ndash; 1:13</td><td><code>i32</code></td></tr>
+<tr><td>5</td><td><code>Ident("a")</code></td><td>1:14 &ndash; 1:15</td><td><code>a</code></td></tr>
+<tr><td>6</td><td><code>Comma</code></td><td>1:15 &ndash; 1:16</td><td><code>,</code></td></tr>
+<tr><td>7</td><td><code>I32</code></td><td>1:17 &ndash; 1:20</td><td><code>i32</code></td></tr>
+<tr><td>8</td><td><code>Ident("b")</code></td><td>1:21 &ndash; 1:22</td><td><code>b</code></td></tr>
+<tr><td>9</td><td><code>CloseParen</code></td><td>1:22 &ndash; 1:23</td><td><code>)</code></td></tr>
+<tr><td>10</td><td><code>Arrow</code></td><td>1:24 &ndash; 1:26</td><td><code>-&gt;</code></td></tr>
+<tr><td>11</td><td><code>I32</code></td><td>1:27 &ndash; 1:30</td><td><code>i32</code></td></tr>
+<tr><td>12</td><td><code>OpenBrace</code></td><td>1:31 &ndash; 1:32</td><td><code>{</code></td></tr>
+<tr><td>13</td><td><code>Return</code></td><td>2:5 &ndash; 2:11</td><td><code>return</code></td></tr>
+<tr><td>14</td><td><code>Ident("a")</code></td><td>2:12 &ndash; 2:13</td><td><code>a</code></td></tr>
+<tr><td>15</td><td><code>Plus</code></td><td>2:14 &ndash; 2:15</td><td><code>+</code></td></tr>
+<tr><td>16</td><td><code>Ident("b")</code></td><td>2:16 &ndash; 2:17</td><td><code>b</code></td></tr>
+<tr><td>17</td><td><code>Semicolon</code></td><td>2:17 &ndash; 2:18</td><td><code>;</code></td></tr>
+<tr><td>18</td><td><code>CloseBrace</code></td><td>3:1 &ndash; 3:2</td><td><code>}</code></td></tr>
+<tr><td>19</td><td><code>Eof</code></td><td>3:2 &ndash; 3:2</td><td>&lt;end&gt;</td></tr>
+</table>
+
+<h3>Testing the Token System</h3>
+
+<p>The <code>#[cfg(test)]</code> module at the bottom of <code>token.rs</code> tests every aspect of the type system:</p>
+
+<div class="code-header"><span>src/token.rs &mdash; tests module</span></div>
+<pre><code><span class="pp">#[cfg(test)]</span>
+<span class="kw">mod</span> tests {
+    <span class="kw">use</span> <span class="kw">super</span>::*;
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_keywords</span>() {
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"func"</span>), <span class="ty">Some</span>(<span class="ty">Token::Func</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"let"</span>), <span class="ty">Some</span>(<span class="ty">Token::Let</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"return"</span>), <span class="ty">Some</span>(<span class="ty">Token::Return</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"if"</span>), <span class="ty">Some</span>(<span class="ty">Token::If</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"else"</span>), <span class="ty">Some</span>(<span class="ty">Token::Else</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"while"</span>), <span class="ty">Some</span>(<span class="ty">Token::While</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"for"</span>), <span class="ty">Some</span>(<span class="ty">Token::For</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"struct"</span>), <span class="ty">Some</span>(<span class="ty">Token::Struct</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"enum"</span>), <span class="ty">Some</span>(<span class="ty">Token::Enum</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"spec"</span>), <span class="ty">Some</span>(<span class="ty">Token::Spec</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"impl"</span>), <span class="ty">Some</span>(<span class="ty">Token::Impl</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"import"</span>), <span class="ty">Some</span>(<span class="ty">Token::Import</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"asm"</span>), <span class="ty">Some</span>(<span class="ty">Token::Asm</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"cast"</span>), <span class="ty">Some</span>(<span class="ty">Token::Cast</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"pub"</span>), <span class="ty">Some</span>(<span class="ty">Token::Pub</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"static"</span>), <span class="ty">Some</span>(<span class="ty">Token::Static</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"typedef"</span>), <span class="ty">Some</span>(<span class="ty">Token::Typedef</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"noprefix"</span>), <span class="ty">Some</span>(<span class="ty">Token::Noprefix</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"true"</span>), <span class="ty">Some</span>(<span class="ty">Token::True</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"false"</span>), <span class="ty">Some</span>(<span class="ty">Token::False</span>));
+    }
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_primitive_keywords</span>() {
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"void"</span>), <span class="ty">Some</span>(<span class="ty">Token::Void</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"i32"</span>), <span class="ty">Some</span>(<span class="ty">Token::I32</span>));
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"u64"</span>), <span class="ty">Some</span>(<span class="ty">Token::U64</span>));
+    }
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_non_keyword</span>() {
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"foo"</span>), <span class="ty">None</span>);
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"bar"</span>), <span class="ty">None</span>);
+        <span class="fn">assert_eq!</span>(<span class="fn">keyword_token</span>(<span class="str">"x123"</span>), <span class="ty">None</span>);
+    }
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_spanned_token</span>() {
+        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(0, 4, 1, 1);
+        <span class="kw">let</span> st = <span class="ty">SpannedToken</span>::<span class="fn">new</span>(<span class="ty">Token::Func</span>, span);
+        <span class="fn">assert_eq!</span>(st.token, <span class="ty">Token::Func</span>);
+        <span class="fn">assert_eq!</span>(st.span, span);
+    }
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_token_equality</span>() {
+        <span class="fn">assert_eq!</span>(<span class="ty">Token::Plus</span>, <span class="ty">Token::Plus</span>);
+        <span class="fn">assert_eq!</span>(<span class="ty">Token::NumLiteral</span>(<span class="str">"42"</span>.<span class="fn">into</span>()),
+                   <span class="ty">Token::NumLiteral</span>(<span class="str">"42"</span>.<span class="fn">into</span>()));
+        <span class="fn">assert_ne!</span>(<span class="ty">Token::Plus</span>, <span class="ty">Token::Minus</span>);
+    }
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_ident_token</span>() {
+        <span class="kw">let</span> ident = <span class="ty">Token::Ident</span>(<span class="str">"hello"</span>.<span class="fn">into</span>());
+        <span class="kw">match</span> ident {
+            <span class="ty">Token::Ident</span>(s) =&gt; <span class="fn">assert_eq!</span>(s, <span class="str">"hello"</span>),
+            _ =&gt; <span class="fn">panic!</span>(<span class="str">"expected Ident"</span>),
+        }
+    }
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_literal_tokens</span>() {
+        <span class="kw">let</span> n = <span class="ty">Token::NumLiteral</span>(<span class="str">"123"</span>.<span class="fn">into</span>());
+        <span class="kw">let</span> s = <span class="ty">Token::StrLiteral</span>(<span class="str">"abc"</span>.<span class="fn">into</span>());
+        <span class="kw">let</span> c = <span class="ty">Token::CharLiteral</span>(b'x');
+        <span class="kw">match</span> n { <span class="ty">Token::NumLiteral</span>(<span class="kw">ref</span> v) =&gt; <span class="fn">assert_eq!</span>(v, <span class="str">"123"</span>), _ =&gt; <span class="fn">panic!</span>() }
+        <span class="kw">match</span> s { <span class="ty">Token::StrLiteral</span>(<span class="kw">ref</span> v) =&gt; <span class="fn">assert_eq!</span>(v, <span class="str">"abc"</span>), _ =&gt; <span class="fn">panic!</span>() }
+        <span class="kw">match</span> c { <span class="ty">Token::CharLiteral</span>(v) =&gt; <span class="fn">assert_eq!</span>(v, b'x'), _ =&gt; <span class="fn">panic!</span>() }
+    }
+
+    <span class="pp">#[test]</span>
+    <span class="kw">fn</span> <span class="fn">test_eof_token</span>() {
+        <span class="fn">assert_eq!</span>(<span class="fn">format!</span>(<span class="str">"{:?}"</span>, <span class="ty">Token::Eof</span>), <span class="str">"Eof"</span>);
+    }
+}</code></pre>
+
+<p>There are <strong>8 test functions</strong> covering:</p>
+<ul>
+<li><strong>test_keywords</strong>: Every keyword maps correctly via <code>keyword_token()</code>.</li>
+<li><strong>test_primitive_keywords</strong>: Same for the primitive type names.</li>
+<li><strong>test_non_keyword</strong>: Ordinary identifiers return <code>None</code>.</li>
+<li><strong>test_spanned_token</strong>: The <code>SpannedToken</code> wrapper correctly stores both a token and a span.</li>
+<li><strong>test_token_equality</strong>: The <code>PartialEq</code> derive works correctly (including data comparison for <code>NumLiteral</code>).</li>
+<li><strong>test_ident_token</strong>: Pattern matching on the <code>Ident</code> variant extracts the string.</li>
+<li><strong>test_literal_tokens</strong>: All three literal variants store the right data types.</li>
+<li><strong>test_eof_token</strong>: Debug formatting for the <code>Eof</code> variant.</li>
+</ul>
+
+<p>To run the token tests in isolation:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- token
+</code></pre>
+
+<h3>Derive Macros: Why <code>#[derive(Debug, Clone, PartialEq)]</code>?</h3>
+
+<p>The <code>Token</code> enum derives three traits:</p>
+
+<ul>
+<li><strong><code>Debug</code></strong>: Required for <code>assert_eq!</code> error messages, which print both sides on failure. Also useful for debugging the lexer output.</li>
+<li><strong><code>Clone</code></strong>: The parser often needs to inspect a token without consuming it (lookahead). Clone lets us keep a copy.</li>
+<li><strong><code>PartialEq</code></strong>: Required for test assertions and for the parser's token matching. Note that <code>Eq</code> is NOT derived &mdash; <code>NumLiteral(String)</code> can never be compared reflexively in a meaningful way for the compiler's purposes, but <code>PartialEq</code> with no <code>Eq</code> is sufficient for all our use cases.</li>
+</ul>
+
+<div class="callout info">
+<strong>Why not derive <code>Eq</code>?</strong> Rust's <code>Eq</code> trait requires reflexivity: <code>a == a</code> must always be true. For all of our token variants this holds, so we <em>could</em> derive it. However, by convention, we only derive what we need. Adding <code>Eq</code> later is a non-breaking change. This is a minor design choice, but it's worth noting for awareness.
+</div>
+
+<h3>The Big Picture: How Tokens Flow</h3>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Data flow through the compiler pipeline:</strong><br><br>
+<code>Source text (.l1s file)</code><br>
+<span class="arrow">&darr;</span><br>
+<code>Lexer.tokenize()</code><br>
+<span class="arrow">&darr;</span><br>
+<code>Vec&lt;SpannedToken&gt;</code> &ensp; (each token knows its source location)<br>
+<span class="arrow">&darr;</span><br>
+<code>Parser.parse()</code> &ensp; (consumes tokens, produces <code>AstProgram</code>)<br>
+<span class="arrow">&darr;</span><br>
+<code>Semantic analysis / Codegen</code>
+</div>
+
+<p>Every stage <em>after</em> the lexer works with <code>Token</code> variants through the <code>SpannedToken</code> wrapper. The parser never sees raw characters &mdash; it only sees the structured token stream. This separation is what makes the compiler modular: you could replace the lexer entirely (e.g., with a hand-written scanner or a lexer generator like <code>logos</code>) without changing anything downstream, as long as the same <code>Token</code> enum is produced.</p>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Forgetting to add a new keyword in two places</strong>: Adding <code>Loop</code> to the <code>Token</code> enum but not to <code>keyword_token()</code> means the lexer will produce <code>Ident("loop")</code> instead of <code>Token::Loop</code>. Always update both the variant and the match arm.</li>
+<li><strong>Case sensitivity</strong>: <code>keyword_token</code> matches both <code>"func"</code> and <code>"Func"</code> for <code>Token::Func</code>, but <code>"Struct"</code> is NOT a keyword (only <code>"struct"</code> is). If you change this, update the tests too.</li>
+<li><strong>Derive mismatch</strong>: If you add a field to a token variant that doesn't implement <code>PartialEq</code> or <code>Debug</code>, the compiler will error. Make sure new fields satisfy the trait bounds.</li>
+<li><strong>Span is not Clone</strong>: <code>Span</code> derives <code>Clone</code> + <code>Copy</code>. If you change this, <code>SpannedToken</code> stops being clonable and the parser breaks.</li>
+<li><strong>Testing empty input</strong>: Always test that <code>keyword_token("")</code> returns <code>None</code>. Empty strings should never match a keyword.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Debugging tip</strong>: If the parser is producing unexpected errors, dump the token stream first. Add a quick <code>dbg!</code> to the parser's token consumption loop to see what tokens the lexer actually produced. Often the bug is in the lexer (wrong token for a keyword) rather than in the parser.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="02-span.html">&larr; Chapter 2</a> &ensp; Chapter 3: The Token System &ensp; <a href="04-lexer.html">Chapter 4 &rarr;</a></span>
+</div>
+
+</body>
+</html>

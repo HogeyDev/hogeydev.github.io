@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 15: Assembly &amp; Linking &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="14-codegen.html">&larr; Chapter 14</a> &ensp; Chapter 15: Assembly &amp; Linking &ensp; <a href="16-diag.html">Chapter 16 &rarr;</a></span>
+</div>
+
+<h2 id="link">15 &ensp; Assembly &amp; Linking</h2>
+
+<h3>From Assembly Text to Executable Binary</h3>
+
+<p>After code generation, the compiler has produced a string of assembly text &mdash; human-readable mnemonics like <code>mov</code>, <code>add</code>, and <code>jmp</code>. But this is not yet machine code. Two more tools are needed to turn this text into a running executable: an <strong>assembler</strong> and a <strong>linker</strong>.</p>
+
+<p>The assembler translates assembly mnemonics into machine code bytes, producing an object file (<code>.o</code>). The linker resolves symbolic references between object files, relocates code and data to their final memory addresses, and produces an executable binary. Most compilers do not ship their own assembler or linker &mdash; instead, they invoke system tools like <code>nasm</code> (for assembly) and <code>ld</code> or <code>cc</code> (for linking).</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>The assembly-to-executable pipeline:</strong><br><br>
+<pre style="text-align:left;background:var(--bg3);border:none;padding:0.75rem;margin:0;">
+<span style="color:var(--orange)">program.asm</span>           <span style="color:var(--fg2)">// NASM assembly text (~100 bytes for a trivial program)</span>
+    │
+    ▼  <span style="color:var(--blue)">nasm -f elf64</span>
+    │
+<span style="color:var(--orange)">program.o</span>              <span style="color:var(--fg2)">// ELF64 object file (machine code + metadata)</span>
+    │
+    ▼  <span style="color:var(--blue)">cc -no-pie</span>
+    │
+<span style="color:var(--cyan)">program</span>                <span style="color:var(--fg2)">// ELF64 executable (runnable binary)</span>
+</pre>
+</div>
+
+<h3>Assemblers: How Text Becomes Machine Code</h3>
+
+<p>An assembler performs a conceptually simple translation: each assembly mnemonic and its operands map to a specific sequence of machine code bytes. For example, on x86-64:</p>
+
+<table class="file-table">
+<tr><th>Assembly</th><th>Machine Code (hex)</th><th>Meaning</th></tr>
+<tr><td><code>push rbp</code></td><td><code>55</code></td><td>Push base pointer onto stack</td></tr>
+<tr><td><code>mov rbp, rsp</code></td><td><code>48 89 e5</code></td><td>Copy stack pointer to base pointer</td></tr>
+<tr><td><code>ret</code></td><td><code>c3</code></td><td>Return from function</td></tr>
+</table>
+
+<p>Assemblers differ in their approach to this translation:</p>
+<ul>
+<li><strong>One-pass assemblers</strong>: Read the source once, emitting code as they go. Forward references (jumping to a label defined later) require a fixup table that is patched after the first pass. NASM uses this approach.</li>
+<li><strong>Two-pass assemblers</strong>: First pass builds a symbol table of all labels and their offsets; second pass emits code using the now-known addresses. MASM (Microsoft Assembler) uses this.</li>
+<li><strong>Multi-pass assemblers</strong>: Additional passes enable optimizations like jump-sizing (choosing between short and near jumps).</li>
+</ul>
+
+<p>The assembler also produces an <strong>object file</strong> in a standard format (ELF64 on Linux, Mach-O on macOS, PE on Windows). An object file contains not just machine code, but also metadata: relocation entries (places where addresses need to be filled in), a symbol table (defined and undefined symbols), and section headers.</p>
+
+<h3>Linkers: Resolving References</h3>
+
+<p>The linker's job is to combine one or more object files into a single executable. It performs two main tasks:</p>
+
+<ol>
+<li><strong>Symbol resolution</strong>: Match undefined symbols (e.g., a call to <code>main</code> from the C runtime startup code) to their definitions in other object files or libraries.</li>
+<li><strong>Relocation</strong>: Adjust the code and data addresses in each object file to reflect the final memory layout of the executable. A jump to <code>main</code> that was assembled as "jump to offset 0" gets patched to the actual address of <code>main</code> in the final binary.</li>
+</ol>
+
+<p>Modern compilers rarely invoke the linker (<code>ld</code>) directly. Instead, they invoke the C compiler frontend (<code>cc</code> or <code>gcc</code>), which knows how to pass the right flags to the linker, including the necessary C runtime startup files (<code>crt0.o</code>, <code>crti.o</code>, <code>crtn.o</code>) that set up <code>_start</code> and call <code>main</code>.</p>
+
+<h3>How Ignis Invokes the Toolchain</h3>
+
+<p>Ignis's compiler driver (<code>main.rs</code>) handles assembly and linking with three sequential steps: write the assembly file, invoke NASM, and invoke the C compiler as a linker frontend.</p>
+
+<div class="code-header"><span>src/main.rs &mdash; Assembly, linking, and output</span></div>
+<pre><code>    <span class="cm">// Step 1: Write .asm file</span>
+    fs::<span class="fn">write</span>(&amp;asm_path, &amp;asm).<span class="fn">unwrap_or_else</span>(|e| {
+        <span class="fn">eprintln!</span>(<span class="str">"error writing {}: {}"</span>, asm_path, e);
+        std::process::<span class="fn">exit</span>(<span class="num">1</span>);
+    });
+
+    <span class="cm">// Step 2: Assemble with NASM</span>
+    <span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, <span class="str">"-o"</span>, &amp;o_path, &amp;asm_path])
+        .<span class="fn">status</span>()
+        .<span class="fn">unwrap_or_else</span>(|e| { <span class="cm">/* handle error */</span> });
+
+    <span class="cm">// Step 3: Link with cc</span>
+    <span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-o"</span>, &amp;bin_path, &amp;o_path, <span class="str">"-no-pie"</span>])
+        .<span class="fn">status</span>()
+        .<span class="fn">unwrap_or_else</span>(|e| { <span class="cm">/* handle error */</span> });</code></pre>
+
+<h3>Step 1: Writing the Assembly File</h3>
+
+<p>The code generator's output (a <code>String</code>) is written to a <code>.asm</code> file alongside the intended output binary. If the input was <code>program.is</code>, the assembly file is <code>program.asm</code>. The <code>.asm</code> file is deliberately kept after compilation so developers can inspect the generated assembly for debugging.</p>
+
+<h3>Step 2: Invoking NASM</h3>
+
+<p>NASM (Netwide Assembler) is invoked with three flags:</p>
+<ul>
+<li><strong><code>-f elf64</code></strong>: Produce an ELF64 object file, the standard format on Linux x86-64.</li>
+<li><strong><code>-o &lt;path&gt;</code></strong>: Where to write the output object file.</li>
+<li><strong>The input <code>.asm</code> file</strong>: The assembly source.</li>
+</ul>
+
+<p>The driver uses <code>Command::status()</code> to run NASM and wait for it to complete. If NASM is not installed (<code>unwrap_or_else</code> catches the <code>io::Error</code>) or if NASM reports assembly errors (<code>status.success()</code> returns false), the driver prints an error and exits with code 1.</p>
+
+<div class="callout warn">
+<strong>NASM is required</strong>. Install it with your package manager:
+<pre style="margin:0.5rem 0 0;font-size:0.8rem;"><code><span style="color:var(--fg2)"># Debian/Ubuntu</span>
+$ sudo apt install nasm
+<span style="color:var(--fg2)"># Fedora</span>
+$ sudo dnf install nasm
+<span style="color:var(--fg2)"># macOS</span>
+$ brew install nasm</code></pre>
+</div>
+
+<h3>Step 3: Linking with cc</h3>
+
+<p>Using <code>cc</code> (the C compiler, typically <code>gcc</code> or <code>clang</code>) as a linker frontend is a common trick in small compilers. The C compiler knows how to invoke the linker (<code>ld</code>) with all the platform-specific flags needed:</p>
+<ul>
+<li>The correct C runtime startup files (<code>crt0.o</code>, etc.) are linked automatically. These provide the <code>_start</code> entry point that the kernel calls, which in turn calls our <code>main</code>.</li>
+<li>Standard library paths are set up correctly.</li>
+<li>The correct dynamic linker (<code>ld-linux-x86-64.so.2</code>) is specified.</li>
+</ul>
+
+<p>Three flags are passed to <code>cc</code>:</p>
+<ul>
+<li><strong><code>-o &lt;binary&gt;</code></strong>: Output executable path.</li>
+<li><strong><code>&lt;.o file&gt;</code></strong>: Input object file.</li>
+<li><strong><code>-no-pie</code></strong>: Disable position-independent executable generation. L1S's generated assembly uses absolute addresses in some cases (e.g., <code>section .data</code> globals), which are incompatible with PIE. Without this flag, the linker would fail with relocation errors.</li>
+</ul>
+
+<h3>Step 4 &amp; 5: Cleanup and Confirmation</h3>
+
+<p>After successful linking, the intermediate <code>.o</code> object file is deleted. The <code>.asm</code> file is kept. A success message is printed to stdout:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> ignis program.is -o myprog
+wrote myprog</code></pre>
+
+<h3>Output Path Resolution</h3>
+
+<p>The driver supports two modes for determining the output binary name:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> ignis program.is                  <span style="color:var(--fg2)"># produces ./program</span>
+<span style="color:var(--fg2)">$</span> ignis program.is -o mybinary     <span style="color:var(--fg2)"># produces ./mybinary</span></code></pre>
+
+<p>Without <code>-o</code>, the input filename's extension is stripped using <code>Path::with_extension("")</code>. <code>program.is</code> becomes <code>program</code>. Both <code>.asm</code> and <code>.o</code> paths are derived from this base name.</p>
+
+<h3>Error Handling in the Driver</h3>
+
+<p>The compiler driver must handle failures at every stage. The strategy is straightforward: check for errors after each operation, print a descriptive message to stderr, and exit with code 1. Here is the complete error handling map:</p>
+
+<table class="file-table">
+<tr><th>Stage</th><th>Failure Mode</th><th>User Sees</th></tr>
+<tr><td>CLI parsing</td><td><code>args.len() &lt; 2</code></td><td><code>usage: ignis &lt;file.is&gt; [-o &lt;output&gt;]</code></td></tr>
+<tr><td>File read</td><td>File not found, permission denied</td><td><code>error reading program.is: No such file or directory</code></td></tr>
+<tr><td>Parsing</td><td>Syntax errors</td><td>Formatted diagnostic output</td></tr>
+<tr><td>Type checking</td><td>Type errors</td><td>Formatted diagnostic output</td></tr>
+<tr><td>File write</td><td>Disk full, permission denied</td><td><code>error writing program.asm: Permission denied</code></td></tr>
+<tr><td>NASM invocation</td><td>NASM not installed</td><td><code>error invoking assembler: No such file or directory</code></td></tr>
+<tr><td>NASM assembly</td><td>Syntax errors in .asm</td><td>NASM's error output (exits 1)</td></tr>
+<tr><td>Linker invocation</td><td>cc not installed</td><td><code>error invoking linker: No such file or directory</code></td></tr>
+<tr><td>Linker</td><td>Undefined symbols</td><td>Linker error output (exits 1)</td></tr>
+</table>
+
+<p>Note that lexer errors are currently collected but silently discarded (<code>_lex_errors</code>). This is a known limitation &mdash; in a production compiler, lex errors would be reported alongside parse errors.</p>
+
+<h3>The ABI Module</h3>
+
+<p>The <code>abi.rs</code> module provides small helper functions used across code generation and IR building:</p>
+
+<div class="code-header"><span>src/abi.rs &mdash; ABI helpers</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">type_size</span>(types: &amp;<span class="ty">TypeArena</span>, t: <span class="ty">TypeId</span>) -&gt; <span class="ty">u64</span> {
+    types.<span class="fn">size_of</span>(t)
+}
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">type_align</span>(types: &amp;<span class="ty">TypeArena</span>, t: <span class="ty">TypeId</span>) -&gt; <span class="ty">u64</span> {
+    types.<span class="fn">align_of</span>(t)
+}
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">stack_align</span>(size: <span class="ty">u64</span>) -&gt; <span class="ty">u64</span> {
+    (size + <span class="num">15</span>) &amp; !<span class="num">15</span>
+}</code></pre>
+
+<p><code>type_size</code> and <code>type_align</code> are thin wrappers over <code>TypeArena</code> methods, providing an ABI-focused interface. <code>stack_align</code> rounds up to the next 16-byte boundary, matching the x86-64 SysV ABI requirement that the stack be 16-byte aligned at function call boundaries.</p>
+
+<h3>Testing the Build Pipeline End-to-End</h3>
+
+<p>Since assembly and linking involve external tools, the most effective testing approach is end-to-end compilation and execution:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo build --release
+<span style="color:var(--fg2)">$</span> echo "func main(i32) { return 42; }" &gt; /tmp/test.is
+<span style="color:var(--fg2)">$</span> ./target/release/ignis /tmp/test.is
+wrote /tmp/test
+<span style="color:var(--fg2)">$</span> /tmp/test; echo $?
+42</code></pre>
+
+<p>If the process fails, inspect the intermediate files:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cat /tmp/test.asm                  <span style="color:var(--fg2)"># examine generated assembly</span>
+<span style="color:var(--fg2)">$</span> nasm -f elf64 /tmp/test.asm       <span style="color:var(--fg2)"># isolate NASM errors</span>
+<span style="color:var(--fg2)">$</span> cc -o /tmp/test /tmp/test.o -no-pie  <span style="color:var(--fg2)"># isolate linker errors</span></code></pre>
+
+<p>This manual debug chain is essential for distinguishing between bugs in code generation (wrong assembly syntax) and bugs in assembly/linking (missing tools, wrong flags).</p>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+<li><strong>NASM not installed</strong>: The error message is <code>error invoking assembler: No such file or directory</code>. Install NASM via your package manager.</li>
+<li><strong>Missing <code>main</code></strong>: If no <code>func main(i32)</code> is defined, the linker will report an undefined reference to <code>main</code>. Every L1S program needs an entry point.</li>
+<li><strong>PIE incompatibility</strong>: Without <code>-no-pie</code>, modern linkers default to producing position-independent executables, which require position-independent code (PIC). L1S's assembly is not PIC-compliant (it uses absolute addresses in <code>.data</code>), so <code>-no-pie</code> is required.</li>
+<li><strong>Output path edge cases</strong>: <code>Path::with_extension("")</code> works for most cases but can produce surprising results for inputs like <code>.is</code> (hidden file) or filenames with multiple dots.</li>
+<li><strong>Temporary file deletion</strong>: If the linker succeeds, the <code>.o</code> file is deleted. If you want to inspect it, compile with <code>-o</code> and catch it before deletion, or modify the driver to keep it (e.g., with a <code>--keep</code> flag).</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="14-codegen.html">&larr; Chapter 14</a> &ensp; Chapter 15: Assembly &amp; Linking &ensp; <a href="16-diag.html">Chapter 16 &rarr;</a></span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lexing — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h1>Chapter 02: Lexing</h1>
+
+<p class="subtitle">Raw text is just characters. How do we find the meaningful pieces?</p>
+
+<div class="callout info">
+  <strong>What you'll learn in this chapter:</strong> How to write a lexer (tokenizer) from scratch in Rust — scanning characters, grouping them into tokens, handling keywords and operators, and producing a stream the parser can consume.
+</div>
+
+<h2>The Problem</h2>
+
+<p>Open a source file and you see structure: keywords like <code>func</code> and <code>return</code>, numbers like <code>42</code>, operators like <code>+</code>, punctuation like braces and semicolons. But to the computer, it's just a flat sequence of bytes. The lexer's job is <em>structural</em>: group those bytes into meaningful chunks called <strong>tokens</strong>.</p>
+
+<p>Consider this program fragment:</p>
+
+<pre><code><span class="kw">func</span> main(i32) { <span class="kw">return</span> 42; }</code></pre>
+
+<p>A human sees five pieces: a keyword, a name, parentheses with a type, braces, and a return statement. The lexer needs to produce exactly that:</p>
+
+<div class="diagram">
+<pre><code>Input:  <span class="kw">func</span> main(i32) { <span class="kw">return</span> 42; }
+Tokens:
+  <span class="cm">[0]</span> Keyword(Func)   <span class="cm">"func"</span>
+  <span class="cm">[1]</span> Ident("main")   <span class="cm">"main"</span>
+  <span class="cm">[2]</span> OpenParen       <span class="cm">"("</span>
+  <span class="cm">[3]</span> Ident("i32")    <span class="cm">"i32"</span>
+  <span class="cm">[4]</span> CloseParen      <span class="cm">")"</span>
+  <span class="cm">[5]</span> OpenBrace       <span class="cm">"{"</span>
+  <span class="cm">[6]</span> Keyword(Return) <span class="cm">"return"</span>
+  <span class="cm">[7]</span> IntLit(42)      <span class="cm">"42"</span>
+  <span class="cm">[8]</span> Semicolon       <span class="cm">";"</span>
+  <span class="cm">[9]</span> CloseBrace      <span class="cm">"}"</span></code></pre>
+</div>
+
+<p>Each token has two parts: a <strong>kind</strong> (what it is) and a <strong>span</strong> (where it came from in the source). The parser will consume these tokens to build the AST, but the parser never needs to think about individual characters again — the lexer abstracts that away.</p>
+
+<h2>The Token Enum</h2>
+
+<p>In Rust, every kind of token is a variant of an enum. This is the core data structure of the lexer:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/token.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="kw">crate</span>::span::<span class="ty">Span</span>;
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Token</span> {
+    <span class="kw">pub</span> kind: <span class="ty">TokenKind</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+}
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">TokenKind</span> {
+    <span class="cm">// Keywords</span>
+    <span class="ty">Keyword</span>(<span class="ty">Keyword</span>),
+
+    <span class="cm">// Literals</span>
+    <span class="ty">Ident</span>(<span class="ty">String</span>),
+    <span class="ty">IntLit</span>(i64),
+
+    <span class="cm">// Single-character operators / punctuation</span>
+    <span class="ty">Plus</span>,       <span class="cm">// +</span>
+    <span class="ty">Minus</span>,      <span class="cm">// -</span>
+    <span class="ty">Star</span>,       <span class="cm">// *</span>
+    <span class="ty">Slash</span>,      <span class="cm">// /</span>
+    <span class="ty">Percent</span>,    <span class="cm">// %</span>
+    <span class="ty">Equals</span>,     <span class="cm">// =</span>
+    <span class="ty">Bang</span>,       <span class="cm">// !</span>
+    <span class="ty">Lt</span>,         <span class="cm">// &lt;</span>
+    <span class="ty">Gt</span>,         <span class="cm">// &gt;</span>
+    <span class="ty">Ampersand</span>,  <span class="cm">// &amp;</span>
+    <span class="ty">Pipe</span>,       <span class="cm">// |</span>
+    <span class="ty">OpenParen</span>,  <span class="cm">// (</span>
+    <span class="ty">CloseParen</span>, <span class="cm">// )</span>
+    <span class="ty">OpenBrace</span>,  <span class="cm">// {</span>
+    <span class="ty">CloseBrace</span>, <span class="cm">// }</span>
+    <span class="ty">Comma</span>,      <span class="cm">// ,</span>
+    <span class="ty">Semicolon</span>,  <span class="cm">// ;</span>
+    <span class="ty">Colon</span>,      <span class="cm">// :</span>
+    <span class="ty">Arrow</span>,      <span class="cm">// -&gt;</span>
+
+    <span class="cm">// Multi-character operators</span>
+    <span class="ty">EqEq</span>,       <span class="cm">// ==</span>
+    <span class="ty">BangEq</span>,     <span class="cm">// !=</span>
+    <span class="ty">LtEq</span>,       <span class="cm">// &lt;=</span>
+    <span class="ty">GtEq</span>,       <span class="cm">// &gt;=</span>
+    <span class="ty">AndAnd</span>,     <span class="cm">// &amp;&amp;</span>
+    <span class="ty">OrOr</span>,       <span class="cm">// ||</span>
+}
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>, <span class="ty">PartialEq</span>)]
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">Keyword</span> {
+    <span class="ty">Func</span>,
+    <span class="ty">Let</span>,
+    <span class="ty">If</span>,
+    <span class="ty">Else</span>,
+    <span class="ty">While</span>,
+    <span class="ty">Return</span>,
+    <span class="ty">True</span>,
+    <span class="ty">False</span>,
+    <span class="ty">Cast</span>,
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>token.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">token</span> = {
+  kind: <span class="ty">token_kind</span>;
+  span: <span class="ty">Span</span>.span;
+}
+
+<span class="kw">type</span> <span class="ty">token_kind</span> =
+  | <span class="ty">Keyword</span> of keyword
+  | <span class="ty">Ident</span> of string
+  | <span class="ty">IntLit</span> of int64
+  | <span class="ty">Plus</span> | <span class="ty">Minus</span> | <span class="ty">Star</span> | <span class="ty">Slash</span>
+  | <span class="ty">Percent</span> | <span class="ty">Equals</span> | <span class="ty">Bang</span>
+  | <span class="ty">Lt</span> | <span class="ty">Gt</span> | <span class="ty">Ampersand</span> | <span class="ty">Pipe</span>
+  | <span class="ty">OpenParen</span> | <span class="ty">CloseParen</span>
+  | <span class="ty">OpenBrace</span> | <span class="ty">CloseBrace</span>
+  | <span class="ty">Comma</span> | <span class="ty">Semicolon</span> | <span class="ty">Colon</span> | <span class="ty">Arrow</span>
+  | <span class="ty">EqEq</span> | <span class="ty">BangEq</span> | <span class="ty">LtEq</span> | <span class="ty">GtEq</span>
+  | <span class="ty">AndAnd</span> | <span class="ty">OrOr</span>
+
+<span class="kw">type</span> <span class="ty">keyword</span> =
+  | <span class="ty">Kw_Func</span> | <span class="ty">Kw_Let</span> | <span class="ty">Kw_If</span>
+  | <span class="ty">Kw_Else</span> | <span class="ty">Kw_While</span> | <span class="ty">Kw_Return</span>
+  | <span class="ty">Kw_True</span> | <span class="ty">Kw_False</span> | <span class="ty">Kw_Cast</span></code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+  <strong>Design note:</strong> Notice that <code>Ident</code> and <code>IntLit</code> carry data (<code>String</code> and <code>i64</code>), while operators like <code>Plus</code> and <code>Semicolon</code> carry nothing — they are self-evident. This is a classic Rust enum pattern: variants with payloads for things that need data, unit variants for things that don't. The compiler will warn you if you try to match non-exhaustively.
+</div>
+
+<h2>Keywords vs Identifiers</h2>
+
+<p>Our language has reserved keywords like <code>func</code>, <code>return</code>, <code>if</code>, and <code>let</code>. Unreserved words like <code>main</code>, <code>add</code>, or <code>counter</code> are identifiers. The lexer handles both with the same initial logic — it scans a word starting with a letter — and then checks whether the word is a keyword:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/keyword.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="kw">crate</span>::token::<span class="ty">Keyword</span>;
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">keyword_token</span>(word: &amp;<span class="kw">str</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">Keyword</span>&gt; {
+    <span class="kw">match</span> word {
+        <span class="str">"func"</span>   =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::Func</span>),
+        <span class="str">"let"</span>    =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::Let</span>),
+        <span class="str">"if"</span>     =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::If</span>),
+        <span class="str">"else"</span>   =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::Else</span>),
+        <span class="str">"while"</span>  =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::While</span>),
+        <span class="str">"return"</span> =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::Return</span>),
+        <span class="str">"true"</span>   =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::True</span>),
+        <span class="str">"false"</span>  =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::False</span>),
+        <span class="str">"cast"</span>   =&gt; <span class="ty">Some</span>(<span class="ty">Keyword::Cast</span>),
+        _         =&gt; <span class="ty">None</span>,
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>keyword.ml</span></div>
+    <pre><code><span class="kw">let</span> keyword_token word =
+  <span class="kw">match</span> word <span class="kw">with</span>
+  | <span class="str">"func"</span>   -&gt; <span class="ty">Some</span> <span class="ty">Kw_Func</span>
+  | <span class="str">"let"</span>    -&gt; <span class="ty">Some</span> <span class="ty">Kw_Let</span>
+  | <span class="str">"if"</span>     -&gt; <span class="ty">Some</span> <span class="ty">Kw_If</span>
+  | <span class="str">"else"</span>   -&gt; <span class="ty">Some</span> <span class="ty">Kw_Else</span>
+  | <span class="str">"while"</span>  -&gt; <span class="ty">Some</span> <span class="ty">Kw_While</span>
+  | <span class="str">"return"</span> -&gt; <span class="ty">Some</span> <span class="ty">Kw_Return</span>
+  | <span class="str">"true"</span>   -&gt; <span class="ty">Some</span> <span class="ty">Kw_True</span>
+  | <span class="str">"false"</span>  -&gt; <span class="ty">Some</span> <span class="ty">Kw_False</span>
+  | <span class="str">"cast"</span>   -&gt; <span class="ty">Some</span> <span class="ty">Kw_Cast</span>
+  | _         -&gt; <span class="ty">None</span></code></pre>
+  </div>
+</div>
+
+<p>This function is <em>pure</em>: a <code>String</code> goes in, an <code>Option&lt;Keyword&gt;</code> comes out. No state, no side effects. The <code>Option</code> return type models the two cases perfectly: <code>Some(kw)</code> for recognized keywords, <code>None</code> for identifiers and everything else. The caller decides what to do.</p>
+
+<h2>The Lexer Struct</h2>
+
+<p>The lexer holds the source text and a cursor position. It exposes a <code>next_token</code> method that advances through the text and returns one token at a time:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="kw">crate</span>::keyword::keyword_token;
+<span class="kw">use</span> <span class="kw">crate</span>::span::<span class="ty">Span</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::token::{<span class="ty">Keyword</span>, <span class="ty">Token</span>, <span class="ty">TokenKind</span>};
+
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Lexer</span> {
+    chars: <span class="kw">Vec</span>&lt;<span class="kw">char</span>&gt;,
+    pos: <span class="ty">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Lexer</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(src: &amp;<span class="kw">str</span>) -&gt; <span class="kw">Self</span> {
+        <span class="kw">Self</span> {
+            chars: src.<span class="fn">chars</span>().<span class="fn">collect</span>(),
+            pos: <span class="num">0</span>,
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">peek</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="kw">char</span>&gt; {
+        <span class="kw">self</span>.chars.<span class="fn">get</span>(<span class="kw">self</span>.pos).<span class="fn">copied</span>()
+    }
+
+    <span class="kw">fn</span> <span class="fn">advance</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="kw">char</span>&gt; {
+        <span class="kw">let</span> ch = <span class="kw">self</span>.peek()?;
+        <span class="kw">self</span>.pos += <span class="num">1</span>;
+        <span class="ty">Some</span>(ch)
+    }
+
+    <span class="kw">fn</span> <span class="fn">is_at_end</span>(&amp;<span class="kw">self</span>) -&gt; <span class="kw">bool</span> {
+        <span class="kw">self</span>.pos &gt;= <span class="kw">self</span>.chars.<span class="fn">len</span>()
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">lexer</span> = {
+  chars: <span class="kw">char</span> array;
+  mutable pos: <span class="ty">int</span>;
+}
+
+<span class="kw">let</span> make_lexer src =
+  { chars = <span class="ty">Array</span>.of_list (<span class="ty">String</span>.to_seq src |&gt; <span class="ty">List</span>.of_seq);
+    pos = 0 }
+
+<span class="kw">let</span> peek lex =
+  <span class="kw">if</span> lex.pos &lt; <span class="ty">Array</span>.length lex.chars
+  <span class="kw">then</span> <span class="ty">Some</span> lex.chars.(lex.pos)
+  <span class="kw">else</span> <span class="ty">None</span>
+
+<span class="kw">let</span> advance lex =
+  <span class="kw">let</span> ch = peek lex <span class="kw">in</span>
+  lex.pos &lt;- lex.pos + 1;
+  ch
+
+<span class="kw">let</span> is_at_end lex =
+  lex.pos &gt;= <span class="ty">Array</span>.length lex.chars</code></pre>
+  </div>
+</div>
+
+<div class="callout info">
+  <strong>Why <code>Vec&lt;char&gt;</code> instead of indexing into <code>&amp;str</code>?</strong> Rust strings are UTF-8 encoded. Indexing by byte <code>source[0..5]</code> might slice in the middle of a multi-byte character. Using <code>.chars().collect::&lt;Vec&lt;char&gt;&gt;()</code> gives us O(1) access to each Unicode code point. For ASCII-only source code (which our language is), we could use bytes directly, but using <code>char</code> is more robust and the cost is negligible for compilation-scale inputs.
+</div>
+
+<h2>Lexing Methods</h2>
+
+<p>The main entry point is <code>next_token</code>, which dispatches to specialized methods based on the current character:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span> (continued)</div>
+    <pre><code><span class="kw">impl</span> <span class="ty">Lexer</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">next_token</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">Token</span>&gt; {
+        <span class="kw">self</span>.<span class="fn">skip_whitespace</span>();
+        <span class="kw">self</span>.<span class="fn">skip_comment</span>();
+
+        <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">is_at_end</span>() {
+            <span class="kw">return</span> <span class="ty">None</span>;
+        }
+
+        <span class="kw">let</span> start = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> ch = <span class="kw">self</span>.<span class="fn">peek</span>().<span class="fn">unwrap</span>();
+
+        <span class="kw">let</span> kind = <span class="kw">if</span> ch.<span class="fn">is_ascii_alphabetic</span>() || ch == <span class="sc">'_'</span> {
+            <span class="kw">self</span>.<span class="fn">lex_word</span>()
+        } <span class="kw">else</span> <span class="kw">if</span> ch.<span class="fn">is_ascii_digit</span>() {
+            <span class="kw">self</span>.<span class="fn">lex_number</span>()
+        } <span class="kw">else</span> {
+            <span class="kw">self</span>.<span class="fn">lex_operator</span>()
+        };
+
+        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(start, <span class="kw">self</span>.pos);
+        <span class="ty">Some</span>(<span class="ty">Token</span> { kind, span })
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span> (continued)</div>
+    <pre><code><span class="kw">let</span> next_token lex =
+  skip_whitespace lex;
+  skip_comment lex;
+
+  <span class="kw">if</span> is_at_end lex <span class="kw">then</span> <span class="ty">None</span>
+  <span class="kw">else</span>
+    <span class="kw">let</span> start = lex.pos <span class="kw">in</span>
+    <span class="kw">let</span> ch = <span class="kw">match</span> peek lex <span class="kw">with</span> <span class="ty">Some</span> c -&gt; c | <span class="ty">None</span> -> <span class="kw">failwith</span> <span class="str">"unreachable"</span> <span class="kw">in</span>
+    <span class="kw">let</span> kind =
+      <span class="kw">if</span> <span class="ty">Char</span>.alpha ch || ch = <span class="sc">'_'</span>
+      <span class="kw">then</span> lex_word lex
+      <span class="kw">else</span> <span class="kw">if</span> <span class="ty">Char</span>.digit ch
+      <span class="kw">then</span> lex_number lex
+      <span class="kw">else</span> lex_operator lex
+    <span class="kw">in</span>
+    <span class="ty">Some</span> { kind; span = <span class="ty">Span</span>.make_span start lex.pos }</code></pre>
+  </div>
+</div>
+
+<h3>skip_whitespace</h3>
+
+<p>Whitespace separates tokens but carries no semantic meaning. We skip it entirely:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">skip_whitespace</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(ch) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="kw">if</span> ch.<span class="fn">is_ascii_whitespace</span>() {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+        } <span class="kw">else</span> {
+            <span class="kw">break</span>;
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span></div>
+    <pre><code><span class="kw">let</span> skip_whitespace lex =
+  <span class="kw">let</span> <span class="kw">rec</span> loop () =
+    <span class="kw">match</span> peek lex <span class="kw">with</span>
+    | <span class="ty">Some</span> ch <span class="kw">when</span> <span class="ty">Char</span>.<span class="kw">white</span> ch -&gt; advance lex; loop ()
+    | _ -&gt; ()
+  <span class="kw">in</span>
+  loop ()</code></pre>
+  </div>
+</div>
+
+<h3>skip_comment</h3>
+
+<p>Comments start with <code>//</code> and extend to the end of the line. We also call this <em>after</em> <code>skip_whitespace</code> so that whitespace-before-comment is consumed first:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">skip_comment</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'/'</span>) &amp;&amp; <span class="kw">self</span>.<span class="fn">peek_next</span>() == <span class="ty">Some</span>(<span class="sc">'/'</span>) {
+        <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(ch) = <span class="kw">self</span>.<span class="fn">advance</span>() {
+            <span class="kw">if</span> ch == <span class="sc">'\n'</span> {
+                <span class="kw">break</span>;
+            }
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span></div>
+    <pre><code><span class="kw">let</span> skip_comment lex =
+  <span class="kw">match</span> peek lex, peek_next lex <span class="kw">with</span>
+  | <span class="ty">Some</span> <span class="sc">'/'</span>, <span class="ty">Some</span> <span class="sc">'/'</span> ->
+      <span class="kw">let</span> <span class="kw">rec</span> loop () =
+        <span class="kw">match</span> advance lex <span class="kw">with</span>
+        | <span class="ty">Some</span> <span class="sc">'\n'</span> | <span class="ty">None</span> -> ()
+        | <span class="ty">Some</span> _ -> loop ()
+      <span class="kw">in</span>
+      loop ()
+  | _ -> ()</code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+  <strong>Note on <code>peek_next</code>:</strong> We need a <code>peek_next</code> method to look at the character after the current one without advancing. This is essential for detecting two-character sequences like <code>//</code>, <code>==</code>, <code>!=</code>, etc.: <code>fn peek_next(&amp;self) -&gt; Option&lt;char&gt; { self.chars.get(self.pos + 1).copied() }</code>.
+</div>
+
+<h3>lex_word</h3>
+
+<p>Words start with a letter or underscore and contain letters, digits, and underscores. After scanning the whole word, we check if it's a keyword:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">lex_word</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">TokenKind</span> {
+    <span class="kw">let</span> start = <span class="kw">self</span>.pos;
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(ch) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="kw">if</span> ch.<span class="fn">is_ascii_alphanumeric</span>() || ch == <span class="sc">'_'</span> {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+        } <span class="kw">else</span> {
+            <span class="kw">break</span>;
+        }
+    }
+    <span class="kw">let</span> word: <span class="ty">String</span> = <span class="kw">self</span>.chars[start..<span class="kw">self</span>.pos]
+        .<span class="fn">iter</span>()
+        .<span class="fn">collect</span>();
+    <span class="kw">match</span> <span class="fn">keyword_token</span>(&amp;word) {
+        <span class="ty">Some</span>(kw) =&gt; <span class="ty">TokenKind::Keyword</span>(kw),
+        <span class="ty">None</span> =&gt; <span class="ty">TokenKind::Ident</span>(word),
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span></div>
+    <pre><code><span class="kw">let</span> lex_word lex =
+  <span class="kw">let</span> start = lex.pos <span class="kw">in</span>
+  <span class="kw">let</span> <span class="kw">rec</span> loop () =
+    <span class="kw">match</span> peek lex <span class="kw">with</span>
+    | <span class="ty">Some</span> ch <span class="kw">when</span> <span class="ty">Char</span>.alpha ch || <span class="ty">Char</span>.digit ch || ch = <span class="sc">'_'</span> ->
+        advance lex; loop ()
+    | _ -> ()
+  <span class="kw">in</span>
+  loop ();
+  <span class="kw">let</span> word = <span class="ty">String</span>.of_seq (<span class="ty">Array</span>.to_seq lex.chars |&gt; <span class="ty">Seq</span>.drop start |&gt; <span class="ty">Seq</span>.take (lex.pos - start)) <span class="kw">in</span>
+  <span class="kw">match</span> keyword_token word <span class="kw">with</span>
+  | <span class="ty">Some</span> kw -&gt; <span class="ty">Keyword</span> kw
+  | <span class="ty">None</span> -&gt; <span class="ty">Ident</span> word</code></pre>
+  </div>
+</div>
+
+<h3>lex_number</h3>
+
+<p>Numbers are sequences of digits, optionally preceded by a <code>-</code> for negative literals. We parse them into <code>i64</code>:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">lex_number</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">TokenKind</span> {
+    <span class="kw">let</span> start = <span class="kw">self</span>.pos;
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(ch) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="kw">if</span> ch.<span class="fn">is_ascii_digit</span>() || ch == <span class="sc">'_'</span> {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+        } <span class="kw">else</span> {
+            <span class="kw">break</span>;
+        }
+    }
+    <span class="kw">let</span> s: <span class="ty">String</span> = <span class="kw">self</span>.chars[start..<span class="kw">self</span>.pos]
+        .<span class="fn">iter</span>()
+        .<span class="fn">filter</span>(|&amp;c| c != <span class="sc">'_'</span>)
+        .<span class="fn">collect</span>();
+    <span class="kw">let</span> n: i64 = s.<span class="fn">parse</span>().<span class="fn">expect</span>(<span class="str">"invalid integer literal"</span>);
+    <span class="ty">TokenKind::IntLit</span>(n)
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span></div>
+    <pre><code><span class="kw">let</span> lex_number lex =
+  <span class="kw">let</span> start = lex.pos <span class="kw">in</span>
+  <span class="kw">let</span> <span class="kw">rec</span> loop () =
+    <span class="kw">match</span> peek lex <span class="kw">with</span>
+    | <span class="ty">Some</span> ch <span class="kw">when</span> <span class="ty">Char</span>.digit ch || ch = <span class="sc">'_'</span> ->
+        advance lex; loop ()
+    | _ -> ()
+  <span class="kw">in</span>
+  loop ();
+  <span class="kw">let</span> raw = <span class="ty">String</span>.of_seq (<span class="ty">Array</span>.to_seq lex.chars |&gt; <span class="ty">Seq</span>.drop start |&gt; <span class="ty">Seq</span>.take (lex.pos - start)) <span class="kw">in</span>
+  <span class="kw">let</span> s = <span class="ty">String</span>.filter (<span class="kw">fun</span> c -&gt; c &lt;&gt; <span class="sc">'_'</span>) raw <span class="kw">in</span>
+  <span class="ty">IntLit</span> (<span class="ty">Int64</span>.of_string s)</code></pre>
+  </div>
+</div>
+
+<p>We support <code>_</code> as a digit separator (like Rust's <code>1_000_000</code>). The <code>filter</code> call strips them before parsing. This is purely a lexer concern — the parser never sees the underscores.</p>
+
+<h3>lex_operator</h3>
+
+<p>The operator lexer needs to distinguish single-character operators from multi-character sequences. This is where we handle the "maximal munch" principle: always match the longest possible token:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">lex_operator</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">TokenKind</span> {
+    <span class="kw">let</span> ch = <span class="kw">self</span>.<span class="fn">advance</span>().<span class="fn">expect</span>(<span class="str">"lex_operator called at end"</span>);
+    <span class="kw">match</span> ch {
+        <span class="sc">'+'</span> =&gt; <span class="ty">TokenKind::Plus</span>,
+        <span class="sc">'-'</span> =&gt; {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'>'</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">TokenKind::Arrow</span>
+            } <span class="kw">else</span> {
+                <span class="ty">TokenKind::Minus</span>
+            }
+        }
+        <span class="sc">'*'</span> =&gt; <span class="ty">TokenKind::Star</span>,
+        <span class="sc">'/'</span> => { <span class="cm">// Note: comments handled before lex_operator</span>
+            <span class="ty">TokenKind::Slash</span>
+        }
+        <span class="sc">'%'</span> =&gt; <span class="ty">TokenKind::Percent</span>,
+        <span class="sc">'='</span> =&gt; {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'='</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">TokenKind::EqEq</span>
+            } <span class="kw">else</span> {
+                <span class="ty">TokenKind::Equals</span>
+            }
+        }
+        <span class="sc">'!'</span> =&gt; {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'='</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">TokenKind::BangEq</span>
+            } <span class="kw">else</span> {
+                <span class="ty">TokenKind::Bang</span>
+            }
+        }
+        <span class="sc">'&lt;'</span> =&gt; {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'='</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">TokenKind::LtEq</span>
+            } <span class="kw">else</span> {
+                <span class="ty">TokenKind::Lt</span>
+            }
+        }
+        <span class="sc">'&gt;'</span> =&gt; {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'='</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">TokenKind::GtEq</span>
+            } <span class="kw">else</span> {
+                <span class="ty">TokenKind::Gt</span>
+            }
+        }
+        <span class="sc">'&'</span> =&gt; {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'&'</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">TokenKind::AndAnd</span>
+            } <span class="kw">else</span> {
+                <span class="ty">TokenKind::Ampersand</span>
+            }
+        }
+        <span class="sc">'|'</span> =&gt; {
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="sc">'|'</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">TokenKind::OrOr</span>
+            } <span class="kw">else</span> {
+                <span class="ty">TokenKind::Pipe</span>
+            }
+        }
+        <span class="sc">'('</span> =&gt; <span class="ty">TokenKind::OpenParen</span>,
+        <span class="sc">')'</span> =&gt; <span class="ty">TokenKind::CloseParen</span>,
+        <span class="sc">'{'</span> =&gt; <span class="ty">TokenKind::OpenBrace</span>,
+        <span class="sc">'}'</span> =&gt; <span class="ty">TokenKind::CloseBrace</span>,
+        <span class="sc">','</span> =&gt; <span class="ty">TokenKind::Comma</span>,
+        <span class="sc">';'</span> =&gt; <span class="ty">TokenKind::Semicolon</span>,
+        <span class="sc">':'</span> =&gt; <span class="ty">TokenKind::Colon</span>,
+        _ =&gt; <span class="kw">panic!</span>(<span class="str">"unexpected character: {:?}"</span>, ch),
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span></div>
+    <pre><code><span class="kw">let</span> lex_operator lex =
+  <span class="kw">let</span> ch = <span class="kw">match</span> advance lex <span class="kw">with</span> <span class="ty">Some</span> c -&gt; c | <span class="ty">None</span> -> <span class="kw">failwith</span> <span class="str">"unreachable"</span> <span class="kw">in</span>
+  <span class="kw">match</span> ch <span class="kw">with</span>
+  | <span class="sc">'+'</span> -&gt; <span class="ty">Plus</span>
+  | <span class="sc">'-'</span> -&gt; <span class="kw">begin</span>
+      <span class="kw">match</span> peek lex <span class="kw">with</span>
+      | <span class="ty">Some</span> <span class="sc">'&gt;'</span> -&gt; advance lex; <span class="ty">Arrow</span>
+      | _ -&gt; <span class="ty">Minus</span>
+    <span class="kw">end</span>
+  | <span class="sc">'='</span> -&gt; <span class="kw">begin</span>
+      <span class="kw">match</span> peek lex <span class="kw">with</span>
+      | <span class="ty">Some</span> <span class="sc">'='</span> -&gt; advance lex; <span class="ty">EqEq</span>
+      | _ -&gt; <span class="ty">Equals</span>
+    <span class="kw">end</span>
+  | <span class="sc">'!'</span> -&gt; <span class="kw">begin</span>
+      <span class="kw">match</span> peek lex <span class="kw">with</span>
+      | <span class="ty">Some</span> <span class="sc">'='</span> -&gt; advance lex; <span class="ty">BangEq</span>
+      | _ -&gt; <span class="ty">Bang</span>
+    <span class="kw">end</span>
+  | <span class="sc">'&lt;'</span> -&gt; <span class="kw">begin</span>
+      <span class="kw">match</span> peek lex <span class="kw">with</span>
+      | <span class="ty">Some</span> <span class="sc">'='</span> -&gt; advance lex; <span class="ty">LtEq</span>
+      | _ -&gt; <span class="ty">Lt</span>
+    <span class="kw">end</span>
+  | <span class="sc">'&gt;'</span> -&gt; <span class="kw">begin</span>
+      <span class="kw">match</span> peek lex <span class="kw">with</span>
+      | <span class="ty">Some</span> <span class="sc">'='</span> -&gt; advance lex; <span class="ty">GtEq</span>
+      | _ -&gt; <span class="ty">Gt</span>
+    <span class="kw">end</span>
+  | <span class="sc">'&amp;'</span> -&gt; <span class="kw">begin</span>
+      <span class="kw">match</span> peek lex <span class="kw">with</span>
+      | <span class="ty">Some</span> <span class="sc">'&amp;'</span> -&gt; advance lex; <span class="ty">AndAnd</span>
+      | _ -&gt; <span class="ty">Ampersand</span>
+    <span class="kw">end</span>
+  | <span class="sc">'|'</span> -&gt; <span class="kw">begin</span>
+      <span class="kw">match</span> peek lex <span class="kw">with</span>
+      | <span class="ty">Some</span> <span class="sc">'|'</span> -&gt; advance lex; <span class="ty">OrOr</span>
+      | _ -&gt; <span class="ty">Pipe</span>
+    <span class="kw">end</span>
+  | <span class="sc">'('</span> -&gt; <span class="ty">OpenParen</span>
+  | <span class="sc">')'</span> -&gt; <span class="ty">CloseParen</span>
+  | <span class="sc">'{'</span> -&gt; <span class="ty">OpenBrace</span>
+  | <span class="sc">'}'</span> -&gt; <span class="ty">CloseBrace</span>
+  | <span class="sc">','</span> -&gt; <span class="ty">Comma</span>
+  | <span class="sc">';'</span> -&gt; <span class="ty">Semicolon</span>
+  | <span class="sc">':'</span> -&gt; <span class="ty">Colon</span>
+  | _ -> <span class="kw">failwith</span> (<span class="kw">Printf</span>.sprintf <span class="str">"unexpected character: %c"</span> ch)</code></pre>
+  </div>
+</div>
+
+<div class="callout info">
+  <strong>Maximal munch:</strong> The lexer always matches the longest possible token. When it sees <code>==</code>, it produces one <code>EqEq</code> token rather than two <code>Equals</code> tokens. This is the standard rule across virtually all programming languages. Without it, <code>a == b</code> would parse as <code>a = = b</code>, which is nonsense.
+</div>
+
+<h2>Error Handling: Invalid Characters</h2>
+
+<p>Our current implementation <code>panic!</code>s on unexpected characters. In a production compiler, this is unacceptable — a single stray <code>@</code> in a 10,000-line file should not crash the compiler. Instead, we should emit an error and continue:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/lexer.rs</span> — error recovery</div>
+    <pre><code><span class="cm">/// Result type for lexer operations.</span>
+<span class="kw">pub</span> <span class="kw">type</span> <span class="ty">LexResult</span>&lt;T&gt; = <span class="kw">Result</span>&lt;T, <span class="ty">LexError</span>&gt;;
+
+<span class="kw">#[derive</span>(<span class="ty">Debug</span>, <span class="ty">Clone</span>)]
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">LexError</span> {
+    <span class="kw">pub</span> message: <span class="ty">String</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Lexer</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">next_token</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">Result</span>&lt;<span class="ty">Token</span>, <span class="ty">LexError</span>&gt;&gt; {
+        <span class="kw">self</span>.<span class="fn">skip_whitespace</span>();
+        <span class="kw">self</span>.<span class="fn">skip_comment</span>();
+
+        <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">is_at_end</span>() {
+            <span class="kw">return</span> <span class="ty">None</span>;
+        }
+
+        <span class="kw">let</span> start = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> ch = <span class="kw">self</span>.<span class="fn">peek</span>().<span class="fn">unwrap</span>();
+
+        <span class="kw">if</span> ch.<span class="fn">is_ascii_alphabetic</span>() || ch == <span class="sc">'_'</span> {
+            <span class="ty">Some</span>(<span class="ty">Ok</span>(<span class="kw">self</span>.<span class="fn">make_token</span>(start, <span class="kw">self</span>.<span class="fn">lex_word</span>())))
+        } <span class="kw">else</span> <span class="kw">if</span> ch.<span class="fn">is_ascii_digit</span>() {
+            <span class="ty">Some</span>(<span class="ty">Ok</span>(<span class="kw">self</span>.<span class="fn">make_token</span>(start, <span class="kw">self</span>.<span class="fn">lex_number</span>())))
+        } <span class="kw">else</span> {
+            <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">try_lex_operator</span>() {
+                <span class="ty">Ok</span>(kind) =&gt; <span class="ty">Some</span>(<span class="ty">Ok</span>(<span class="kw">self</span>.<span class="fn">make_token</span>(start, kind))),
+                <span class="ty">Err</span>(msg) =&gt; {
+                    <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// skip the invalid character</span>
+                    <span class="ty">Some</span>(<span class="ty">Err</span>(<span class="ty">LexError</span> {
+                        message: msg,
+                        span: <span class="ty">Span</span>::<span class="fn">new</span>(start, <span class="kw">self</span>.pos),
+                    }))
+                }
+            }
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>lexer.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">lex_error</span> = { message: <span class="ty">string</span>; span: <span class="ty">Span</span>.span }
+
+<span class="kw">type</span> <span class="ty">lex_result</span> = (<span class="ty">token</span>, <span class="ty">lex_error</span>) <span class="kw">result</span>
+
+<span class="kw">let</span> next_token lex =
+  skip_whitespace lex;
+  skip_comment lex;
+
+  <span class="kw">if</span> is_at_end lex <span class="kw">then</span> <span class="ty">None</span>
+  <span class="kw">else</span>
+    <span class="kw">let</span> start = lex.pos <span class="kw">in</span>
+    <span class="kw">let</span> ch = <span class="kw">match</span> peek lex <span class="kw">with</span> <span class="ty">Some</span> c -&gt; c | <span class="ty">None</span> -> <span class="kw">failwith</span> <span class="str">"unreachable"</span> <span class="kw">in</span>
+    <span class="kw">let</span> result =
+      <span class="kw">if</span> <span class="ty">Char</span>.alpha ch || ch = <span class="sc">'_'</span>
+      <span class="kw">then</span> <span class="ty">Ok</span> (lex_word lex)
+      <span class="kw">else</span> <span class="kw">if</span> <span class="ty">Char</span>.digit ch
+      <span class="kw">then</span> <span class="ty">Ok</span> (lex_number lex)
+      <span class="kw">else</span> try_lex_operator lex
+    <span class="kw">in</span>
+    <span class="kw">match</span> result <span class="kw">with</span>
+    | <span class="ty">Ok</span> kind -&gt;
+        <span class="ty">Some</span> (<span class="ty">Ok</span> { kind; span = <span class="ty">Span</span>.make_span start lex.pos })
+    | <span class="ty">Error</span> msg -&gt;
+        advance lex;
+        <span class="ty">Some</span> (<span class="ty">Error</span> { message = msg; span = <span class="ty">Span</span>.make_span start lex.pos })</code></pre>
+  </div>
+</div>
+
+<p>With this approach, the lexer never panics. Invalid characters produce an <code>Err</code> token that the parser can collect and report. The compiler keeps going, finding more errors in the same pass.</p>
+
+<h2>Complete Walkthrough</h2>
+
+<p>Let's trace the lexer through a full program:</p>
+
+<pre><code><span class="kw">func</span> add(i32, a: i32, b: i32) {
+  <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p>We'll step through character by character, showing the lexer state at each token boundary:</p>
+
+<div class="diagram">
+<pre><code>Position    Character    Action                  Token emitted
+─────────────────────────────────────────────────────────────
+0           f            start of word
+1           u            word continues
+2           n            word continues
+3           c            word continues
+4           (space)      end word, check keyword  <span class="ty">Keyword(Func)</span>  [0..4]
+5           (space)      skip whitespace
+5           a            start of word
+6           d            word continues
+7           d            word continues
+8           (            end word, not keyword    <span class="ty">Ident("add")</span>  [5..8]
+8           (            single char              <span class="ty">OpenParen</span>   [8..9]
+9           i            start of word
+10          3            word continues
+11          2            word continues
+12          (space)      not keyword              <span class="ty">Ident("i32")</span> [9..12]
+13          ,            single char              <span class="ty">Comma</span>       [13..14]
+14          (space)      skip whitespace
+14          a            start of word            <span class="ty">Ident("a")</span>   [14..15]
+15          :            single char              <span class="ty">Colon</span>       [15..16]
+16          (space)      skip whitespace
+16          i            start of word
+17          3            word continues
+18          2            word continues
+19          (space)      not keyword              <span class="ty">Ident("i32")</span> [16..19]
+19          ,            single char              <span class="ty">Comma</span>       [19..20]
+20          (space)      skip whitespace
+20          b            start of word            <span class="ty">Ident("b")</span>   [20..21]
+21          :            single char              <span class="ty">Colon</span>       [21..22]
+22          (space)      skip whitespace
+22          i            start of word
+23          3            word continues
+24          2            word continues
+25          )            not keyword              <span class="ty">Ident("i32")</span> [22..25]
+25          )            single char              <span class="ty">CloseParen</span>  [25..26]
+26          (space)      skip whitespace
+26          {            single char              <span class="ty">OpenBrace</span>   [26..27]
+27          \n           skip whitespace
+28          (space)      skip whitespace
+28          r            start of word
+29          e            word continues
+30          t            word continues
+31          u            word continues
+32          r            word continues
+33          n            word continues
+34          (space)      keyword!                 <span class="ty">Keyword(Return)</span> [28..34]
+34          a            start of word            <span class="ty">Ident("a")</span>   [34..35]
+35          (space)      skip whitespace
+35          +            single char              <span class="ty">Plus</span>        [35..36]
+36          (space)      skip whitespace
+36          b            start of word            <span class="ty">Ident("b")</span>   [36..37]
+37          ;            single char              <span class="ty">Semicolon</span>   [37..38]
+38          \n           skip whitespace
+38          }            single char              <span class="ty">CloseBrace</span>   [38..39]
+39          end          return None</code></pre>
+</div>
+
+<p>Final token stream:</p>
+
+<div class="diagram">
+<pre><code><span class="ty">Token</span> { kind: <span class="ty">Keyword</span>(<span class="ty">Func</span>),    span: 0..4   }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("add"),    span: 5..8   }
+<span class="ty">Token</span> { kind: <span class="ty">OpenParen</span>,       span: 8..9   }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("i32"),    span: 9..12  }
+<span class="ty">Token</span> { kind: <span class="ty">Comma</span>,           span: 13..14 }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("a"),      span: 14..15 }
+<span class="ty">Token</span> { kind: <span class="ty">Colon</span>,           span: 15..16 }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("i32"),    span: 16..19 }
+<span class="ty">Token</span> { kind: <span class="ty">Comma</span>,           span: 19..20 }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("b"),      span: 20..21 }
+<span class="ty">Token</span> { kind: <span class="ty">Colon</span>,           span: 21..22 }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("i32"),    span: 22..25 }
+<span class="ty">Token</span> { kind: <span class="ty">CloseParen</span>,      span: 25..26 }
+<span class="ty">Token</span> { kind: <span class="ty">OpenBrace</span>,       span: 26..27 }
+<span class="ty">Token</span> { kind: <span class="ty">Keyword</span>(<span class="ty">Return</span>), span: 28..34 }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("a"),      span: 34..35 }
+<span class="ty">Token</span> { kind: <span class="ty">Plus</span>,            span: 35..36 }
+<span class="ty">Token</span> { kind: <span class="ty">Ident</span>("b"),      span: 36..37 }
+<span class="ty">Token</span> { kind: <span class="ty">Semicolon</span>,       span: 37..38 }
+<span class="ty">Token</span> { kind: <span class="ty">CloseBrace</span>,      span: 38..39 }</code></pre>
+</div>
+
+<p>Every token carries its span, ready for error reporting. The parser will receive this exact stream and build the AST.</p>
+
+<div class="callout tip">
+  <strong>Testing the lexer:</strong> The best way to verify your lexer is to write tests that print the token stream for a given input. Create a <code>fn lex_all(src: &amp;str) -&gt; Vec&lt;Token&gt;</code> helper and compare the output against expected token lists in your tests. This catches subtle bugs like off-by-one spans or misclassified keywords.
+</div>
+
+<h2>Exercises</h2>
+
+<div class="exercise">
+  <h3>Exercise 2.1: Implement the Complete Lexer</h3>
+  <p>Write the full lexer implementation in <code>src/lexer.rs</code> based on the code in this chapter. Include <code>Token</code>, <code>TokenKind</code>, and <code>Keyword</code> types. Implement all methods: <code>next_token</code>, <code>skip_whitespace</code>, <code>skip_comment</code>, <code>lex_word</code>, <code>lex_number</code>, and <code>lex_operator</code>. Add a test that lexes the <code>add</code> function above and verifies the output.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 2.2: Add Hex, Octal, and Binary Literals</h3>
+  <p>Extend <code>lex_number</code> to support <code>0x</code>, <code>0o</code>, and <code>0b</code> prefixes for hex, octal, and binary literals respectively.</p>
+  <pre><code><span class="num">0xFF</span>      <span class="cm">// → IntLit(255)</span>
+<span class="num">0o77</span>      <span class="cm">// → IntLit(63)</span>
+<span class="num">0b1010</span>    <span class="cm">// → IntLit(10)</span></code></pre>
+  <p>Hint: look at the first character after <code>0</code> to determine the base, then parse accordingly.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 2.3: String Literals</h3>
+  <p>Add a <code>StrLit(String)</code> variant to <code>TokenKind</code>. Extend <code>next_token</code> to detect <code>"</code> and delegate to <code>lex_string</code>. Handle escape sequences <code>\n</code>, <code>\t</code>, <code>\\</code>, and <code>\"</code>. Report an error for unclosed string literals (missing closing quote before end of file or newline).</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 2.4: Block Comments</h3>
+  <p>Add support for block comments <code>/* ... */</code>. They can span multiple lines. Handle nesting if you want an extra challenge (<code>/* outer /* inner */ */</code>). Modify <code>skip_comment</code> to detect both <code>//</code> and <code>/*</code>.</p>
+</div>
+
+<div class="exercise">
+  <h3>Exercise 2.5: Lexer Performance</h3>
+  <p>Our lexer collects characters into a <code>Vec&lt;char&gt;</code>, which allocates memory proportional to the source file size. Modify the lexer to work directly on <code>&amp;str</code> using byte indexing (since our source is ASCII). Benchmark both versions on a large (100KB+) input file using <code>cargo bench</code>. What's the speedup?</p>
+  <pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">LexerBytes</span>&lt;'a&gt; {
+    src: &amp;'a [<span class="kw">u8</span>],
+    pos: <span class="ty">usize</span>,
+}</code></pre>
+  <p>Note: this only works for ASCII source. For full UTF-8 support, you'd need <code>char_indices()</code>.</p>
+</div>
+
+<h2>What's Next</h2>
+
+<p>The lexer transforms source text into a flat token stream. But programs aren't flat — they're trees. Functions contain statements, statements contain expressions, expressions contain sub-expressions. The next chapter tackles the <strong>parser</strong>: the phase that takes our flat token stream and reconstructs the tree structure that the grammar describes.</p>
+
+<p>That's the subject of <a href="03-parsing.html">Chapter 3: Parsing</a>.</p>
+
+<div class="chapter-nav">
+  <a href="01-text-and-spans.html" class="prev">Previous: Text and Spans</a>
+  <a href="03-parsing.html" class="next">Next: Parsing</a>
+</div>
+
+</body>
+</html>

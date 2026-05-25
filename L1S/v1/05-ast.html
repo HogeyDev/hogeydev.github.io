@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 5: The Abstract Syntax Tree &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="04-lexer.html">&larr; Chapter 4</a> &ensp; Chapter 5: The Abstract Syntax Tree &ensp; <a href="06-parser.html">Chapter 6 &rarr;</a></span>
+</div>
+
+<h2 id="ast">5 &ensp; The Abstract Syntax Tree</h2>
+
+<h3>What is an AST?</h3>
+
+<p>An <strong>Abstract Syntax Tree (AST)</strong> is a tree representation of the syntactic structure of source code. Where the lexer produces a flat sequence of tokens, the parser arranges those tokens into a tree that captures the grammatical structure and nesting of the program.</p>
+
+<p>The word "abstract" is key: the AST omits details that are present in the concrete syntax (parens, semicolons, braces) and preserves only what is semantically meaningful. For example, the parser discards the opening and closing braces of a block &mdash; the <code>AstBlock</code> struct stores only the statements inside.</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Pipeline position:</strong><br><br>
+<code>Source text</code><br>
+<span class="arrow">&darr;</span> Lexer<br>
+<code>Vec&lt;SpannedToken&gt;</code><br>
+<span class="arrow">&darr;</span> Parser<br>
+<code>AstProgram</code> &larr; <strong>you are here</strong><br>
+<span class="arrow">&darr;</span> Semantic analysis / Codegen
+</div>
+
+<h3>The Hierarchy at a Glance</h3>
+
+<p>The AST types form a clear hierarchy, with <code>AstProgram</code> at the root:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Hierarchy tree:</strong><br><br>
+<code>AstProgram</code><br>
+<code> &boxur; Vec&lt;AstDecl&gt;</code><br>
+<code>     &boxur; AstDecl::Struct(AstStructDecl)</code><br>
+<code>     &boxur; AstDecl::Enum(AstEnumDecl)</code><br>
+<code>     &boxur; AstDecl::Spec(AstSpecDecl)</code><br>
+<code>     &boxur; AstDecl::Impl(AstImplDecl)</code><br>
+<code>     &boxur; AstDecl::Func(AstFuncDecl)</code><br>
+<code>     &boxur; AstDecl::Typedef(AstTypedefDecl)</code><br>
+<code>     &boxur; AstDecl::Import(AstImport)</code><br>
+<code>     &boxur; AstDecl::StaticVar(AstStaticVarDecl)</code><br>
+<code>         &boxur; AstFuncDecl: AstBlock &rarr; Vec&lt;AstStmt&gt;</code><br>
+<code>             &boxur; AstStmt::VarDecl(AstVarDecl)</code><br>
+<code>             &boxur; AstStmt::If(AstIf)</code><br>
+<code>             &boxur; AstStmt::While(AstWhile)</code><br>
+<code>             &boxur; AstStmt::For(AstFor)</code><br>
+<code>             &boxur; AstStmt::Return(AstReturn)</code><br>
+<code>             &boxur; AstStmt::Asm(AstAsm)</code><br>
+<code>             &boxur; AstStmt::Block(AstBlock)</code><br>
+<code>             &boxur; AstStmt::Expr(AstExpr)</code><br>
+<code>             &boxur; AstStmt::Import(AstImport)</code><br>
+<code>                 &boxur; AstExpr has 13 recursive variants</code>
+</div>
+
+<h3>Where Span Lives in Every Node</h3>
+
+<p>Every AST node carries a <code>Span</code> field. This is the most consistent pattern in the entire design:</p>
+
+<ul>
+<li>Enums like <code>AstType</code>, <code>AstExpr</code> store the span alongside other data in each variant.</li>
+<li>Structs like <code>AstFuncDecl</code>, <code>AstBlock</code>, <code>AstParam</code> have a dedicated <code>pub span: Span</code> field.</li>
+<li>The <code>span()</code> accessor method on <code>AstType</code> and <code>AstExpr</code> extracts the span regardless of which variant is active.</li>
+</ul>
+
+<div class="callout tip">
+<strong>Why thread Span through every node?</strong> Because error messages need to point to specific locations. When the type checker says "type mismatch in return statement," it needs to point to the <em>exact</em> expression. Without Span on every node, the best you can do is "error somewhere on line 5." With Span, every sub-expression carries its source location.
+</div>
+
+<h3>Supporting Types</h3>
+
+<h4>BinaryOp</h4>
+
+<div class="code-header"><span>src/ast.rs &mdash; BinaryOp</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">BinaryOp</span> {
+    <span class="cm">// Arithmetic</span>
+    <span class="ty">Add</span>, <span class="ty">Sub</span>, <span class="ty">Mul</span>, <span class="ty">Div</span>, <span class="ty">Mod</span>,
+    <span class="cm">// Bitwise</span>
+    <span class="ty">And</span>, <span class="ty">Or</span>, <span class="ty">Xor</span>,
+    <span class="cm">// Shift</span>
+    <span class="ty">Shl</span>, <span class="ty">Shr</span>,
+    <span class="cm">// Comparison</span>
+    <span class="ty">Eq</span>, <span class="ty">Ne</span>, <span class="ty">Lt</span>, <span class="ty">Gt</span>, <span class="ty">Le</span>, <span class="ty">Ge</span>,
+    <span class="cm">// Logical</span>
+    <span class="ty">LogicAnd</span>, <span class="ty">LogicOr</span>,
+}</code></pre>
+
+<p>This enum exists because <code>AstExpr::Binary</code> needs to distinguish <code>a + b</code> from <code>a == b</code> without having 17 separate binary expression variants. The variants map 1:1 to token operators, except that <code>=</code> (assignment) is <code>AstExpr::Assign</code>, not a <code>BinaryOp</code>.</p>
+
+<h4>PrimType</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">PrimType</span> {
+    <span class="ty">Void</span>, <span class="ty">Bool</span>, <span class="ty">Char</span>, <span class="ty">Usize</span>, <span class="ty">Isize</span>,
+    <span class="ty">U64</span>, <span class="ty">I64</span>, <span class="ty">U32</span>, <span class="ty">I32</span>, <span class="ty">U16</span>, <span class="ty">I16</span>, <span class="ty">U8</span>, <span class="ty">I8</span>,
+}</code></pre>
+
+<p>This mirrors the primitive type tokens from <code>Token</code> but at the AST level. It's separated from <code>AstType</code> because <code>AstType::Prim(PrimType, Span)</code> encapsulates the idea of "a type that is a primitive" as a single variant, rather than having 13 variants like <code>AstType::I32(Span)</code>.</p>
+
+<h3>AstType &mdash; The Type System Nodes</h3>
+
+<p>Types in L1S can be primitives, named (user-defined), pointers, arrays, function signatures, or spec qualifications:</p>
+
+<div class="code-header"><span>src/ast.rs &mdash; AstType</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstType</span> {
+    <span class="ty">Prim</span>(<span class="ty">PrimType</span>, <span class="ty">Span</span>),
+    <span class="ty">Named</span>(<span class="ty">String</span>, <span class="ty">Span</span>),
+    <span class="ty">Ptr</span>(<span class="ty">Box</span>&lt;<span class="ty">AstType</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Array</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Box</span>&lt;<span class="ty">AstType</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Func</span>(<span class="ty">Vec</span>&lt;<span class="ty">AstType</span>&gt;, <span class="ty">Box</span>&lt;<span class="ty">AstType</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Spec</span>(<span class="ty">String</span>, <span class="ty">Span</span>),
+}</code></pre>
+
+<table class="file-table">
+<tr><th>Variant</th><th>Source Example</th><th>Meaning</th></tr>
+<tr><td><code>Prim(PrimType, Span)</code></td><td><code>i32</code>, <code>bool</code></td><td>Built-in primitive type</td></tr>
+<tr><td><code>Named(String, Span)</code></td><td><code>MyStruct</code>, <code>Foo</code></td><td>User-defined type by name</td></tr>
+<tr><td><code>Ptr(Box&lt;AstType&gt;, Span)</code></td><td><code>*i32</code>, <code>*MyStruct</code></td><td>Pointer to another type</td></tr>
+<tr><td><code>Array(AstExpr, AstType, Span)</code></td><td><code>[42]i32</code></td><td>Array with size expression and element type</td></tr>
+<tr><td><code>Func(Vec&lt;AstType&gt;, AstType, Span)</code></td><td><code>(i32, bool) -&gt; void</code></td><td>Function type (params, return)</td></tr>
+<tr><td><code>Spec(String, Span)</code></td><td><code>spec MyTrait</code></td><td>Spec/trait constraint reference</td></tr>
+</table>
+
+<div class="callout info">
+<strong>Why Box for recursive types?</strong> <code>AstType::Ptr</code> contains an <code>AstType</code>, which is a recursive definition. Without <code>Box</code>, Rust would not know the size of the enum at compile time (infinite recursion). <code>Box</code> puts the inner type on the heap and stores a pointer in the enum, making the enum's size finite. The same pattern applies to <code>AstExpr</code> variants that contain other <code>AstExpr</code> values.
+</div>
+
+<p>The <code>span()</code> accessor extracts the span from any variant:</p>
+
+<pre><code><span class="kw">impl</span> <span class="ty">AstType</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">span</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Span</span> {
+        <span class="kw">match</span> <span class="kw">self</span> {
+            <span class="ty">AstType::Prim</span>(_, s)
+            | <span class="ty">AstType::Named</span>(_, s)
+            | <span class="ty">AstType::Ptr</span>(_, s)
+            | <span class="ty">AstType::Spec</span>(_, s) =&gt; *s,
+            <span class="ty">AstType::Array</span>(_, _, s)
+            | <span class="ty">AstType::Func</span>(_, _, s) =&gt; *s,
+        }
+    }
+}</code></pre>
+
+<p>The span is always the last field in every variant, making it easy to extract via a single match.</p>
+
+<h3>AstExpr &mdash; The Expression Nodes (28 variants)</h3>
+
+<p>Expressions are the richest part of the AST. Every expression variant holds its value data and a <code>Span</code>:</p>
+
+<div class="code-header"><span>src/ast.rs &mdash; AstExpr</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstExpr</span> {
+    <span class="cm">/// Literals</span>
+    <span class="ty">Int</span>(<span class="ty">String</span>, <span class="ty">Span</span>),
+    <span class="ty">Str</span>(<span class="ty">String</span>, <span class="ty">Span</span>),
+    <span class="ty">Char</span>(<span class="ty">u8</span>, <span class="ty">Span</span>),
+    <span class="ty">Bool</span>(<span class="ty">bool</span>, <span class="ty">Span</span>),
+
+    <span class="cm">/// Named reference</span>
+    <span class="ty">Ident</span>(<span class="ty">String</span>, <span class="ty">Span</span>),
+
+    <span class="cm">/// Unary operators</span>
+    <span class="ty">Deref</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">AddrOf</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Neg</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Not</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">BitNot</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+
+    <span class="cm">/// Binary operations</span>
+    <span class="ty">Binary</span>(<span class="ty">BinaryOp</span>, <span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+
+    <span class="cm">/// Assignment</span>
+    <span class="ty">Assign</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+
+    <span class="cm">/// Calls and indexing</span>
+    <span class="ty">Call</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Vec</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Index</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+
+    <span class="cm">/// Struct operations</span>
+    <span class="ty">StructInit</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Vec</span>&lt;<span class="ty">AstMemberInit</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Field</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">String</span>, <span class="ty">Span</span>),
+    <span class="ty">Arrow</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">String</span>, <span class="ty">Span</span>),
+
+    <span class="cm">/// Cast and grouping</span>
+    <span class="ty">Cast</span>(<span class="ty">Box</span>&lt;<span class="ty">AstType</span>&gt;, <span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+    <span class="ty">Paren</span>(<span class="ty">Box</span>&lt;<span class="ty">AstExpr</span>&gt;, <span class="ty">Span</span>),
+}</code></pre>
+
+<p>The parsing rule of thumb: each token or token pattern that represents an expression maps to exactly one <code>AstExpr</code> variant:</p>
+
+<table class="file-table">
+<tr><th>Variant</th><th>Source</th><th>Children</th></tr>
+<tr><td><code>Int(String)</code></td><td><code>42</code>, <code>0xFF</code></td><td>&mdash;</td></tr>
+<tr><td><code>Str(String)</code></td><td><code>"hello"</code></td><td>&mdash;</td></tr>
+<tr><td><code>Char(u8)</code></td><td><code>'x'</code></td><td>&mdash;</td></tr>
+<tr><td><code>Bool(bool)</code></td><td><code>true</code>, <code>false</code></td><td>&mdash;</td></tr>
+<tr><td><code>Ident(String)</code></td><td><code>foo</code></td><td>&mdash;</td></tr>
+<tr><td><code>Deref</code></td><td><code>*ptr</code></td><td>inner expression</td></tr>
+<tr><td><code>AddrOf</code></td><td><code>&amp;val</code></td><td>inner expression</td></tr>
+<tr><td><code>Neg</code></td><td><code>-x</code></td><td>inner expression</td></tr>
+<tr><td><code>Not</code></td><td><code>!flag</code></td><td>inner expression</td></tr>
+<tr><td><code>BitNot</code></td><td><code>~bits</code></td><td>inner expression</td></tr>
+<tr><td><code>Binary</code></td><td><code>a + b</code></td><td>left, right, operator</td></tr>
+<tr><td><code>Assign</code></td><td><code>x = 42</code></td><td>target, value</td></tr>
+<tr><td><code>Call</code></td><td><code>f(a, b)</code></td><td>callee, arguments</td></tr>
+<tr><td><code>Index</code></td><td><code>arr[i]</code></td><td>target, index</td></tr>
+<tr><td><code>StructInit</code></td><td><code>Foo{.x=1}</code></td><td>type, member inits</td></tr>
+<tr><td><code>Field</code></td><td><code>obj.field</code></td><td>object, field name</td></tr>
+<tr><td><code>Arrow</code></td><td><code>ptr-&gt;field</code></td><td>pointer, field name</td></tr>
+<tr><td><code>Cast</code></td><td><code>cast(i32, expr)</code></td><td>target type, expression</td></tr>
+<tr><td><code>Paren</code></td><td><code>(expr)</code></td><td>inner expression</td></tr>
+</table>
+
+<div class="callout info">
+<strong>Why 13 expression variants instead of fewer, more general ones?</strong> Each variant corresponds to a distinct syntactic form that the parser can recognize immediately. A more general representation (e.g., a single <code>Unary(UnaryOp, Box&lt;AstExpr&gt;)</code> for all unary operators) would work but require an additional enum and make pattern matching in the type checker less readable. The tradeoff is more variants but clearer code at the usage sites.
+</div>
+
+<h4>AstMemberInit</h4>
+
+<p>This small struct supports struct initialization syntax like <code>MyStruct{.x = 1, .y = 2}</code>:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstMemberInit</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> value: <span class="ty">AstExpr</span>,
+}</code></pre>
+
+<p>The <code>name</code> identifies which field to initialize, and <code>value</code> is the expression assigned to it. The <code>span</code> covers the entire <code>.name = value</code> range.</p>
+
+<h3>AstStmt &mdash; The Statement Types</h3>
+
+<p>Statements are the executable units of a program. They do not produce values:</p>
+
+<div class="code-header"><span>src/ast.rs &mdash; AstStmt</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstStmt</span> {
+    <span class="ty">VarDecl</span>(<span class="ty">AstVarDecl</span>),
+    <span class="ty">If</span>(<span class="ty">AstIf</span>),
+    <span class="ty">While</span>(<span class="ty">AstWhile</span>),
+    <span class="ty">For</span>(<span class="ty">AstFor</span>),
+    <span class="ty">Return</span>(<span class="ty">AstReturn</span>),
+    <span class="ty">Asm</span>(<span class="ty">AstAsm</span>),
+    <span class="ty">Block</span>(<span class="ty">AstBlock</span>),
+    <span class="ty">Expr</span>(<span class="ty">AstExpr</span>),
+    <span class="ty">Import</span>(<span class="ty">AstImport</span>),
+}</code></pre>
+
+<p>Each variant wraps a dedicated struct. Let's examine each one:</p>
+
+<h4>AstBlock</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstBlock</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> stmts: <span class="ty">Vec</span>&lt;<span class="ty">AstStmt</span>&gt;,
+}</code></pre>
+
+<p>A block is simply a list of statements wrapped in <code>{ }</code>. The span covers from the opening brace to the closing brace. The braces themselves are not stored &mdash; they are syntactic decoration that the parser strips away.</p>
+
+<h4>AstVarDecl</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstVarDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">Option</span>&lt;<span class="ty">AstType</span>&gt;,
+    <span class="kw">pub</span> init: <span class="ty">Option</span>&lt;<span class="ty">AstExpr</span>&gt;,
+}</code></pre>
+
+<p>Both <code>type_</code> and <code>init</code> are <code>Option</code> in the struct definition — the type is optional at the AST level to support potential extensions. In practice, the Ignis parser <strong>always requires</strong> a colon and explicit type annotation, so <code>type_</code> is never <code>None</code> in a valid parse. The <code>init</code> may be omitted (leaving a variable uninitialized, which the type checker rejects). Two valid declaration forms exist:</p>
+
+<ul>
+<li><code>let x: i32 = 42;</code> &rarr; <code>name = "x"</code>, <code>type_ = Some(I32)</code>, <code>init = Some(42)</code></li>
+<li><code>let x: i32;</code> &rarr; <code>name = "x"</code>, <code>type_ = Some(I32)</code>, <code>init = None</code> (error at runtime if used uninitialized)</li>
+</ul>
+
+<p>Ignis does <strong>not</strong> support type inference — <code>let x = 42;</code> without a colon produces a parse error.</p>
+
+<h4>AstIf</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstIf</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> cond: <span class="ty">AstExpr</span>,
+    <span class="kw">pub</span> then_block: <span class="ty">AstBlock</span>,
+    <span class="kw">pub</span> else_branch: <span class="ty">Option</span>&lt;<span class="ty">Box</span>&lt;<span class="ty">AstStmt</span>&gt;&gt;,
+}</code></pre>
+
+<p>The <code>else_branch</code> is <code>Option&lt;Box&lt;AstStmt&gt;&gt;</code> because <code>else</code> is optional. When present, it can be either another <code>AstStmt::If</code> (for <code>else if</code>) or an <code>AstStmt::Block</code> (for <code>else { }</code>). Boxing the <code>AstStmt</code> avoids infinite size recursion (an <code>AstIf</code> can contain another <code>AstIf</code> via the else branch).</p>
+
+<h4>AstWhile</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstWhile</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> cond: <span class="ty">AstExpr</span>,
+    <span class="kw">pub</span> body: <span class="ty">AstBlock</span>,
+}</code></pre>
+
+<p>Simple: loop while <code>cond</code> is true.</p>
+
+<h4>AstFor</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstFor</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> init: <span class="ty">AstExpr</span>,
+    <span class="kw">pub</span> cond: <span class="ty">AstExpr</span>,
+    <span class="kw">pub</span> update: <span class="ty">AstExpr</span>,
+    <span class="kw">pub</span> body: <span class="ty">AstBlock</span>,
+}</code></pre>
+
+<p>All three parts of the for loop (init, cond, update) are required to be present in the AST. The parser fills in defaults (e.g., <code>true</code> for omitted condition).</p>
+
+<h4>AstReturn</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstReturn</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> value: <span class="ty">AstExpr</span>,
+}</code></pre>
+
+<p>Note: the return value is <strong>not</strong> optional in this struct. Even <code>return;</code> in a <code>void</code> function produces <code>AstExpr::Ident("void", ...)</code> or is handled by the parser inserting a void expression. The return statement always has a value expression in the AST.</p>
+
+<h4>AstAsm</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstAsm</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> template: <span class="ty">String</span>,
+}</code></pre>
+
+<p>Inline assembly template strings are stored as-is. The assembler backend handles parsing the template.</p>
+
+<h4>AstImport (statement form)</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstImport</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> path: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt;,
+}</code></pre>
+
+<p>A path like <code>import std.io</code> produces <code>path = ["std", "io"]</code>. The <code>Vec</code> representation makes it easy to walk the module hierarchy.</p>
+
+<p>Note that <code>AstImport</code> appears in two places: as <code>AstDecl::Import</code> (top-level) and <code>AstStmt::Import</code> (inside functions). The struct is shared between both.</p>
+
+<h3>AstDecl &mdash; The Declaration Types (7 variants)</h3>
+
+<p>Declarations are top-level constructs that introduce named entities into the program:</p>
+
+<div class="code-header"><span>src/ast.rs &mdash; AstDecl</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstDecl</span> {
+    <span class="ty">Struct</span>(<span class="ty">AstStructDecl</span>),
+    <span class="ty">Enum</span>(<span class="ty">AstEnumDecl</span>),
+    <span class="ty">Spec</span>(<span class="ty">AstSpecDecl</span>),
+    <span class="ty">Impl</span>(<span class="ty">AstImplDecl</span>),
+    <span class="ty">Func</span>(<span class="ty">AstFuncDecl</span>),
+    <span class="ty">Typedef</span>(<span class="ty">AstTypedefDecl</span>),
+    <span class="ty">Import</span>(<span class="ty">AstImport</span>),
+    <span class="ty">StaticVar</span>(<span class="ty">AstStaticVarDecl</span>),
+}</code></pre>
+
+<p>Every declaration variant has a <code>pub_</code> field (visibility), a <code>name</code> (the declared name), and declaration-specific fields:</p>
+
+<h4>AstStructDecl</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstStructDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> pub_: <span class="ty">bool</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> fields: <span class="ty">Vec</span>&lt;<span class="ty">AstField</span>&gt;,
+}</code></pre>
+
+<p>Each field is:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstField</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">AstType</span>,
+}</code></pre>
+
+<h4>AstEnumDecl</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstEnumDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> pub_: <span class="ty">bool</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> noprefix: <span class="ty">bool</span>,
+    <span class="kw">pub</span> variants: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt;,
+    <span class="kw">pub</span> variant_values: <span class="ty">Option</span>&lt;<span class="ty">Vec</span>&lt;<span class="ty">u64</span>&gt;&gt;,
+}</code></pre>
+
+<p>The <code>noprefix</code> flag corresponds to the <code>noprefix</code> attribute on enums, which means variants are referenced without the enum name prefix. The <code>variant_values</code> are optional explicit discriminant values.</p>
+
+<h4>AstSpecDecl and AstImplDecl</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstSpecDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> pub_: <span class="ty">bool</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> items: <span class="ty">Vec</span>&lt;<span class="ty">AstSpecItem</span>&gt;,
+}
+
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">AstSpecItem</span> {
+    <span class="ty">Func</span>(<span class="ty">AstFuncSig</span>),
+    <span class="ty">Typedef</span>(<span class="ty">AstTypedefDecl</span>),
+}
+
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstImplDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> impl_type: <span class="ty">AstType</span>,
+    <span class="kw">pub</span> spec_name: <span class="ty">String</span>,
+    <span class="kw">pub</span> methods: <span class="ty">Vec</span>&lt;<span class="ty">AstFuncDecl</span>&gt;,
+}</code></pre>
+
+<p><code>AstSpecDecl</code> defines a trait: a named collection of function signatures and typedefs. <code>AstImplDecl</code> implements a spec for a specific type, providing concrete method bodies. The <code>spec_name</code> field names which spec is being implemented.</p>
+
+<h4>AstFuncDecl</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstFuncDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> pub_: <span class="ty">bool</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> return_type: <span class="ty">AstType</span>,
+    <span class="kw">pub</span> params: <span class="ty">Vec</span>&lt;<span class="ty">AstParam</span>&gt;,
+    <span class="kw">pub</span> body: <span class="ty">AstBlock</span>,
+}</code></pre>
+
+<p>Parameters are modeled as <code>AstParam</code>:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstParam</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">AstType</span>,
+}</code></pre>
+
+<h4>AstTypedefDecl</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstTypedefDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> pub_: <span class="ty">bool</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">AstType</span>,
+}</code></pre>
+
+<p>Creates an alias: <code>typedef MyInt = i32;</code>.</p>
+
+<h4>AstStaticVarDecl</h4>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstStaticVarDecl</span> {
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> type_: <span class="ty">AstType</span>,
+    <span class="kw">pub</span> init: <span class="ty">Option</span>&lt;<span class="ty">AstExpr</span>&gt;,
+}</code></pre>
+
+<h3>AstProgram &mdash; The Root</h3>
+
+<p>The entire program is a list of declarations:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">AstProgram</span> {
+    <span class="kw">pub</span> decls: <span class="ty">Vec</span>&lt;<span class="ty">AstDecl</span>&gt;,
+}</code></pre>
+
+<p>That's it. A program is nothing more than an ordered sequence of top-level declarations. The parser produces this, and the semantic analyzer walks it.</p>
+
+<h3>Diagram: AST for <code>func main(i32) { return 42; }</code></h3>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>AST tree for <code>func main(i32) { return 42; }</code></strong><br><br>
+<code>AstProgram</code><br>
+<code> &boxur; Vec&lt;AstDecl&gt;[0] = AstDecl::Func</code><br>
+<code>     &boxur; AstFuncDecl</code><br>
+<code>         span: 1:1 &ndash; 1:32</code><br>
+<code>         pub_: false</code><br>
+<code>         name: "main"</code><br>
+<code>         return_type: AstType::Prim(PrimType::Void, 1:1..1:1)</code><br>
+<code>         params: &boxur; Vec&lt;AstParam&gt;[0]</code><br>
+<code>             &boxur; AstParam { name: "", type_: AstType::Prim(PrimType::I32, 1:11..1:14) }</code><br>
+<code>         body: &boxur; AstBlock</code><br>
+<code>             span: 1:16 &ndash; 1:32</code><br>
+<code>             stmts: &boxur; Vec&lt;AstStmt&gt;[0] = AstStmt::Return</code><br>
+<code>                 &boxur; AstReturn</code><br>
+<code>                     span: 1:18 &ndash; 1:30</code><br>
+<code>                     value: AstExpr::Int("42", 1:27..1:29)</code>
+</div>
+
+<div class="callout tip">
+<strong>Note the implicit return type:</strong> When a function declaration omits the return type (as in <code>func main(i32) { ... }</code>), the parser inserts <code>Void</code>. This is a parser-level decision that happens before the AST is built, so the AST always has an explicit return type.
+</div>
+
+<h3>Testing the AST</h3>
+
+<p>The <code>ast.rs</code> file defines the AST types but does not have its own test module &mdash; the AST types are tested indirectly through parser tests. However, the types themselves are designed to be testable:</p>
+
+<pre><code><span class="cm">// Example: manually constructing an AST node is straightforward:</span>
+<span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(0, 2, 1, 1);
+<span class="kw">let</span> expr = <span class="ty">AstExpr::Int</span>(<span class="str">"42"</span>.<span class="fn">into</span>(), span);
+<span class="fn">assert_eq!</span>(expr.<span class="fn">span</span>(), span);
+
+<span class="cm">// Matching on the expression:</span>
+<span class="kw">match</span> expr {
+    <span class="ty">AstExpr::Int</span>(val, _) =&gt; <span class="fn">assert_eq!</span>(val, <span class="str">"42"</span>),
+    _ =&gt; <span class="fn">panic!</span>(<span class="str">"expected Int"</span>),
+}
+
+<span class="cm">// Constructing a full function declaration:</span>
+<span class="kw">let</span> func = <span class="ty">AstFuncDecl</span> {
+    span: <span class="ty">Span</span>::<span class="fn">new</span>(0, 20, 1, 1),
+    pub_: <span class="kw">false</span>,
+    name: <span class="str">"main"</span>.<span class="fn">into</span>(),
+    return_type: <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::Void</span>, <span class="ty">Span</span>::<span class="fn">new</span>(0, 0, 1, 1)),
+    params: <span class="fn">vec!</span>[],
+    body: <span class="ty">AstBlock</span> {
+        span: <span class="ty">Span</span>::<span class="fn">new</span>(10, 20, 1, 11),
+        stmts: <span class="fn">vec!</span>[],
+    },
+};</code></pre>
+
+<p>To run parser tests (which exercise the AST construction):</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- parser
+</code></pre>
+
+<h3>Design Choices Explained</h3>
+
+<h4>Why separate <code>PrimType</code> from <code>AstType</code>?</h4>
+
+<p>Without <code>PrimType</code>, <code>AstType</code> would need 13 separate variants just for primitives:</p>
+
+<pre><code><span class="cm">// Without PrimType (worse):</span>
+<span class="kw">enum</span> <span class="ty">AstType</span> { <span class="ty">Void</span>, <span class="ty">Bool</span>, <span class="ty">I32</span>, ... }</code></pre>
+
+<p>With <code>PrimType</code>, we have a single <code>AstType::Prim(PrimType, Span)</code> variant. This collapses 13 into 1. Any code that handles all primitives can match on <code>AstType::Prim(_, _)</code> rather than listing all 13 variants.</p>
+
+<h4>Why <code>AstExpr::Cast</code> rather than a function call?</h4>
+
+<p>The <code>cast</code> keyword is a built-in language construct, not a library function. It gets its own AST node so the type checker can verify the cast is valid (e.g., you can't cast a pointer to <code>bool</code>). If <code>cast</code> were modeled as a regular function call, the type checker would need special-casing anyway.</p>
+
+<h4>Why does <code>AstField</code> store <code>type_: AstType</code> rather than <code>String</code>?</h4>
+
+<p>At parse time, the field type is resolved to an <code>AstType</code>. A field declared as <code>x: i32</code> produces <code>AstType::Prim(PrimType::I32, ...)</code>. A field declared as <code>y: MyStruct</code> produces <code>AstType::Named("MyStruct", ...)</code>. The semantic analyzer later resolves <code>Named</code> to the actual struct definition.</p>
+
+<h4>Why <code>AstStmt::Expr(AstExpr)</code>?</h4>
+
+<p>Expression-statements allow expressions to be used as statements. This is what makes <code>f();</code> and <code>a = b + c;</code> valid statements. The expression is evaluated for its side effects; its result is discarded.</p>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Missing Span on a new node</strong>: Every new AST node must carry a <code>Span</code>. If you add a new variant to <code>AstExpr</code> without a <code>Span</code> field, the <code>span()</code> accessor will fail to compile. Add it to both the variant and the match arms.</li>
+<li><strong>Box placement</strong>: When adding a recursive variant (e.g., a new unary expression), wrap the inner <code>AstExpr</code> in <code>Box</code>. Without it, Rust will error with "recursive type has infinite size."</li>
+<li><strong>Cloning the AST</strong>: If you need to clone an <code>AstExpr</code> tree, every node must implement <code>Clone</code>. The <code>#[derive(Clone)]</code> on all types ensures this, but if you add a field that is not <code>Clone</code>, the derives will fail.</li>
+<li><strong>Vec vs. Box</strong>: Use <code>Vec</code> for variable-length lists (function params, struct fields, block statements). Use <code>Box</code> for single recursive children (loop body, unary operand).</li>
+<li><strong>Span consistency</strong>: The span should cover the entire syntactic construct from the first token to the last. For <code>AstExpr::Binary</code>, the span covers from <code>left</code>'s start to <code>right</code>'s end. For <code>AstFuncDecl</code>, from <code>func</code> to the closing <code>}</code>. Off-by-one span errors manifest as confusing error messages downstream.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Debugging tip</strong>: Implement a <code>Display</code> or debug-print function for your AST to visualize parse results. A simple recursive function that prints the tree with indentation is invaluable for verifying that the parser produced the correct structure. Something like <code>println!("{:#?}", ast_program)</code> with Rust's debug formatting can get you surprisingly far.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="04-lexer.html">&larr; Chapter 4</a> &ensp; Chapter 5: The Abstract Syntax Tree &ensp; <a href="06-parser.html">Chapter 6 &rarr;</a></span>
+</div>
+
+</body>
+</html>

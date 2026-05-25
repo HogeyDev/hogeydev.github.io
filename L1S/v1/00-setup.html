@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 0: Before You Begin &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span>Chapter 0: Before You Begin &ensp; <a href="01-pipeline.html">Chapter 1 &rarr;</a></span>
+</div>
+
+<h2 id="setup">0 &ensp; Before You Begin</h2>
+
+<h3>What is a Compiler?</h3>
+
+<p>A <strong>compiler</strong> is a program that translates source code written in one language (the <em>source language</em>) into another language (the <em>target language</em>), typically machine code or assembly. L1S translates a C-like language into x86-64 assembly, then uses <code>nasm</code> and <code>cc</code> to produce an executable binary.</p>
+
+<p>At its core, a compiler has no magic. It's a pipeline of well-defined transformations, each taking structured data from the previous phase and producing different structured data for the next phase:</p>
+
+<div class="diagram">
+<span class="box">Source Text</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Tokens</span>
+<span class="arrow">&rarr;</span>
+<span class="box">AST</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Typed AST</span>
+<span class="arrow">&rarr;</span>
+<span class="box">IR</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Opt IR</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Assembly</span>
+<span class="arrow">&rarr;</span>
+<span class="box">Executable</span>
+</div>
+
+<p>Each box represents a data structure. Each arrow is a compiler phase. By the end of this book, you'll understand every arrow and every box in the diagram above.</p>
+
+<h3>Required Tools</h3>
+
+<p>Before you can build and run L1S, you need three tools installed:</p>
+
+<table class="file-table">
+<tr><th>Tool</th><th>Purpose</th><th>Installation Check</th></tr>
+<tr>
+  <td><strong>Rust (rustc &amp; cargo)</strong></td>
+  <td>The compiler itself is written in Rust. You need the Rust toolchain to build L1S.</td>
+  <td><code>rustc --version &amp;&amp; cargo --version</code></td>
+</tr>
+<tr>
+  <td><strong>NASM</strong></td>
+  <td>The Netwide Assembler. L1S emits x86-64 NASM syntax assembly; nasm turns it into an object file.</td>
+  <td><code>nasm --version</code></td>
+</tr>
+<tr>
+  <td><strong>cc (GCC or Clang)</strong></td>
+  <td>The C compiler driver. Used as a linker to produce the final executable from the object file.</td>
+  <td><code>cc --version</code></td>
+</tr>
+</table>
+
+<div class="callout warn">
+<strong>Platform note</strong>: L1S targets x86-64 Linux (ELF64). The generated assembly uses Linux syscalls. Cross-platform support is not currently implemented.
+</div>
+
+<p>Install missing tools using your system package manager:</p>
+<pre><code><span class="cm"># Debian/Ubuntu</span>
+sudo apt install rustc cargo nasm build-essential
+
+<span class="cm"># Arch Linux</span>
+sudo pacman -S rust nasm base-devel
+
+<span class="cm"># Fedora</span>
+sudo dnf install rust cargo nasm gcc</code></pre>
+
+<h3>Building L1S</h3>
+
+<p>Clone or navigate to the L1S project root (the directory containing <code>Cargo.toml</code>) and build:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo build</code></pre>
+
+<p>This compiles all Rust source files in <code>src/</code> and produces a debug binary at <code>target/debug/l1s</code> (or the crate name defined in <code>Cargo.toml</code>).</p>
+
+<p>For a release build (optimized, runs faster):</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo build --release</code></pre>
+
+<p>To verify your build was successful:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo build 2&gt;&amp;1
+<span style="color:var(--green)">   Compiling</span> l1s v0.1.0 (/path/to/L1S)
+<span style="color:var(--green)">    Finished</span> dev [unoptimized + debuginfo] target(s) in 0.31s</code></pre>
+
+<div class="callout info">
+<strong>First build</strong>: The first <code>cargo build</code> will download dependencies and compile them, which may take a while. Subsequent builds are incremental and fast.
+</div>
+
+<h3>Running L1S</h3>
+
+<p>Once built, run L1S on a source file:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo run -- examples/hello.is</code></pre>
+
+<p>The <code>--</code> separates cargo arguments from the program arguments. Everything after <code>--</code> is passed to the compiled binary.</p>
+
+<p>This will:</p>
+
+<ol>
+  <li>Read <code>examples/hello.is</code></li>
+  <li>Lex, parse, type-check, and compile it</li>
+  <li>Emit <code>examples/hello.asm</code> (the NASM assembly file)</li>
+  <li>Invoke <code>nasm</code> to assemble into <code>examples/hello.o</code></li>
+  <li>Invoke <code>cc</code> to link into <code>examples/hello</code></li>
+  <li>Print <code>wrote examples/hello</code></li>
+  <li>Clean up the <code>.o</code> file</li>
+</ol>
+
+<p>Run the resulting executable:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> ./examples/hello</code></pre>
+
+<p>If your program prints output, you will see it here.</p>
+
+<h3>The <code>-o</code> Flag</h3>
+
+<p>By default, L1S derives the output binary name from the input filename: <code>hello.is</code> produces <code>hello</code>. Use the <code>-o</code> flag to specify a different output path:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo run -- examples/hello.is -o my_program</code></pre>
+
+<p>This writes:</p>
+<ul>
+  <li><code>my_program.asm</code> &mdash; the assembly output</li>
+  <li><code>my_program</code> &mdash; the final executable</li>
+</ul>
+
+<p>The logic lives in <code>main.rs:68-73</code>:</p>
+
+<pre><code><span class="kw">let</span> bin_path = <span class="kw">if</span> args.<span class="fn">len</span>() &gt; 2 &amp;&amp; args[2] == <span class="str">"-o"</span> {
+    args[3].<span class="fn">clone</span>()
+} <span class="kw">else</span> {
+    <span class="kw">let</span> input = <span class="ty">Path</span>::<span class="fn">new</span>(&amp;args[1]);
+    input.<span class="fn">with_extension</span>(<span class="str">""</span>).<span class="fn">to_string_lossy</span>().<span class="fn">to_string</span>()
+};</code></pre>
+
+<p>If <code>-o</code> is present, the next argument is used as the output path. Otherwise, the input filename has its extension stripped.</p>
+
+<h3>CLI Entry Point</h3>
+
+<p>All L1S compilation begins in <code>src/main.rs</code>. The <code>main</code> function (lines 22&ndash;32) handles argument parsing and file reading:</p>
+
+<div class="code-header"><span>src/main.rs &mdash; Entry point (lines 22-32)</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> args: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = <span class="fn">env::args</span>().<span class="fn">collect</span>();
+    <span class="kw">if</span> args.<span class="fn">len</span>() &lt; 2 {
+        <span class="fn">eprintln!</span>(<span class="str">"usage: ignis &lt;file.is&gt; [-o &lt;output&gt;]"</span>);
+        <span class="fn">std::process::exit</span>(1);
+    }
+
+    <span class="kw">let</span> source = <span class="fn">fs::read_to_string</span>(&amp;args[1]).<span class="fn">unwrap_or_else</span>(|e| {
+        <span class="fn">eprintln!</span>(<span class="str">"error reading {}: {}"</span>, args[1], e);
+        <span class="fn">std::process::exit</span>(1);
+    });
+}</code></pre>
+
+<p><strong>Step by step:</strong></p>
+
+<ol>
+  <li><strong>Collect arguments</strong>: <code>env::args().collect()</code> gives a <code>Vec&lt;String&gt;</code> of all command-line arguments. The first is the program path; the second should be the input file.</li>
+  <li><strong>Validate usage</strong>: If fewer than 2 arguments are provided, print usage and exit with code 1. Early and clear error messages are a compiler virtue.</li>
+  <li><strong>Read source file</strong>: <code>fs::read_to_string</code> reads the entire file into a <code>String</code>. On failure, print the OS error and exit. After this, <code>source</code> contains the full program text.</li>
+</ol>
+
+<p>The remaining 80 lines of <code>main.rs</code> connect the compiler phases together, which we explore in <a href="01-pipeline.html">Chapter 1</a>.</p>
+
+<h3>Project Structure</h3>
+
+<p>The L1S compiler consists of 15 Rust source files plus the entry point. Each module handles one part of the compilation pipeline:</p>
+
+<table class="file-table">
+<tr><th>File</th><th>Module</th><th>Purpose</th></tr>
+<tr><td><code>src/main.rs</code></td><td>&mdash;</td><td>Compiler driver: orchestrates all phases, CLI argument handling</td></tr>
+<tr><td><code>src/span.rs</code></td><td><code>span</code></td><td>Source location tracking (byte offsets + line/column)</td></tr>
+<tr><td><code>src/token.rs</code></td><td><code>token</code></td><td>Token type definitions and keyword classification</td></tr>
+<tr><td><code>src/lexer.rs</code></td><td><code>lexer</code></td><td>Lexical analysis: source text &rarr; token stream</td></tr>
+<tr><td><code>src/ast.rs</code></td><td><code>ast</code></td><td>Abstract syntax tree data structures</td></tr>
+<tr><td><code>src/parser.rs</code></td><td><code>parser</code></td><td>Recursive-descent parser: tokens &rarr; AST</td></tr>
+<tr><td><code>src/types.rs</code></td><td><code>types</code></td><td>Type system (interned type arena, structural equality)</td></tr>
+<tr><td><code>src/symbol.rs</code></td><td><code>symbol</code></td><td>Symbol table for name resolution</td></tr>
+<tr><td><code>src/diag.rs</code></td><td><code>diag</code></td><td>Error diagnostics and reporting</td></tr>
+<tr><td><code>src/typeck.rs</code></td><td><code>typeck</code></td><td>Type checker: semantic analysis</td></tr>
+<tr><td><code>src/ir.rs</code></td><td><code>ir</code></td><td>Intermediate representation data structures</td></tr>
+<tr><td><code>src/ir_build.rs</code></td><td><code>ir_build</code></td><td>AST &rarr; IR lowering</td></tr>
+<tr><td><code>src/ir_opt.rs</code></td><td><code>ir_opt</code></td><td>IR optimization passes</td></tr>
+<tr><td><code>src/abi.rs</code></td><td><code>abi</code></td><td>Calling convention and ABI details</td></tr>
+<tr><td><code>src/regalloc.rs</code></td><td><code>regalloc</code></td><td>Register allocation (virtual &rarr; physical registers)</td></tr>
+<tr><td><code>src/codegen.rs</code></td><td><code>codegen</code></td><td>x86-64 NASM code generation</td></tr>
+</table>
+
+<p>The <code>mod</code> declarations in <code>main.rs</code> register each module with the compiler. The Rust compiler compiles them in the order they are declared, which follows the pipeline order.</p>
+
+<h3>Development Workflow</h3>
+
+<p>During compiler development, you will frequently iterate on one phase at a time. These cargo commands will be your daily tools:</p>
+
+<table class="file-table">
+<tr><th>Command</th><th>Use Case</th></tr>
+<tr><td><code>cargo build</code></td><td>Full compilation, produces the binary</td></tr>
+<tr><td><code>cargo check</code></td><td>Fast type-check only (no binary produced)</td></tr>
+<tr><td><code>cargo run -- test.is</code></td><td>Build and run the compiler on a test file</td></tr>
+<tr><td><code>cargo test</code></td><td>Run all unit and integration tests</td></tr>
+<tr><td><code>cargo test -- lexer</code></td><td>Run tests matching "lexer" in their name</td></tr>
+<tr><td><code>cargo clippy</code></td><td>Run Rust lints to catch common mistakes</td></tr>
+</table>
+
+<p><code>cargo check</code> is particularly useful during development: it verifies type correctness without running the full code generation pipeline, making it significantly faster than <code>cargo build</code>.</p>
+
+<h3>The <code>.is</code> File Extension</h3>
+
+<p>L1S source files use the <code>.is</code> extension (short for "Ignis Source," the historical name of the project). The compiler does not enforce this extension &mdash; it will happily read <code>.txt</code> or any other extension &mdash; but following the convention helps tools and team members identify L1S source files at a glance.</p>
+
+<p>Example program structure:</p>
+
+<pre><code><span class="cm">// A complete L1S program</span>
+<span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}
+
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> result: <span class="ty">i32</span> = <span class="fn">add</span>(2, 3);
+    <span class="kw">return</span> result;
+}</code></pre>
+
+<h3>Your First L1S Program</h3>
+
+<p>Create a file called <code>hello.is</code>:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> 42;
+}</code></pre>
+
+<p>Build and run:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo run -- hello.is
+<span style="color:var(--fg2)">$</span> ./hello
+<span style="color:var(--fg2)">$</span> echo $?
+42</code></pre>
+
+<div class="callout info">
+<strong>Exit code</strong>: The value returned from <code>main</code> becomes the program's exit code. <code>return 42;</code> means the shell sees exit code 42 after the program runs.
+</div>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+  <li><strong>Missing NASM</strong>: If <code>nasm</code> is not installed, the build succeeds but compilation fails with <code>error invoking assembler</code>. Install NASM with your package manager.</li>
+  <li><strong>Wrong working directory</strong>: The source file path is relative to where you run <code>cargo run</code>, not relative to the source file. Run the command from the project root.</li>
+  <li><strong>cargo run vs cargo build</strong>: <code>cargo run</code> builds if needed and runs the binary. <code>cargo build</code> just compiles. Use <code>cargo build</code> to check for compile errors without running.</li>
+  <li><strong>Unclosed strings at EOF</strong>: The lexer handles these gracefully (records an error and continues), so a typo won't crash the compiler.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Quick sanity check</strong>: Run <code>cargo build 2&gt;&amp;1 | head -5</code> to verify the compiler itself compiles cleanly. If you see errors, check your Rust toolchain version with <code>rustc --version</code>.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span>Chapter 0: Before You Begin &ensp; <a href="01-pipeline.html">Chapter 1 &rarr;</a></span>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 14: Code Generation &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="13-regalloc.html">&larr; Chapter 13</a> &ensp; Chapter 14: Code Generation &ensp; <a href="15-link.html">Chapter 15 &rarr;</a></span>
+</div>
+
+<h2 id="codegen">14 &ensp; Code Generation</h2>
+
+<h3>From IR to Assembly</h3>
+
+<p>Code generation is the point where theory meets reality. After all the parsing, type checking, IR construction, and register allocation, we finally produce actual x86-64 assembly. The <code>Codegen</code> struct is responsible for translating an <code>IrModule</code> into a NASM-syntax assembly string that can be assembled and linked into a working executable.</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Pipeline position:</strong><br><br>
+<span class="box">IR Module</span> <span class="arrow">&rarr;</span>
+<span class="box">Codegen</span> <span class="arrow">&rarr;</span>
+<span class="box">.asm file</span> <span class="arrow">&rarr;</span>
+<span class="box">nasm</span> <span class="arrow">&rarr;</span>
+<span class="box">.o file</span> <span class="arrow">&rarr;</span>
+<span class="box">cc (linker)</span> <span class="arrow">&rarr;</span>
+<span class="box">executable</span>
+</div>
+
+<h3>The Codegen Struct</h3>
+
+<p>The struct is simple: it holds a mutable <code>String</code> buffer for the assembly output and a reference to the <code>TypeArena</code> for type queries:</p>
+
+<div class="code-header"><span>src/codegen.rs &mdash; Codegen struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Codegen</span>&lt;'a&gt; {
+    <span class="kw">pub</span> output: <span class="ty">String</span>,
+    <span class="kw">pub</span> types: &amp;<span class="ty">TypeArena</span>,
+}
+
+<span class="kw">impl</span>&lt;'a&gt; <span class="ty">Codegen</span>&lt;'a&gt; {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(types: &amp;<span class="ty">TypeArena</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Codegen</span> { output: <span class="ty">String</span>::<span class="fn">new</span>(), types }
+    }
+}</code></pre>
+
+<p>The <code>output</code> buffer is cleared on each call to <code>generate()</code>, so a single <code>Codegen</code> instance can be reused. The <code>types</code> reference is only needed for string escape handling (via <code>TypeArena</code> size queries by <code>escape_string</code>).</p>
+
+<h3>The Main Entry Point: <code>generate()</code></h3>
+
+<p><code>generate()</code> is the public API. It produces an assembly file with three sections:</p>
+
+<div class="code-header"><span>src/codegen.rs &mdash; generate()</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">generate</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, module: &amp;<span class="ty">IrModule</span>) -&gt; <span class="ty">String</span> {
+    <span class="kw">self</span>.output.<span class="fn">clear</span>();
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"section .text"</span>);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"global main"</span>);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">""</span>);
+
+    <span class="kw">for</span> func <span class="kw">in</span> &amp;module.functions {
+        <span class="kw">self</span>.<span class="fn">generate_func</span>(func);
+    }
+
+    <span class="kw">if</span> !module.strings.<span class="fn">is_empty</span>() {
+        <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"section .rodata"</span>);
+        <span class="kw">for</span> s <span class="kw">in</span> &amp;module.strings {
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"str_{}:"</span>, s.id.<span class="num">0</span>));
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  db \"{}\", 0"</span>, <span class="kw">self</span>.<span class="fn">escape_string</span>(&amp;s.value)));
+        }
+    }
+
+    <span class="kw">if</span> !module.globals.<span class="fn">is_empty</span>() {
+        <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"section .data"</span>);
+        <span class="kw">for</span> g <span class="kw">in</span> &amp;module.globals {
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"global {}"</span>, g.name));
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"{}:"</span>, g.name));
+            <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  dd 0"</span>);
+        }
+    }
+
+    <span class="kw">self</span>.output.<span class="fn">clone</span>()
+}</code></pre>
+
+<p><strong>The three sections:</strong></p>
+<ul>
+<li><strong><code>section .text</code></strong>: Executable code. Every function becomes a global label followed by its instructions. The entry point <code>main</code> is declared <code>global</code> so the linker can find it.</li>
+<li><strong><code>section .rodata</code></strong>: Read-only data. String literals are emitted as <code>db</code> directives with NASM escape sequences. Each string gets a unique label like <code>str_0</code>, <code>str_1</code>, etc., matching the <code>StringId</code> used in the IR.</li>
+<li><strong><code>section .data</code></strong>: Mutable data. Global variables are emitted with <code>dd 0</code> (4 bytes initialized to zero) and declared <code>global</code> for linker visibility.</li>
+</ul>
+
+<div class="callout info">
+<strong>NASM syntax</strong>: L1S uses NASM's <code>db</code> (declare byte) for string data and <code>dd</code> (declare dword) for 32-bit integer globals. The <code>global</code> directive makes symbols visible to the linker, equivalent to <code>.globl</code> in AT&amp;T syntax.
+</div>
+
+<h3>Function Code Generation: <code>generate_func()</code></h3>
+
+<p>Each function is translated with a consistent prologue, per-block code, and epilogue:</p>
+
+<div class="code-header"><span>src/codegen.rs &mdash; generate_func()</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">generate_func</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="ty">IrFunction</span>) {
+    <span class="kw">let</span> <span class="kw">mut</span> alloc = <span class="ty">StackAllocator</span>::<span class="fn">new</span>();
+    alloc.<span class="fn">allocate</span>(func);
+
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"; --- {} ---"</span>, func.name));
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"global {}"</span>, func.name));
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"{}:"</span>, func.name));
+
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  push rbp"</span>);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  mov rbp, rsp"</span>);
+    <span class="kw">if</span> alloc.stack_size != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  sub rsp, {}"</span>, -alloc.stack_size));
+    }
+
+    <span class="kw">for</span> (i, param) <span class="kw">in</span> func.params.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+        <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(param.vreg);
+        <span class="kw">let</span> reg = <span class="kw">self</span>.<span class="fn">param_reg</span>(i);
+        <span class="kw">if</span> slot != <span class="num">0</span> {
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov [rbp{}], {}"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(slot), reg));
+        }
+    }
+
+    <span class="kw">for</span> block <span class="kw">in</span> &amp;func.blocks {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">".{}_{}:"</span>, func.name, block.id.<span class="num">0</span>));
+        <span class="kw">for</span> instr <span class="kw">in</span> &amp;block.instrs {
+            <span class="kw">self</span>.<span class="fn">emit_instr</span>(instr, &amp;alloc);
+        }
+        <span class="kw">self</span>.<span class="fn">emit_terminator</span>(&amp;block.terminator, &amp;alloc, func);
+    }
+
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">".return_{}:"</span>, func.name));
+    <span class="kw">if</span> alloc.stack_size != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  add rsp, {}"</span>, -alloc.stack_size));
+    }
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  pop rbp"</span>);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  ret"</span>);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">""</span>);
+}</code></pre>
+
+<p><strong>Step-by-step walkthrough:</strong></p>
+<ol>
+<li><strong>StackAllocator</strong>: A fresh <code>StackAllocator</code> is created and run on the function. It assigns each virtual register (<code>VReg</code>) a negative offset from <code>rbp</code>. The <code>stack_size</code> is the total space needed, rounded down to 16-byte alignment.</li>
+<li><strong>Prologue</strong> (<code>push rbp; mov rbp, rsp; sub rsp, N</code>): Saves the caller's frame pointer, sets up our own frame, and allocates stack space. This is the standard x86-64 function prologue.</li>
+<li><strong>Parameter stubs</strong>: Parameters arrive in registers (<code>rdi</code>, <code>rsi</code>, etc. per the System V ABI). Each is spilled to its stack slot so that all subsequent code accesses parameters via memory (consistent with the <code>StackAllocator</code>'s model).</li>
+<li><strong>Per-block label</strong>: Each basic block gets a label like <code>.main_0:</code> (function name + block ID). These are local labels (prefixed with <code>.</code> in NASM), scoped to the enclosing global label.</li>
+<li><strong>Emit instructions</strong>: Every <code>IrInstr</code> in the block is translated to one or more NASM instructions via <code>emit_instr</code>.</li>
+<li><strong>Emit terminator</strong>: The block terminator (<code>Jump</code>, <code>Branch</code>, or <code>Return</code>) is emitted. <code>Return</code> jumps to the shared return label rather than inlining the epilogue.</li>
+<li><strong>Return label</strong>: A single <code>.return_&lt;name&gt;:</code> label handles <code>add rsp, N</code> (restore stack), <code>pop rbp</code>, and <code>ret</code>. All return paths converge here.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Why a single return label?</strong> If we inlined the epilogue at every <code>Return</code> terminator, the code would be larger but faster (no extra jump). L1S uses a shared return label for smaller code size. An optimizing compiler could choose either strategy.
+</div>
+
+<h3>Instruction Emission: <code>emit_instr()</code></h3>
+
+<p>This is the heart of the code generator &mdash; a massive match on every <code>IrInstr</code> variant. Let's examine the key patterns:</p>
+
+<h4>Binary Operations (Add, Sub, Mul, And, Or, Xor)</h4>
+
+<p>Most binary operations use the <code>binary</code> helper:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">binary</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, op: &amp;<span class="ty">str</span>, dest: &amp;<span class="ty">VReg</span>, a: &amp;<span class="ty">VReg</span>, b: &amp;<span class="ty">VReg</span>, alloc: &amp;<span class="ty">StackAllocator</span>) {
+    <span class="kw">self</span>.<span class="fn">load_to_rax</span>(*a, alloc);
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*b, <span class="str">"rcx"</span>, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  {} eax, ecx"</span>, op));
+    <span class="kw">self</span>.<span class="fn">store_from_rax</span>(*dest, alloc);
+}
+
+<span class="cm">// Usage in emit_instr:</span>
+<span class="ty">IrInstr</span>::<span class="fn">Add</span>(dest, a, b) =&gt; { <span class="kw">self</span>.<span class="fn">binary</span>(<span class="str">"add"</span>, dest, a, b, alloc); }
+<span class="ty">IrInstr</span>::<span class="fn">Sub</span>(dest, a, b) =&gt; <span class="kw">self</span>.<span class="fn">binary</span>(<span class="str">"sub"</span>, dest, a, b, alloc),
+<span class="ty">IrInstr</span>::<span class="fn">Mul</span>(dest, a, b) =&gt; <span class="kw">self</span>.<span class="fn">binary</span>(<span class="str">"imul"</span>, dest, a, b, alloc),</code></pre>
+
+<p>The pattern is: <code>rax = a; rcx = b; op eax, ecx; dest = rax</code>. This is a three-address code style: both operands are loaded into registers, the operation is performed, then the result is stored back.</p>
+
+<h4>Division and Remainder</h4>
+
+<p>Division is special because x86-64 uses implicit register pairs:</p>
+
+<pre><code><span class="ty">IrInstr</span>::<span class="fn">SDiv</span>(dest, a, b) =&gt; {
+    <span class="kw">self</span>.<span class="fn">load_to_rax</span>(*a, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  cdq"</span>);          <span class="cm">// sign-extend eax into edx:eax</span>
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*b, <span class="str">"rcx"</span>, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  idiv ecx"</span>);     <span class="cm">// quotient in eax, remainder in edx</span>
+    <span class="kw">self</span>.<span class="fn">store_from_rax</span>(*dest, alloc);
+}
+
+<span class="ty">IrInstr</span>::<span class="fn">SRem</span>(dest, a, b) =&gt; {
+    <span class="kw">self</span>.<span class="fn">load_to_rax</span>(*a, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  cdq"</span>);
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*b, <span class="str">"rcx"</span>, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  idiv ecx"</span>);
+    <span class="kw">let</span> d_slot = alloc.<span class="fn">slot</span>(*dest);  <span class="cm">// remainder is in edx, not eax!</span>
+    <span class="kw">if</span> d_slot != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov [rbp{}], rdx"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(d_slot)));
+    }
+}</code></pre>
+
+<p><code>cdq</code> sign-extends <code>eax</code> into <code>edx:eax</code> (the dividend), and <code>idiv ecx</code> divides the 64-bit <code>edx:eax</code> pair by <code>ecx</code>. The quotient lands in <code>eax</code>, remainder in <code>edx</code>. This is why <code>SRem</code> reads from <code>rdx</code> rather than <code>rax</code>.</p>
+
+<h4>Immediate Moves</h4>
+
+<pre><code><span class="ty">IrInstr</span>::<span class="fn">MovImm</span>(dest, val, _) =&gt; {
+    <span class="kw">let</span> d_slot = alloc.<span class="fn">slot</span>(*dest);
+    <span class="kw">if</span> d_slot != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov qword [rbp{}], {}"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(d_slot), val));
+    }
+}</code></pre>
+
+<p>Note the <code>qword</code> specifier: NASM needs to know the operand size when writing an immediate to memory.</p>
+
+<h4>Function Calls</h4>
+
+<pre><code><span class="ty">IrInstr</span>::<span class="fn">Call</span>(dest, name, args) =&gt; {
+    <span class="kw">for</span> (i, arg) <span class="kw">in</span> args.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+        <span class="kw">let</span> reg = <span class="kw">self</span>.<span class="fn">arg_reg</span>(i);
+        <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(*arg);
+        <span class="kw">if</span> slot != <span class="num">0</span> {
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov {}, [rbp{}]"</span>, reg, <span class="kw">self</span>.<span class="fn">signed</span>(slot)));
+        } <span class="kw">else</span> {
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  xor {}, {}"</span>, reg, reg));
+        }
+    }
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  call {}"</span>, name));
+    <span class="kw">let</span> d_slot = alloc.<span class="fn">slot</span>(*dest);
+    <span class="kw">if</span> d_slot != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov [rbp{}], rax"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(d_slot)));
+    }
+}</code></pre>
+
+<p>Arguments are loaded into the System V argument registers (see below), then <code>call</code> is emitted. The return value in <code>rax</code> is immediately stored to the destination's stack slot.</p>
+
+<h4>GetElementPtr (GEP)</h4>
+
+<pre><code><span class="ty">IrInstr</span>::<span class="fn">Gep</span>(dest, base, index, stride) =&gt; {
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*base, <span class="str">"rax"</span>, alloc);
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*index, <span class="str">"rcx"</span>, alloc);
+    <span class="kw">if</span> *stride &gt; <span class="num">1</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  imul rcx, rcx, {}"</span>, stride));
+    }
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  add rax, rcx"</span>);
+    <span class="kw">let</span> d_slot = alloc.<span class="fn">slot</span>(*dest);
+    <span class="kw">if</span> d_slot != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov [rbp{}], rax"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(d_slot)));
+    }
+}</code></pre>
+
+<p>GEP computes <code>base + index * stride</code> at runtime, producing a pointer. The stride is the element size (e.g., 4 for <code>i32</code> arrays).</p>
+
+<h3>Terminator Emission: <code>emit_terminator()</code></h3>
+
+<p>Three kinds of terminators control control flow between basic blocks:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">emit_terminator</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, term: &amp;<span class="ty">IrTerminator</span>, alloc: &amp;<span class="ty">StackAllocator</span>, func: &amp;<span class="ty">IrFunction</span>) {
+    <span class="kw">match</span> term {
+        <span class="ty">IrTerminator</span>::<span class="fn">Jump</span>(target) =&gt; {
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  jmp .{}_{}"</span>, func.name, target.<span class="num">0</span>));
+        }
+        <span class="ty">IrTerminator</span>::<span class="fn">Branch</span>(cond, t, f) =&gt; {
+            <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(*cond);
+            <span class="kw">if</span> slot != <span class="num">0</span> {
+                <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov rax, [rbp{}]"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(slot)));
+            } <span class="kw">else</span> {
+                <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  xor eax, eax"</span>);
+            }
+            <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  test eax, eax"</span>);
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  jnz .{}_{}"</span>, func.name, t.<span class="num">0</span>));
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  jmp .{}_{}"</span>, func.name, f.<span class="num">0</span>));
+        }
+        <span class="ty">IrTerminator</span>::<span class="fn">Return</span>(val) =&gt; {
+            <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(*val);
+            <span class="kw">if</span> slot != <span class="num">0</span> {
+                <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov rax, [rbp{}]"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(slot)));
+            } <span class="kw">else</span> {
+                <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  xor eax, eax"</span>);
+            }
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  jmp .return_{}"</span>, func.name));
+        }
+    }
+}</code></pre>
+
+<ul>
+<li><strong>Jump</strong>: Unconditional jump to a block label.</li>
+<li><strong>Branch</strong>: Conditional branch. Load the condition into <code>rax</code>, <code>test eax, eax</code> sets ZF if zero, <code>jnz</code> jumps to the true target if non-zero, otherwise falls through to the <code>jmp</code> to the false target.</li>
+<li><strong>Return</strong>: Load the return value into <code>rax</code> (the return value register per SysV ABI), then jump to the shared return label.</li>
+</ul>
+
+<h3>Comparison Instructions (cmp pattern)</h3>
+
+<p>Comparisons (Eq, Ne, Slt, Sgt, Sle, Sge) use a two-step pattern: compare, then set a byte based on the flags:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">cmp</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, setcc: &amp;<span class="ty">str</span>, dest: &amp;<span class="ty">VReg</span>, a: &amp;<span class="ty">VReg</span>, b: &amp;<span class="ty">VReg</span>, alloc: &amp;<span class="ty">StackAllocator</span>) {
+    <span class="kw">self</span>.<span class="fn">load_to_rax</span>(*a, alloc);      <span class="cm">// rax = a</span>
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*b, <span class="str">"rcx"</span>, alloc);  <span class="cm">// rcx = b</span>
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  cmp eax, ecx"</span>);       <span class="cm">// compare</span>
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  {} al"</span>, setcc));  <span class="cm">// sete/setne/setl/setg/...</span>
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  movzx eax, al"</span>);     <span class="cm">// zero-extend byte to 32-bit</span>
+    <span class="kw">self</span>.<span class="fn">store_from_rax</span>(*dest, alloc);
+}</code></pre>
+
+<p><code>cmp</code> sets CPU flags. <code>sete al</code> writes 1 to <code>al</code> if equal (ZF set), 0 otherwise. <code>movzx eax, al</code> zero-extends the byte result to a full 32-bit register. The specific <code>setcc</code> mnemonic varies by comparison: <code>sete</code> for Eq, <code>setne</code> for Ne, <code>setl</code> for signed less-than, etc.</p>
+
+<h3>The x86-64 System V ABI Calling Convention</h3>
+
+<p>L1S targets Linux x86-64, which follows the System V AMD64 ABI. The key conventions are:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Argument registers (integer/pointer):</strong><br>
+<table class="file-table" style="width:auto;margin:0.5rem 0;">
+<tr><th>Position</th><th>Register</th><th>Purpose in L1S</th></tr>
+<tr><td>1st</td><td><code>rdi</code></td><td>First parameter / first call argument</td></tr>
+<tr><td>2nd</td><td><code>rsi</code></td><td>Second parameter / second call argument</td></tr>
+<tr><td>3rd</td><td><code>rdx</code></td><td>Third parameter / third call argument</td></tr>
+<tr><td>4th</td><td><code>rcx</code></td><td>Fourth parameter / fourth call argument</td></tr>
+<tr><td>5th</td><td><code>r8</code></td><td>Fifth parameter / fifth call argument</td></tr>
+<tr><td>6th</td><td><code>r9</code></td><td>Sixth parameter / sixth call argument</td></tr>
+</table>
+<br>
+<strong>Return value:</strong> <code>rax</code><br>
+<strong>Stack alignment:</strong> 16-byte alignment at <code>call</code> instruction<br>
+<strong>Caller-saved:</strong> rax, rcx, rdx, rsi, rdi, r8, r9, r10, r11<br>
+<strong>Callee-saved:</strong> rbx, rbp, r12&ndash;r15
+</div>
+
+<p>L1S implements this with two helper methods:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">param_reg</span>(&amp;<span class="kw">self</span>, index: <span class="ty">usize</span>) -&gt; &amp;<span class="str">'static str</span> {
+    <span class="kw">match</span> index {
+        <span class="num">0</span> =&gt; <span class="str">"rdi"</span>,
+        <span class="num">1</span> =&gt; <span class="str">"rsi"</span>,
+        <span class="num">2</span> =&gt; <span class="str">"rdx"</span>,
+        <span class="num">3</span> =&gt; <span class="str">"rcx"</span>,
+        <span class="num">4</span> =&gt; <span class="str">"r8"</span>,
+        <span class="num">5</span> =&gt; <span class="str">"r9"</span>,
+        _ =&gt; <span class="str">"rdi"</span>,
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">arg_reg</span>(&amp;<span class="kw">self</span>, index: <span class="ty">usize</span>) -&gt; &amp;<span class="str">'static str</span> {
+    <span class="kw">match</span> index {
+        <span class="num">0</span> =&gt; <span class="str">"rdi"</span>,
+        <span class="num">1</span> =&gt; <span class="str">"rsi"</span>,
+        <span class="num">2</span> =&gt; <span class="str">"rdx"</span>,
+        <span class="num">3</span> =&gt; <span class="str">"rcx"</span>,
+        <span class="num">4</span> =&gt; <span class="str">"r8"</span>,
+        <span class="num">5</span> =&gt; <span class="str">"r9"</span>,
+        _ =&gt; <span class="str">"rdi"</span>,
+    }
+}</code></pre>
+
+<p>They are intentionally identical &mdash; both parameters and call arguments use the same register assignment. The fallback <code>_ =&gt; "rdi"</code> is a bug/quirk: beyond 6 args, the ABI requires stack-based passing, but L1S silently reuses <code>rdi</code>. This works for L1S's typical programs which rarely exceed 6 parameters.</p>
+
+<div class="callout warn">
+<strong>6-argument limit</strong>: The current code silently mishandles more than 6 arguments. A production compiler would either detect this at compile time and emit an error, or implement stack-based argument passing for the 7th+ argument per the SysV ABI.
+</div>
+
+<h3>Helper Methods</h3>
+
+<p>Several small helpers keep <code>emit_instr</code> code clean:</p>
+
+<p><strong><code>signed()</code></strong> &mdash; Since stack slots are negative offsets, we need to format them for NASM syntax which uses <code>+</code> or <code>-</code>:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">signed</span>(&amp;<span class="kw">self</span>, n: <span class="ty">i64</span>) -&gt; <span class="ty">String</span> {
+    <span class="kw">if</span> n &gt;= <span class="num">0</span> { <span class="fn">format!</span>(<span class="str">"+{}"</span>, n) }
+    <span class="kw">else</span> { <span class="fn">format!</span>(<span class="str">"-{}"</span>, -n) }
+}</code></pre>
+
+<p>This produces <code>rbp-24</code> for negative slots (the common case) and <code>rbp+16</code> for the return address area.</p>
+
+<p><strong><code>load_to_rax()</code></strong> and <strong><code>load_to_reg()</code></strong> &mdash; Load a virtual register's value into a physical register:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">load_to_rax</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, vreg: <span class="ty">VReg</span>, alloc: &amp;<span class="ty">StackAllocator</span>) {
+    <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(vreg);
+    <span class="kw">if</span> slot != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov rax, [rbp{}]"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(slot)));
+    } <span class="kw">else</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  xor eax, eax"</span>);
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">load_to_reg</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, vreg: <span class="ty">VReg</span>, reg: &amp;<span class="ty">str</span>, alloc: &amp;<span class="ty">StackAllocator</span>) {
+    <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(vreg);
+    <span class="kw">if</span> slot != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov {}, [rbp{}]"</span>, reg, <span class="kw">self</span>.<span class="fn">signed</span>(slot)));
+    } <span class="kw">else</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  xor {}, {}"</span>, reg, reg));
+    }
+}</code></pre>
+
+<p>If the <code>slot()</code> returns 0 (the vreg wasn't allocated a slot), we <code>xor reg, reg</code> to zero it rather than crashing. This can happen if an unused vreg snuck through.</p>
+
+<p><strong><code>store_from_rax()</code></strong> &mdash; The reverse: write <code>rax</code> to a vreg's stack slot:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">store_from_rax</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, vreg: <span class="ty">VReg</span>, alloc: &amp;<span class="ty">StackAllocator</span>) {
+    <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(vreg);
+    <span class="kw">if</span> slot != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov [rbp{}], rax"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(slot)));
+    }
+}</code></pre>
+
+<p><strong><code>escape_string()</code></strong> &mdash; Converts a byte slice into a NASM-compatible string literal:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">escape_string</span>(&amp;<span class="kw">self</span>, bytes: &amp;[<span class="ty">u8</span>]) -&gt; <span class="ty">String</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> s = <span class="ty">String</span>::<span class="fn">new</span>();
+    <span class="kw">for</span> &amp;b <span class="kw">in</span> bytes {
+        <span class="kw">match</span> b {
+            b<span class="str">'\\'</span> =&gt; s.<span class="fn">push_str</span>(<span class="str">"\\\\"</span>),
+            b<span class="str">'"'</span> =&gt; s.<span class="fn">push_str</span>(<span class="str">"\\\""</span>),
+            b<span class="str">'\n'</span> =&gt; s.<span class="fn">push_str</span>(<span class="str">"\\n"</span>),
+            b<span class="str">'\t'</span> =&gt; s.<span class="fn">push_str</span>(<span class="str">"\\t"</span>),
+            <span class="num">0</span> =&gt; s.<span class="fn">push_str</span>(<span class="str">"\\0"</span>),
+            c <span class="kw">if</span> c.<span class="fn">is_ascii_graphic</span>() || c == b<span class="str">' '</span> =&gt; s.<span class="fn">push</span>(c <span class="kw">as</span> <span class="ty">char</span>),
+            _ =&gt; <span class="fn">write!</span>(s, <span class="str">"\\x{:02x}"</span>, b).<span class="fn">unwrap</span>(),
+        }
+    }
+    s
+}</code></pre>
+
+<p>Note: non-printable, non-escape bytes are output as <code>\xHH</code> hex escapes, which NASM understands natively.</p>
+
+<h3>Traced Example: Complete Assembly Output</h3>
+
+<p>Let's trace code generation for a simple function. Given this L1S source:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p>The IR builder produces an <code>IrFunction</code> with two params, one block, one <code>Add</code> instr, and a <code>Return</code> terminator. The <code>StackAllocator</code> allocates slots at <code>rbp-8</code>, <code>rbp-16</code>, <code>rbp-24</code>. The generated assembly:</p>
+
+<pre><code><span class="cm">; --- add ---</span>
+<span class="kw">global</span> add
+add:
+  push rbp
+  mov rbp, rsp
+  sub rsp, 24               <span class="cm">; allocate 24 bytes for 3 vregs</span>
+  mov [rbp-8], rdi          <span class="cm">; spill param 0 (a)</span>
+  mov [rbp-16], rsi         <span class="cm">; spill param 1 (b)</span>
+.add_0:                      <span class="cm">; block 0 (entry)</span>
+  mov rax, [rbp-8]          <span class="cm">; load a</span>
+  mov rcx, [rbp-16]         <span class="cm">; load b</span>
+  add eax, ecx              <span class="cm">; a + b</span>
+  mov [rbp-24], rax         <span class="cm">; store result</span>
+  mov rax, [rbp-24]         <span class="cm">; load return value</span>
+  jmp .return_add           <span class="cm">; jump to epilogue</span>
+.return_add:
+  add rsp, 24               <span class="cm">; deallocate stack</span>
+  pop rbp                   <span class="cm">; restore frame pointer</span>
+  ret                       <span class="cm">; return to caller</span></code></pre>
+
+<p>The full generated output for an entire module with strings and globals would look like:</p>
+
+<pre><code><span class="kw">section</span> .<span class="fn">text</span>
+<span class="kw">global</span> main
+
+<span class="cm">; --- add ---</span>
+<span class="kw">global</span> add
+add:
+  <span class="cm">; ... prologue, body, epilogue ...</span>
+
+<span class="cm">; --- main ---</span>
+<span class="kw">global</span> main
+main:
+  <span class="cm">; ... prologue, body, epilogue ...</span>
+
+<span class="kw">section</span> .<span class="fn">rodata</span>
+str_0:
+  db <span class="str">"hello, world"</span>, <span class="num">0</span>
+
+<span class="kw">section</span> .<span class="fn">data</span>
+<span class="kw">global</span> x
+x:
+  dd <span class="num">0</span></code></pre>
+
+<h3>Testing Code Generation</h3>
+
+<p>The <code>Codegen</code> struct doesn't have dedicated tests in <code>codegen.rs</code> itself &mdash; codegen correctness is tested through integration tests that compile full programs and run them. However, the <code>StackAllocator</code> it depends on does have unit tests in <code>regalloc.rs</code>:</p>
+
+<div class="code-header"><span>src/regalloc.rs &mdash; StackAllocator tests</span></div>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_allocator_new</span>() {
+    <span class="kw">let</span> a = <span class="ty">StackAllocator</span>::<span class="fn">new</span>();
+    <span class="fn">assert_eq!</span>(a.stack_size, <span class="num">0</span>);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_allocate_allocs</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> func = <span class="ty">IrFunction</span> {
+        name: <span class="str">"test"</span>.<span class="fn">into</span>(),
+        return_type: <span class="ty">TypeId</span>::<span class="fn">new</span>(<span class="num">0</span>),
+        params: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        blocks: <span class="fn">vec!</span>[
+            <span class="ty">IrBlock</span> {
+                id: <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">0</span>),
+                name: <span class="str">"entry"</span>.<span class="fn">into</span>(),
+                phis: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+                instrs: <span class="fn">vec!</span>[
+                    <span class="ty">IrInstr</span>::<span class="fn">Alloc</span>(<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">0</span>), <span class="ty">TypeId</span>::<span class="fn">new</span>(<span class="num">11</span>)),
+                    <span class="ty">IrInstr</span>::<span class="fn">Alloc</span>(<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">1</span>), <span class="ty">TypeId</span>::<span class="fn">new</span>(<span class="num">11</span>)),
+                ],
+                terminator: <span class="ty">IrTerminator</span>::<span class="fn">Return</span>(<span class="ty">VReg</span>::<span class="fn">new</span>(<span class="num">0</span>)),
+            },
+        ],
+        num_vregs: <span class="num">2</span>,
+        entry_block: <span class="ty">IrBlockId</span>::<span class="fn">new</span>(<span class="num">0</span>),
+    };
+    <span class="kw">let</span> <span class="kw">mut</span> alloc = <span class="ty">StackAllocator</span>::<span class="fn">new</span>();
+    alloc.<span class="fn">allocate</span>(&amp;func);
+    <span class="fn">assert_eq!</span>(alloc.slot_map.<span class="fn">len</span>(), <span class="num">2</span>);
+    <span class="fn">assert!</span>(alloc.stack_size &lt; <span class="num">0</span>);
+}</code></pre>
+
+<p>These tests verify that the allocator correctly assigns slots and tracks stack size. The actual codegen correctness is verified by end-to-end tests: compile an L1S source, assemble, link, and run the resulting executable, then check its exit code or output.</p>
+
+<p>To run all tests:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test
+</code></pre>
+
+<div class="callout tip">
+<strong>Debugging generated assembly</strong>: If your compiled program crashes or produces wrong results, the first step is to look at the generated <code>.asm</code> file. Verify the prologue/epilogue, check that stack offsets match between writes and reads, and confirm that argument registers are correct. A minimal test like <code>func main(i32) { return 42; }</code> should produce a program that exits with code 42.
+</div>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Stack offset sign errors</strong>: Stack slots are negative offsets from <code>rbp</code> (e.g., <code>rbp-8</code>). The <code>signed</code> helper must produce <code>-8</code>, not <code>+8</code>. A positive offset would corrupt the caller's stack frame.</li>
+<li><strong>Missing <code>qword</code> specifier</strong>: NASM requires size specifiers for memory operands with immediates. <code>mov [rbp-8], 42</code> is ambiguous; it must be <code>mov qword [rbp-8], 42</code>.</li>
+<li><strong>Caller-saved registers</strong>: The codegen doesn't track register liveness &mdash; every value is loaded from and stored to memory. This is correct but slow. A real register allocator would keep values in registers across multiple operations.</li>
+<li><strong>Stack alignment</strong>: The SysV ABI requires 16-byte stack alignment at the <code>call</code> instruction. The prologue's <code>push rbp</code> (8 bytes) plus <code>sub rsp, N</code> where N is a multiple of 8 maintains 16-byte alignment. The <code>StackAllocator</code>'s <code>stack_size &amp; !15</code> alignment helps ensure this.</li>
+<li><strong>Division by zero</strong>: x86-64 <code>idiv</code> raises a hardware exception on division by zero. L1S does not check for this; the program will crash with SIGFPE.</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="13-regalloc.html">&larr; Chapter 13</a> &ensp; Chapter 14: Code Generation &ensp; <a href="15-link.html">Chapter 15 &rarr;</a></span>
+</div>
+
+</body>
+</html>

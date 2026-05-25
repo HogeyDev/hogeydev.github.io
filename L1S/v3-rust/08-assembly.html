@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Final Mile — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>8. The Final Mile</h2>
+
+<p>We have assembly text — a string of x86-64 instructions. How do we get from that text to a running executable?</p>
+
+<p>This chapter is about the driver: the code that ties all the pieces together, invokes the assembler and linker, handles errors, manages file I/O, and presents everything to the user. It is the least glamorous part of the compiler, but it is the part the user interacts with most.</p>
+
+<h3>The Full Pipeline</h3>
+
+<p>Here is every step, from source file to executable:</p>
+
+<div class="diagram">Source file (.l1s)
+    │
+    ▼  read_file()          — read UTF-8 text from disk
+  Source text
+    │
+    ▼  lexer::tokenize()    — character-by-character → tokens
+  Vec&lt;Token&gt;
+    │
+    ▼  parser::parse()      — recursive descent → AST
+  Program (AST)
+    │
+    ▼  symbol::build()      — collect declarations → symbol table
+  SymbolTable
+    │
+    ▼  check::typeck()      — type check every expression
+  Vec&lt;Diag&gt; (0 errors → OK)
+    │
+    ▼  ir_build::build()    — AST → SSA IR (Braun et al.)
+  Function (IR)
+    │
+    ▼  iropt::optimize()    — constant fold, DCE, algebraic
+  Function (optimized IR)
+    │
+    ▼  regalloc::assign()   — linear scan → register mapping
+  HashMap&lt;VReg, Alloc&gt;
+    │
+    ▼  codegen::generate()  — IR → x86-64 assembly text
+  Assembly text (.asm)
+    │
+    ▼  write_file()         — write .asm to disk
+  output.asm
+    │
+    ▼  nasm -f elf64        — assemble → object file
+  output.o
+    │
+    ▼  cc -o output output.o -no-pie  — link → executable
+  output (executable)</div>
+
+<p>This is the complete compiler pipeline. Every step is a function call. The interfaces are clean: the output of each step is the input of the next. If any step fails, the pipeline stops (or collects errors and continues, in the case of the type checker).</p>
+
+<h3>Error Handling</h3>
+
+<p>Our error handling philosophy is the same as Rust's: collect all errors, present them together, and let the user fix them in one batch. Like <code>cargo</code>, we never stop at the first error. We keep going to find as many as possible.</p>
+
+<p>Here is the driver code:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/main.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="hl">std::process</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> args: <span class="hl">Vec</span>&lt;<span class="hl">String</span>&gt; = <span class="hl">std::env::args</span>().<span class="fn">collect</span>();
+
+    <span class="kw">if</span> args.<span class="fn">len</span>() &lt; <span class="num">3</span> || args[<span class="num">1</span>] != <span class="str">"-o"</span> {
+        <span class="hl">eprintln!</span>(<span class="str">"Usage: l1s input.is -o output"</span>);
+        process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="kw">let</span> input_path = &amp;args[<span class="num">2</span>];
+    <span class="kw">let</span> output_path = &amp;args[<span class="num">3</span>];
+
+    <span class="cm">// Phase 1: Read and lex</span>
+    <span class="kw">let</span> source = <span class="hl">match</span> <span class="hl">std::fs::read_to_string</span>(input_path) {
+        <span class="hl">Ok</span>(s) =&gt; s,
+        <span class="hl">Err</span>(e) =&gt; {
+            <span class="hl">eprintln!</span>(<span class="str">"error: could not read '{}': {}"</span>, input_path, e);
+            process::<span class="fn">exit</span>(<span class="num">1</span>);
+        }
+    };
+
+    <span class="cm">// Phase 2: Lex</span>
+    <span class="kw">let</span> (tokens, lex_errors) = lexer::<span class="fn">tokenize</span>(&amp;source);
+    <span class="fn">report</span>(&amp;lex_errors);
+    <span class="kw">if</span> <span class="fn">has_errors</span>(&amp;lex_errors) { process::<span class="fn">exit</span>(<span class="num">1</span>); }
+
+    <span class="cm">// Phase 3: Parse</span>
+    <span class="kw">let</span> (ast, parse_errors) = parser::<span class="fn">parse</span>(&amp;tokens);
+    <span class="fn">report</span>(&amp;parse_errors);
+    <span class="kw">if</span> <span class="fn">has_errors</span>(&amp;parse_errors) { process::<span class="fn">exit</span>(<span class="num">1</span>); }
+
+    <span class="cm">// Phase 4: Symbol table + Type check</span>
+    <span class="kw">let</span> sym = symbol::<span class="fn">build</span>(&amp;ast);
+    <span class="kw">let</span> type_errors = check::<span class="fn">typeck</span>(&amp;ast, &amp;sym);
+    <span class="fn">report</span>(&amp;type_errors);
+    <span class="kw">if</span> <span class="fn">has_errors</span>(&amp;type_errors) { process::<span class="fn">exit</span>(<span class="num">1</span>); }
+
+    <span class="cm">// Phase 5: IR build</span>
+    <span class="kw">let</span> mut ir = ir_build::<span class="fn">build</span>(&amp;ast, &amp;sym);
+
+    <span class="cm">// Phase 6: Optimize</span>
+    iropt::<span class="fn">optimize</span>(&amp;<span class="kw">mut</span> ir);
+
+    <span class="cm">// Phase 7: Register allocation</span>
+    <span class="kw">let</span> alloc = regalloc::<span class="fn">assign</span>(&amp;ir);
+
+    <span class="cm">// Phase 8: Code generation</span>
+    <span class="kw">let</span> asm_path = <span class="hl">format!</span>(<span class="str">"{}.asm"</span>, output_path);
+    <span class="kw">let</span> asm = codegen::<span class="fn">generate</span>(&amp;ir, &amp;alloc);
+    <span class="hl">std::fs::write</span>(&amp;asm_path, &amp;asm).<span class="fn">unwrap</span>();
+
+    <span class="cm">// Phase 9: Assemble and link</span>
+    <span class="kw">let</span> status = process::<span class="hl">Command::new</span>(<span class="str">"nasm"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, &amp;asm_path, <span class="str">"-o"</span>, &amp;<span class="hl">format!</span>(<span class="str">"{}.o"</span>, output_path)])
+        .<span class="fn">status</span>()
+        .<span class="fn">expect</span>(<span class="str">"failed to run nasm"</span>);
+
+    <span class="kw">if</span> !status.<span class="fn">success</span>() {
+        <span class="hl">eprintln!</span>(<span class="str">"error: assembler failed"</span>);
+        process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="kw">let</span> status = process::<span class="hl">Command::new</span>(<span class="str">"cc"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"-o"</span>, output_path, &amp;<span class="hl">format!</span>(<span class="str">"{}.o"</span>, output_path), <span class="str">"-no-pie"</span>])
+        .<span class="fn">status</span>()
+        .<span class="fn">expect</span>(<span class="str">"failed to run cc"</span>);
+
+    <span class="kw">if</span> !status.<span class="fn">success</span>() {
+        <span class="hl">eprintln!</span>(<span class="str">"error: linker failed"</span>);
+        process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>main.ml</span></div>
+    <pre><code><span class="kw">let</span> () =
+  <span class="kw">let</span> args = <span class="hl">Array</span>.to_list <span class="hl">Sys</span>.argv <span class="kw">in</span>
+  <span class="kw">let</span> input, output = <span class="kw">match</span> args <span class="kw">with</span>
+    | _ :: input :: "-o" :: output :: [] -&gt; input, output
+    | _ -&gt;
+        <span class="hl">Printf.eprintf</span> <span class="str">"Usage: l1s input.is -o output\n"</span>;
+        <span class="hl">exit</span> 1
+  <span class="kw">in</span>
+
+  <span class="cm">(* Phase 1: Read *)</span>
+  <span class="kw">let</span> source = <span class="kw">match</span> <span class="hl">In_channel</span>.<span class="fn">read_all</span> input <span class="kw">with</span>
+    | s -&gt; s
+    | <span class="hl">exception</span> exn -&gt;
+        <span class="hl">Printf.eprintf</span> <span class="str">"error: could not read '%s': %s\n"</span> input (<span class="hl">Printexc</span>.<span class="fn">to_string</span> exn);
+        <span class="hl">exit</span> 1
+  <span class="kw">in</span>
+
+  <span class="cm">(* Phase 2: Lex *)</span>
+  <span class="kw">let</span> tokens, lex_errs = <span class="hl">Lexer</span>.<span class="fn">tokenize</span> source <span class="kw">in</span>
+  <span class="fn">report</span> lex_errs;
+  <span class="kw">if</span> <span class="fn">has_errors</span> lex_errs <span class="kw">then</span> <span class="hl">exit</span> 1;
+
+  <span class="cm">(* Phase 3: Parse *)</span>
+  <span class="kw">let</span> ast, parse_errs = <span class="hl">Parser</span>.<span class="fn">parse</span> tokens <span class="kw">in</span>
+  <span class="fn">report</span> parse_errs;
+  <span class="kw">if</span> <span class="fn">has_errors</span> parse_errs <span class="kw">then</span> <span class="hl">exit</span> 1;
+
+  <span class="cm">(* Phase 4: Type check *)</span>
+  <span class="kw">let</span> sym = <span class="hl">Symbol</span>.<span class="fn">build</span> ast <span class="kw">in</span>
+  <span class="kw">let</span> tc_errs = <span class="hl">Check</span>.<span class="fn">typeck</span> ast sym <span class="kw">in</span>
+  <span class="fn">report</span> tc_errs;
+  <span class="kw">if</span> <span class="fn">has_errors</span> tc_errs <span class="kw">then</span> <span class="hl">exit</span> 1;
+
+  <span class="cm">(* Phase 5-7: IR, opt, regalloc *)</span>
+  <span class="kw">let</span> ir = <span class="hl">Ir_build</span>.<span class="fn">build</span> ast sym <span class="kw">in</span>
+  <span class="kw">let</span> ir = <span class="hl">Iropt</span>.<span class="fn">optimize</span> ir <span class="kw">in</span>
+  <span class="kw">let</span> alloc = <span class="hl">Regalloc</span>.<span class="fn">assign</span> ir <span class="kw">in</span>
+
+  <span class="cm">(* Phase 8: Codegen *)</span>
+  <span class="kw">let</span> asm_path = <span class="hl">Printf.sprintf</span> <span class="str">"%s.asm"</span> output <span class="kw">in</span>
+  <span class="kw">let</span> asm = <span class="hl">Codegen</span>.<span class="fn">generate</span> ir alloc <span class="kw">in</span>
+  <span class="hl">Out_channel</span>.<span class="fn">write_all</span> asm_path asm;
+
+  <span class="cm">(* Phase 9: Assemble and link *)</span>
+  <span class="kw">let</span> _ = <span class="hl">Sys</span>.<span class="fn">command</span> (<span class="hl">Printf.sprintf</span>
+    <span class="str">"nasm -f elf64 %s -o %s.o && cc -o %s %s.o -no-pie"</span>
+    asm_path output output output)
+  <span class="kw">in</span>
+  ()</code></pre>
+  </div>
+</div>
+
+<div class="callout">
+<strong>Why <code>-no-pie</code>?</strong>
+By default, modern GCC produces Position Independent Executables (PIE). Our compiler generates absolute addresses in the assembly (not PIC), so we need <code>-no-pie</code> to tell the linker not to assume position-independence. If we wanted PIC, we would need to generate RIP-relative addressing — a good exercise.
+</div>
+
+<h3>Debugging Flags</h3>
+
+<p>When something goes wrong, we need to see what each stage produces. We add debugging flags that dump the intermediate representations:</p>
+
+<table class="file-table">
+  <tr><th>Flag</th><th>What it dumps</th><th>Use case</th></tr>
+  <tr><td><code>--dump-ast</code></td><td>Pretty-printed AST</td><td>Parser bugs — see what the parser actually builds</td></tr>
+  <tr><td><code>--dump-ir</code></td><td>Formatted IR with basic blocks</td><td>IR builder or optimizer bugs — see the SSA form</td></tr>
+  <tr><td><code>--dump-asm</code></td><td>Generated assembly</td><td>Codegen bugs — see the raw output before assembling</td></tr>
+  <tr><td><code>--dump-all</code></td><td>All of the above</td><td>Full trace — every stage visible</td></tr>
+</table>
+
+<p>These flags are invaluable for debugging. When a compiled program produces the wrong result, dump the IR to see if the optimizer introduced a bug. Dump the assembly to see if the wrong instruction was selected. Build the discipline of always checking the intermediate output — it saves hours of staring at source code.</p>
+
+<h3>Build System</h3>
+
+<p>Our Rust compiler is built with Cargo, the standard Rust build system. Our OCaml compiler uses Dune (formerly jbuilder). Here is what each build file looks like:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>Cargo.toml</span></div>
+    <pre><code>[package]
+name = <span class="str">"l1s"</span>
+version = <span class="str">"0.1.0"</span>
+edition = <span class="str">"2021"</span>
+
+[dependencies]
+<span class="cm"># No external dependencies for the core compiler</span>
+<span class="cm"># std::process for invoking nasm and cc</span></code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>dune-project</span></div>
+    <pre><code>(lang dune 3.0)
+(name l1s)</code></pre>
+  </div>
+</div>
+
+<p>Both build systems handle the same thing: compiling the source files, linking them into a single binary, and providing a command-line interface. The Rust version produces a single <code>l1s</code> binary. The OCaml version produces a <code>l1s.exe</code> native binary (or <code>l1s.bc</code> for bytecode).</p>
+
+<h3>Testing</h3>
+
+<p>Every phase of the compiler should be tested independently. We use a three-tier testing strategy:</p>
+
+<p><strong>Unit tests</strong> live alongside each module and test individual functions. The lexer tests verify that <code>"42"</code> produces <code>Token::Num(42)</code>. The parser tests verify that <code>"return 1 + 2;"</code> produces the correct AST. The type checker tests verify that type mismatches are caught.</p>
+
+<p><strong>Integration tests</strong> compile complete programs and run them, checking the exit code. This is the most important test category — it verifies the entire pipeline works end-to-end.</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>tests/integration.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="hl">std::process</span>::<span class="hl">Command</span>;
+
+<span class="kw">fn</span> <span class="fn">compile_and_run</span>(source: &amp;<span class="hl">str</span>, expected: <span class="hl">i32</span>) {
+    <span class="hl">std::fs::write</span>(<span class="str">"test_input.l1s"</span>, source).<span class="fn">unwrap</span>();
+    <span class="hl">Command::new</span>(<span class="str">"l1s"</span>)
+        .<span class="fn">args</span>(&amp;[<span class="str">"test_input.l1s"</span>, <span class="str">"-o"</span>, <span class="str">"test_output"</span>])
+        .<span class="fn">status</span>()
+        .<span class="fn">unwrap</span>();
+    <span class="kw">let</span> output = <span class="hl">Command::new</span>(<span class="str">"./test_output"</span>)
+        .<span class="fn">output</span>()
+        .<span class="fn">unwrap</span>();
+    <span class="hl">assert_eq!</span>(output.status.<span class="fn">code</span>(), <span class="hl">Some</span>(expected));
+}
+
+#[test]
+<span class="kw">fn</span> <span class="fn">test_return_42</span>() {
+    <span class="fn">compile_and_run</span>(<span class="str">"func main(i32) { return 42; }"</span>, <span class="num">42</span>);
+}
+
+#[test]
+<span class="kw">fn</span> <span class="fn">test_add</span>() {
+    <span class="fn">compile_and_run</span>(
+        <span class="str">"func main(i32) { let x: i32 = 10; let y: i32 = 32; return x + y; }"</span>,
+        <span class="num">42</span>,
+    );
+}
+
+#[test]
+<span class="kw">fn</span> <span class="fn">test_if_else</span>() {
+    <span class="fn">compile_and_run</span>(
+        <span class="str">"func main(i32) { if (1 > 0) { return 1; } else { return 0; } }"</span>,
+        <span class="num">1</span>,
+    );
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>tests/test_runner.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">compile_and_run</span> source expected =
+  <span class="hl">In_channel</span>.<span class="fn">write_all</span> <span class="str">"test_input.l1s"</span> source;
+  <span class="hl">Sys</span>.<span class="fn">command</span> <span class="str">"l1s test_input.l1s -o test_output"</span> |&gt; <span class="hl">ignore</span>;
+  <span class="kw">let</span> code = <span class="hl">Sys</span>.<span class="fn">command</span> <span class="str">"./test_output"</span> <span class="kw">in</span>
+  <span class="hl">assert</span> (code = expected)
+
+<span class="kw">let</span> () =
+  <span class="fn">compile_and_run</span> <span class="str">"func main(i32) { return 42; }"</span> 42;
+  <span class="fn">compile_and_run</span>
+    <span class="str">"func main(i32) { let x: i32 = 10; let y: i32 = 32; return x + y; }"</span>
+    42;
+  <span class="hl">Printf.printf</span> <span class="str">"All tests passed!\n"</span></code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>Test-driven compiler development</strong>
+The best way to build a compiler is to write the test first, then make it pass. Want to add <code>&amp;</code> (bitwise AND)? Write a test that compiles <code>return 5 &amp; 3;</code> and expects <code>1</code>. Then implement it in the lexer, parser, IR builder, and codegen. The test tells you when you are done. This is the same discipline as Rust's <code>cargo test</code>.
+</div>
+
+<h3>Full Compilation Session</h3>
+
+<p>Let us walk through a complete session from source to execution:</p>
+
+<pre><code>$ <span class="kw">cat</span> &gt; example.l1s &lt;&lt; EOF
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> <span class="num">42</span>;
+}
+EOF
+
+$ cargo run -- example.l1s -o example
+<span class="cm">   Compiling l1s v0.1.0</span>
+<span class="cm">    Finished dev [unoptimized + debuginfo] target(s) in 0.12s</span>
+<span class="cm">     Running `target/debug/l1s example.l1s -o example`</span>
+
+$ nasm -f elf64 example.asm -o example.o
+
+$ cc -o example example.o -no-pie
+
+$ ./example; echo $?
+<span class="num">42</span></code></pre>
+
+<p>That is our compiler, producing a real executable, running on real hardware. Every step is visible. Every step is something we built. The entire toolchain — from <code>nasm</code> to <code>cc</code> — is standard Linux infrastructure. Our compiler plugs right in.</p>
+
+<p>We can also compile and run in a single shell pipeline:</p>
+
+<pre><code>$ <span class="hl">echo</span> <span class="str">"func main(i32) { return 42; }"</span> &gt; /tmp/test.l1s
+$ l1s /tmp/test.l1s -o /tmp/test && /tmp/test; <span class="hl">echo</span> $?
+<span class="num">42</span></code></pre>
+
+<div class="callout info">
+<strong>Speed</strong>
+Our compiler compiles this program in under 5 milliseconds (excluding the Cargo compile time of the compiler itself). The compilation is dominated by NASM and <code>cc</code> invocation overhead, not by our code. For a simple compiler, that is fast enough. As the language grows, we may want to add an internal assembler to avoid the NASM dependency — but that is a project for another day.
+</div>
+
+<h3>What the Driver Enables</h3>
+
+<p>The driver is the user's interface to the compiler. It is the part that makes the compiler <em>usable</em>. With it, we can:</p>
+
+<ul>
+  <li><strong>Compile programs from files</strong> by running a single command.</li>
+  <li><strong>See detailed errors</strong> with source locations and descriptions.</li>
+  <li><strong>Debug the compiler</strong> by dumping intermediate representations.</li>
+  <li><strong>Run a test suite</strong> automatically with integration tests.</li>
+  <li><strong>Integrate with build systems</strong> like Make or Cargo.</li>
+</ul>
+
+<p>The driver is also the place where we handle command-line arguments, file paths, and system calls. It is the only part of the compiler that interacts with the operating system directly. Everything else is pure data transformation — functions that take input and produce output with no side effects. This separation of concerns is what makes the compiler testable and maintainable.</p>
+
+<h3>Organizing the Test Suite</h3>
+
+<p>Our test suite has three tiers, mirroring Rust's own testing philosophy:</p>
+
+<p><strong>Tier 1: Unit tests</strong> live alongside each module and test individual functions. These are fast (microseconds each) and catch bugs at the smallest scope. Every module should have at least basic unit tests for its core functions.</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/check.rs — unit tests</span></div>
+    <pre><code>#[cfg(test)]
+<span class="kw">mod</span> tests {
+    <span class="kw">use super</span>::*;
+
+    #[test]
+    <span class="kw">fn</span> <span class="fn">check_literal_types</span>() {
+        <span class="kw">let</span> sym = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+        <span class="hl">assert_eq!</span>(
+            <span class="fn">check_expr</span>(&amp;<span class="ty">Expr</span>::Int(<span class="num">42</span>), &amp;sym, &amp;<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>)),
+            <span class="ty">TypeResult</span>::Type(<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>))
+        );
+    }
+
+    #[test]
+    <span class="kw">fn</span> <span class="fn">type_mismatch_detected</span>() {
+        <span class="kw">let</span> prog = <span class="hl">parse</span>(<span class="str">"func main(i32) { let x: bool = 42; }"</span>);
+        <span class="kw">let</span> sym = <span class="fn">build_top_level</span>(&amp;prog).<span class="fn">unwrap</span>();
+        <span class="kw">let</span> diags = <span class="fn">typeck</span>(&amp;prog, &amp;sym);
+        <span class="hl">assert!</span>(diags.<span class="fn">len</span>() &gt; <span class="num">0</span>);
+        <span class="hl">assert!</span>(diags[<span class="num">0</span>].msg.<span class="fn">contains</span>(<span class="str">"type mismatch"</span>));
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>check.ml — unit tests</span></div>
+    <pre><code><span class="kw">let</span> () =
+  <span class="cm">(* check_literal_types *)</span>
+  <span class="kw">let</span> sym = <span class="hl">Symbol</span>.<span class="fn">create</span> () <span class="kw">in</span>
+  <span class="hl">assert</span> (<span class="fn">check_expr</span> (<span class="hl">Int</span> 42) sym (<span class="hl">Prim</span> <span class="str">"i32"</span>) =
+            Type (<span class="hl">Prim</span> <span class="str">"i32"</span>));
+
+  <span class="cm">(* type_mismatch_detected *)</span>
+  <span class="kw">let</span> prog = <span class="hl">Parser</span>.<span class="fn">parse</span> (<span class="hl">Lexer</span>.<span class="fn">tokenize</span>
+    <span class="str">"func main(i32) { let x: bool = 42; }"</span>) <span class="kw">in</span>
+  <span class="kw">let</span> sym = <span class="hl">Symbol</span>.<span class="fn">build_top_level</span> prog <span class="kw">in</span>
+  <span class="kw">let</span> diags = <span class="hl">Check</span>.<span class="fn">typeck</span> prog sym <span class="kw">in</span>
+  <span class="hl">assert</span> (<span class="hl">List</span>.length diags &gt; 0);
+  <span class="hl">assert</span> (<span class="hl">String</span>.contains ~sub:<span class="str">"type mismatch"</span> (<span class="hl">List</span>.hd diags).msg)</code></pre>
+  </div>
+</div>
+
+<p><strong>Tier 2: Integration tests</strong> compile complete programs and run them. These are our most valuable tests because they exercise every layer of the compiler simultaneously. A single integration test can catch bugs in the lexer, parser, type checker, IR builder, optimizer, register allocator, code generator, assembler, and linker.</p>
+
+<p><strong>Tier 3: Golden file tests</strong> are the most thorough. We compile a program, capture the generated assembly, and compare it against a saved "golden" file. If the assembly changes, we see the diff. These tests catch regressions in code generation quality — even when the output is still correct, we can see if it became worse.</p>
+
+<pre><code><span class="cm"># Golden file test structure</span>
+tests/
+  golden/
+    return_42.l1s          <span class="cm"># source</span>
+    return_42.asm          <span class="cm"># expected assembly output</span>
+    add.l1s
+    add.asm
+    factorial.l1s
+    factorial.asm</code></pre>
+
+<p>Running golden file tests is simple: compile each <code>.l1s</code> file, <code>diff</code> the output against the expected <code>.asm</code>, and report mismatches. This catches subtle codegen bugs that functional tests might miss.</p>
+
+<div class="callout tip">
+<strong>Test-driven compiler development workflow</strong>
+The fastest way to build a compiler is TDD: (1) Write a test for the feature you want. (2) Run it — it fails because the feature does not exist yet. (3) Implement the feature in the smallest possible change. (4) Run the test — it passes. (5) Commit. Every test is a specification. Every passing test is proof of progress. This is how <code>rustc</code> itself is developed — the Rust test suite has over 100,000 tests.
+</div>
+
+<h3>Companion Source Files</h3>
+
+<table class="file-table">
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>src/main.rs</code></td><td>Driver: pipeline orchestration, CLI argument parsing, error handling</td></tr>
+  <tr><td><code>Cargo.toml</code></td><td>Rust build configuration</td></tr>
+  <tr><td><code>tests/integration.rs</code></td><td>Integration test harness: compile, run, check exit code</td></tr>
+</table>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Add <code>--dump-ast</code> flag</strong>
+Implement the <code>--dump-ast</code> flag that prints the pretty-printed AST to stdout before compiling. This is useful for debugging the parser. The flag should be optional — if not provided, the compiler proceeds normally.
+</div>
+
+<div class="exercise">
+<strong>2. Add a test runner script</strong>
+Write a test runner that scans a directory for <code>.l1s</code> files, compiles each one, runs the resulting executable, and checks that the exit code matches a comment at the top of the file (e.g., <code>// exit: 42</code>). This makes it easy to add test cases without modifying the test source code.
+</div>
+
+<div class="exercise">
+<strong>3. Add <code>--keep-asm</code> flag</strong>
+By default, clean up the <code>.asm</code> and <code>.o</code> files after linking. Add a <code>--keep-asm</code> flag that leaves them on disk for inspection. This is helpful when debugging the code generator.
+</div>
+
+<div class="exercise">
+<strong>4. Parallel compilation</strong>
+If the source file contains multiple functions, they could theoretically be compiled in parallel. Explore adding threaded compilation using Rust's <code>std::thread</code> or OCaml's <code>Thread</code> module. What synchronization is needed? Is the speedup worth the complexity?
+</div>
+
+<div class="exercise">
+<strong>5. Incremental compilation</strong>
+Cache the IR for each function. On recompilation, only recompute functions whose source has changed (compare file modification times or content hashes). This is what <code>rustc</code> does with its incremental compilation — it dramatically speeds up edit-compile-test cycles.
+</div>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="07-codegen.html" class="prev">From IR to Machine Code</a>
+  <a href="09-whats-next.html" class="next">Where Next?</a>
+</div>
+
+</body>
+</html>

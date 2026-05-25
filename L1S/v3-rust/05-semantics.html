@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Does This Make Sense? — Building a Compiler (Rust Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">Rust Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3rust-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3rust-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>5. Does This Make Sense?</h2>
+
+<p>The parser gave us a tree. A beautiful, recursive, well-typed AST. But is it <em>meaningful</em>?</p>
+
+<p>Consider this program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> <span class="ty">x</span>: <span class="ty">bool</span> = <span class="num">42</span>;
+    <span class="kw">return</span> x;
+}</code></pre>
+
+<p>The parser accepts this without complaint. It is syntactically valid. But it is <em>semantically</em> meaningless — we are storing an integer in a boolean variable, and returning a boolean from a function declared to return <code>i32</code>. The tree is well-formed, but the program is nonsense.</p>
+
+<p>This chapter is about catching that nonsense. We will build two passes over the AST:</p>
+
+<ul>
+  <li><strong>Phase 1 — Name resolution (symbol table):</strong> Walk all declarations, register every name, determine what each identifier refers to.</li>
+  <li><strong>Phase 2 — Type checking:</strong> Walk every expression, compute its type, verify it matches the expected type.</li>
+</ul>
+
+<p>Think of it like Rust's own name resolution. Before Rust checks whether <code>x.foo()</code> is a valid method call, it needs to know what <code>x</code> is, what type it has, and what <code>foo</code> means in that context. We do the same: resolve names first, then check types.</p>
+
+<h3>The Symbol Table</h3>
+
+<p>A symbol table maps names to their definitions. In a language with nested scopes, we need a <em>stack</em> of scopes. When we enter a block, we push a new scope. When we leave, we pop it. Looking up a name searches from innermost to outermost scope — exactly like Rust's path resolution.</p>
+
+<p>Our symbol table supports three kinds of entries:</p>
+
+<ul>
+  <li><strong>Global variables</strong> — declared at the top level of the program.</li>
+  <li><strong>Functions</strong> — also at the top level, with parameter names in a nested scope.</li>
+  <li><strong>Local variables</strong> — declared inside function bodies with <code>let</code>.</li>
+</ul>
+
+<p>Here is the data structure:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/symbol.rs</span></div>
+    <pre><code><span class="kw">use</span> <span class="hl">std::collections</span>::<span class="hl">HashMap</span>;
+
+<span class="kw">pub enum</span> <span class="ty">SymbolKind</span> {
+    GlobalVar(<span class="ty">Type</span>),
+    Func {
+        ret_type: <span class="ty">Type</span>,
+        param_types: <span class="hl">Vec</span>&lt;<span class="ty">Type</span>&gt;,
+    },
+    LocalVar(<span class="ty">Type</span>),
+}
+
+<span class="kw">pub struct</span> <span class="ty">SymbolTable</span> {
+    scopes: <span class="hl">Vec</span>&lt;<span class="hl">HashMap</span>&lt;<span class="hl">String</span>, <span class="ty">SymbolKind</span>&gt;&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">SymbolTable</span> {
+    <span class="kw">pub fn</span> <span class="fn">new</span>() -&gt; <span class="hl">Self</span> {
+        <span class="hl">Self</span> { scopes: <span class="hl">vec!</span>[<span class="hl">HashMap::new</span>()] }
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">push_scope</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>) {
+        <span class="hl">self</span>.scopes.<span class="fn">push</span>(<span class="hl">HashMap::new</span>());
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">pop_scope</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>) {
+        <span class="hl">self</span>.scopes.<span class="fn">pop</span>();
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">insert</span>(&amp;<span class="kw">mut</span> <span class="hl">self</span>, name: &amp;<span class="hl">str</span>, kind: <span class="ty">SymbolKind</span>) {
+        <span class="hl">self</span>.scopes.<span class="fn">last_mut</span>().<span class="fn">unwrap</span>().<span class="fn">insert</span>(name.<span class="fn">to_string</span>(), kind);
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">lookup</span>(&amp;<span class="hl">self</span>, name: &amp;<span class="hl">str</span>) -&gt; <span class="hl">Option</span>&lt;&amp;<span class="ty">SymbolKind</span>&gt; {
+        <span class="kw">for</span> scope <span class="kw">in</span> <span class="hl">self</span>.scopes.<span class="fn">iter</span>().<span class="fn">rev</span>() {
+            <span class="kw">if</span> <span class="kw">let</span> <span class="hl">Some</span>(entry) = scope.<span class="fn">get</span>(name) {
+                <span class="kw">return</span> <span class="hl">Some</span>(entry);
+            }
+        }
+        <span class="hl">None</span>
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>symbol.ml</span></div>
+    <pre><code><span class="kw">type</span> symbol_kind =
+  | GlobalVar of typ
+  | Func of { ret_type: typ; param_types: typ list }
+  | LocalVar of typ
+
+<span class="kw">type</span> symbol_table = {
+  mutable scopes: (string, symbol_kind) <span class="hl">Hashtbl</span>.t list;
+}
+
+<span class="kw">let</span> <span class="fn">create</span> () = {
+  scopes = [<span class="hl">Hashtbl</span>.create 16];
+}
+
+<span class="kw">let</span> <span class="fn">push_scope</span> tbl =
+  tbl.scopes &lt;- <span class="hl">Hashtbl</span>.create 16 :: tbl.scopes
+
+<span class="kw">let</span> <span class="fn">pop_scope</span> tbl =
+  <span class="kw">match</span> tbl.scopes <span class="kw">with</span>
+  | _ :: rest -&gt; tbl.scopes &lt;- rest
+  | [] -&gt; <span class="fn">failwith</span> <span class="str">"scope underflow"</span>
+
+<span class="kw">let</span> <span class="fn">insert</span> tbl name kind =
+  <span class="kw">match</span> tbl.scopes <span class="kw">with</span>
+  | h :: _ -&gt; <span class="hl">Hashtbl</span>.replace h name kind
+  | [] -&gt; <span class="fn">failwith</span> <span class="str">"no scope"</span>
+
+<span class="kw">let</span> <span class="fn">lookup</span> tbl name =
+  <span class="kw">let</span> <span class="kw">rec</span> <span class="fn">go</span> = <span class="kw">function</span>
+    | [] -&gt; <span class="hl">None</span>
+    | h :: rest -&gt;
+        <span class="kw">match</span> <span class="hl">Hashtbl</span>.find_opt h name <span class="kw">with</span>
+        | <span class="hl">Some</span> _ as r -&gt; r
+        | <span class="hl">None</span> -&gt; <span class="fn">go</span> rest
+  <span class="kw">in</span>
+  <span class="fn">go</span> tbl.scopes</code></pre>
+  </div>
+</div>
+
+<div class="callout info">
+<strong>Scopes in Rust and OCaml</strong>
+In Rust, we use <code>Vec&lt;HashMap&lt;String, SymbolKind&gt;&gt;</code> — a stack of hash maps. Pushing adds a new map to the end. Popping removes it. Lookup iterates in reverse. In OCaml, we use a list of hash tables — cons for push, pattern match for pop, recursive traversal for lookup. Same concept, different idioms.
+</div>
+
+<h3>Populating the Symbol Table</h3>
+
+<p>We walk the AST in two passes. The <strong>first pass</strong> registers all top-level declarations (functions and global variables). The <strong>second pass</strong> visits each function body, pushing a new scope for the function's parameters, then another for each nested block.</p>
+
+<p>Here is the first pass — collecting declarations:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/symbol.rs</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">build_top_level</span>(program: &amp;<span class="ty">Program</span>) -&gt; <span class="hl">Result</span>&lt;<span class="ty">SymbolTable</span>, <span class="hl">Vec</span>&lt;<span class="hl">String</span>&gt;&gt; {
+    <span class="kw">let mut</span> sym = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    <span class="kw">let mut</span> errors = <span class="hl">Vec::new</span>();
+
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;program.decls {
+        <span class="kw">match</span> decl {
+            Decl::Func(f) =&gt; {
+                <span class="kw">let</span> param_types = f.params.<span class="fn">iter</span>().<span class="fn">map</span>(|p| p.ty.<span class="fn">clone</span>()).<span class="fn">collect</span>();
+                <span class="kw">if</span> sym.<span class="fn">lookup</span>(&amp;f.name).<span class="fn">is_some</span>() {
+                    errors.<span class="fn">push</span>(<span class="hl">format!</span>(<span class="str">"duplicate definition: {}"</span>, f.name));
+                } <span class="kw">else</span> {
+                    sym.<span class="fn">insert</span>(&amp;f.name, <span class="ty">SymbolKind</span>::Func {
+                        ret_type: f.ret_type.<span class="fn">clone</span>(),
+                        param_types,
+                    });
+                }
+            }
+            Decl::Var(v) =&gt; {
+                <span class="hl">todo!</span>()
+            }
+        }
+    }
+
+    <span class="kw">if</span> errors.<span class="fn">is_empty</span>() { <span class="hl">Ok</span>(sym) } <span class="kw">else</span> { <span class="hl">Err</span>(errors) }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>symbol.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">build_top_level</span> program =
+  <span class="kw">let</span> sym = <span class="fn">create</span> () <span class="kw">in</span>
+  <span class="kw">let</span> errors = <span class="hl">ref</span> [] <span class="kw">in</span>
+  <span class="hl">List</span>.iter (<span class="kw">function</span>
+    | Func f -&gt;
+        <span class="kw">let</span> param_types = <span class="hl">List</span>.map (<span class="kw">fun</span> p -&gt; p.ty) f.params <span class="kw">in</span>
+        (<span class="kw">match</span> <span class="fn">lookup</span> sym f.name <span class="kw">with</span>
+         | <span class="hl">Some</span> _ -&gt;
+             errors := <span class="hl">Printf.sprintf</span> <span class="str">"duplicate definition: %s"</span> f.name :: !errors
+         | <span class="hl">None</span> -&gt;
+             <span class="fn">insert</span> sym f.name (Func { ret_type = f.ret_type; param_types }))
+    | Var v -&gt; <span class="fn">failwith</span> <span class="str">"todo"</span>
+  ) program.decls;
+  <span class="kw">if</span> !errors = [] <span class="kw">then</span> <span class="hl">Ok</span> sym <span class="kw">else</span> <span class="hl">Error</span> !errors</code></pre>
+  </div>
+</div>
+
+<div class="callout warn">
+<strong>Duplicate detection</strong>
+We check <code>lookup</code> before <code>insert</code> in the top-level pass to catch duplicate function names. In Rust, this is a compile error. In our language, it should be too. A duplicate definition is almost certainly a bug.
+</div>
+
+<h3>Type Checking</h3>
+
+<p>The type checker is the heart of semantic analysis. It walks the AST and assigns a type to every expression, verifying consistency at each step. Every expression has a type — the type checker discovers it. This is like Rust's type inference, but simpler: we do not infer types from usage, we verify that the declared and actual types match.</p>
+
+<p>The checker returns either a type (for expressions) or unit (for statements), or an error. Here is the core function signature:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/check.rs</span></div>
+    <pre><code><span class="kw">pub enum</span> <span class="ty">TypeResult</span> {
+    Type(<span class="ty">Type</span>),
+    Error,
+}
+
+<span class="kw">fn</span> <span class="fn">check_expr</span>(
+    expr: &amp;<span class="ty">Expr</span>,
+    sym: &amp;<span class="ty">SymbolTable</span>,
+    ret_type: &amp;<span class="ty">Type</span>,
+) -&gt; <span class="ty">TypeResult</span> {
+    <span class="kw">match</span> expr {
+        Expr::Int(_) =&gt; <span class="ty">TypeResult</span>::Type(<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>.<span class="fn">into</span>())),
+        Expr::Bool(_) =&gt; <span class="ty">TypeResult</span>::Type(<span class="ty">Type</span>::Prim(<span class="str">"bool"</span>.<span class="fn">into</span>())),
+        Expr::Ident(name) =&gt; <span class="fn">check_ident</span>(name, sym),
+        Expr::Binary { op, lhs, rhs } =&gt; <span class="fn">check_binary</span>(op, lhs, rhs, sym, ret_type),
+        Expr::Unary { op, rhs } =&gt; <span class="fn">check_unary</span>(op, rhs, sym, ret_type),
+        Expr::Call { callee, args } =&gt; <span class="fn">check_call</span>(callee, args, sym, ret_type),
+        Expr::Cast { expr, target } =&gt; <span class="fn">check_cast</span>(expr, target, sym, ret_type),
+        Expr::Assign { target, value } =&gt; <span class="fn">check_assign</span>(target, value, sym, ret_type),
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>check.ml</span></div>
+    <pre><code><span class="kw">type</span> type_result =
+  | Type of typ
+  | Error
+
+<span class="kw">let</span> <span class="kw">rec</span> <span class="fn">check_expr</span> expr sym ret_type =
+  <span class="kw">match</span> expr <span class="kw">with</span>
+  | Int _      -&gt; Type (<span class="hl">Prim</span> <span class="str">"i32"</span>)
+  | Bool _     -&gt; Type (<span class="hl">Prim</span> <span class="str">"bool"</span>)
+  | Ident name -&gt; <span class="fn">check_ident</span> name sym
+  | Binary { op; lhs; rhs } -&gt; <span class="fn">check_binary</span> op lhs rhs sym ret_type
+  | Unary { op; rhs } -&gt; <span class="fn">check_unary</span> op rhs sym ret_type
+  | Call { callee; args } -&gt; <span class="fn">check_call</span> callee args sym ret_type
+  | Cast { expr; target } -&gt; <span class="fn">check_cast</span> expr target sym ret_type
+  | Assign { target; value } -&gt; <span class="fn">check_assign</span> target value sym ret_type</code></pre>
+  </div>
+</div>
+
+<h4>Type Rules</h4>
+
+<p>Each AST node has a type rule — a specification of what types its sub-expressions must have and what type the node itself produces. Here is the full table:</p>
+
+<table class="file-table">
+  <tr><th>Node</th><th>Child types required</th><th>Result type</th></tr>
+  <tr><td><code>Int(n)</code></td><td>—</td><td><code>i32</code></td></tr>
+  <tr><td><code>Bool(b)</code></td><td>—</td><td><code>bool</code></td></tr>
+  <tr><td><code>Ident(x)</code></td><td>—</td><td>type of <code>x</code> from symbol table</td></tr>
+  <tr><td><code>Add / Sub / Mul / Div</code></td><td>both operands <code>i32</code></td><td><code>i32</code></td></tr>
+  <tr><td><code>Eq / Neq</code></td><td>both operands same type</td><td><code>bool</code></td></tr>
+  <tr><td><code>Lt / Gt / Le / Ge</code></td><td>both operands <code>i32</code></td><td><code>bool</code></td></tr>
+  <tr><td><code>Neg</code> (unary minus)</td><td>operand <code>i32</code></td><td><code>i32</code></td></tr>
+  <tr><td><code>Not</code> (boolean not)</td><td>operand <code>bool</code></td><td><code>bool</code></td></tr>
+  <tr><td><code>Call(f, args)</code></td><td>args match parameter types of <code>f</code></td><td>return type of <code>f</code></td></tr>
+  <tr><td><code>Cast(expr, target)</code></td><td>operand is numeric</td><td><code>target</code></td></tr>
+  <tr><td><code>Assign(target, value)</code></td><td><code>target</code> and <code>value</code> same type</td><td><code>void</code></td></tr>
+  <tr><td><code>Return(expr)</code></td><td><code>expr</code> matches function return type</td><td>—</td></tr>
+  <tr><td><code>If(cond, then, else)</code></td><td><code>cond</code> is <code>bool</code></td><td>—</td></tr>
+  <tr><td><code>While(cond, body)</code></td><td><code>cond</code> is <code>bool</code></td><td>—</td></tr>
+  <tr><td><code>Let(x: T, init)</code></td><td><code>init</code> has type <code>T</code></td><td>—</td></tr>
+</table>
+
+<p>In Rust, this is a massive <code>match</code> statement — and it is beautiful. Each arm corresponds to exactly one type rule. The compiler checks exhaustiveness: if we forget to handle a variant, Rust tells us at compile time. OCaml's pattern matching gives the same guarantee.</p>
+
+<h4>Checking Binary Operators</h4>
+
+<p>Let us look at how we check binary expressions. This is where the type rules become concrete code:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/check.rs</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">check_binary</span>(
+    op: &amp;<span class="ty">BinaryOp</span>,
+    lhs: &amp;<span class="ty">Expr</span>,
+    rhs: &amp;<span class="ty">Expr</span>,
+    sym: &amp;<span class="ty">SymbolTable</span>,
+    ret_type: &amp;<span class="ty">Type</span>,
+) -&gt; <span class="ty">TypeResult</span> {
+    <span class="kw">let</span> lt = <span class="fn">check_expr</span>(lhs, sym, ret_type);
+    <span class="kw">let</span> rt = <span class="fn">check_expr</span>(rhs, sym, ret_type);
+
+    <span class="kw">let</span> (lt, rt) = <span class="kw">match</span> (lt, rt) {
+        (<span class="ty">TypeResult</span>::Type(l), <span class="ty">TypeResult</span>::Type(r)) =&gt; (l, r),
+        _ =&gt; <span class="kw">return</span> <span class="ty">TypeResult</span>::Error,
+    };
+
+    <span class="kw">match</span> op {
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div =&gt; {
+            <span class="fn">expect_type</span>(&amp;lt, &amp;<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>), <span class="str">"arithmetic operand"</span>);
+            <span class="fn">expect_type</span>(&amp;rt, &amp;<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>), <span class="str">"arithmetic operand"</span>);
+            <span class="ty">TypeResult</span>::Type(<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>))
+        }
+        BinaryOp::Eq | BinaryOp::Neq =&gt; {
+            <span class="fn">expect_same_type</span>(&amp;lt, &amp;rt);
+            <span class="ty">TypeResult</span>::Type(<span class="ty">Type</span>::Prim(<span class="str">"bool"</span>))
+        }
+        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge =&gt; {
+            <span class="fn">expect_type</span>(&amp;lt, &amp;<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>), <span class="str">"comparison operand"</span>);
+            <span class="fn">expect_type</span>(&amp;rt, &amp;<span class="ty">Type</span>::Prim(<span class="str">"i32"</span>), <span class="str">"comparison operand"</span>);
+            <span class="ty">TypeResult</span>::Type(<span class="ty">Type</span>::Prim(<span class="str">"bool"</span>))
+        }
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>check.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="kw">rec</span> <span class="fn">check_binary</span> op lhs rhs sym ret_type =
+  <span class="kw">let</span> lt = <span class="fn">check_expr</span> lhs sym ret_type <span class="kw">in</span>
+  <span class="kw">let</span> rt = <span class="fn">check_expr</span> rhs sym ret_type <span class="kw">in</span>
+  <span class="kw">match</span> lt, rt <span class="kw">with</span>
+  | Type l, Type r -&gt;
+      (<span class="kw">match</span> op <span class="kw">with</span>
+       | Add | Sub | Mul | Div -&gt;
+           <span class="fn">expect_type</span> l (<span class="hl">Prim</span> <span class="str">"i32"</span>) <span class="str">"arithmetic operand"</span>;
+           <span class="fn">expect_type</span> r (<span class="hl">Prim</span> <span class="str">"i32"</span>) <span class="str">"arithmetic operand"</span>;
+           Type (<span class="hl">Prim</span> <span class="str">"i32"</span>)
+       | Eq | Neq -&gt;
+           <span class="fn">expect_same_type</span> l r;
+           Type (<span class="hl">Prim</span> <span class="str">"bool"</span>)
+       | Lt | Gt | Le | Ge -&gt;
+           <span class="fn">expect_type</span> l (<span class="hl">Prim</span> <span class="str">"i32"</span>) <span class="str">"comparison operand"</span>;
+           <span class="fn">expect_type</span> r (<span class="hl">Prim</span> <span class="str">"i32"</span>) <span class="str">"comparison operand"</span>;
+           Type (<span class="hl">Prim</span> <span class="str">"bool"</span>))
+  | _ -&gt; Error</code></pre>
+  </div>
+</div>
+
+<p>Notice the structure: we recurse into both sub-expressions, collect their types, then check consistency against the operator's rules. If either sub-expression already had an error, we propagate <code>Error</code> without additional noise. This is the same pattern Rust's compiler uses — collect errors eagerly, report them gracefully.</p>
+
+<h3>Error Messages</h3>
+
+<p>A good type error tells you three things: <strong>what</strong> went wrong, <strong>where</strong> it went wrong, and <strong>what was expected</strong>. Let us look at the error for our original nonsense program:</p>
+
+<pre><code><span class="cm">// test.l1s</span>
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> <span class="ty">x</span>: <span class="ty">bool</span> = <span class="num">42</span>;
+    <span class="kw">return</span> x;
+}</code></pre>
+
+<p>Our type checker produces:</p>
+
+<pre><code><span class="lb">error:</span> <span class="ty">type mismatch</span>: expected <span class="ty">bool</span>, found <span class="ty">i32</span>
+  ┌─&gt; test.l1s:2:20
+  │
+<span class="num">2</span> │     let x: bool = 42;
+  │                    ^^ this expression has type <span class="ty">i32</span>
+  │
+  = note: variable 'x' was declared with type <span class="ty">bool</span></code></pre>
+
+<p>Here is how we produce this:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/diag.rs</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">Diag</span> {
+    <span class="kw">pub</span> level: <span class="hl">String</span>,    <span class="cm">// "error" | "warning"</span>
+    <span class="kw">pub</span> msg: <span class="hl">String</span>,
+    <span class="kw">pub</span> file: <span class="hl">String</span>,
+    <span class="kw">pub</span> line: <span class="hl">usize</span>,
+    <span class="kw">pub</span> col: <span class="hl">usize</span>,
+    <span class="kw">pub</span> source: <span class="hl">String</span>,
+    <span class="kw">pub</span> note: <span class="hl">Option</span>&lt;<span class="hl">String</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="hl">std::fmt::Display</span> <span class="kw">for</span> <span class="ty">Diag</span> {
+    <span class="kw">fn</span> <span class="fn">fmt</span>(&amp;<span class="hl">self</span>, f: &amp;<span class="kw">mut</span> <span class="hl">std::fmt::Formatter</span>) -&gt; <span class="hl">std::fmt::Result</span> {
+        <span class="hl">writeln!</span>(f, <span class="str">"{}: {}"</span>, <span class="hl">self</span>.level, <span class="hl">self</span>.msg)?;
+        <span class="hl">writeln!</span>(f, <span class="str">"  ┌─&gt; {}:{}:{}"</span>, <span class="hl">self</span>.file, <span class="hl">self</span>.line, <span class="hl">self</span>.col)?;
+        <span class="hl">writeln!</span>(f, <span class="str">"  │"</span>)?;
+        <span class="hl">write!</span>(f, <span class="str">"{:>4} │ {}\n  │ {:padding$}^^"</span>,
+            <span class="hl">self</span>.line, <span class="hl">self</span>.source, <span class="str">""</span>,
+            padding = <span class="hl">self</span>.col - <span class="num">1</span>)?;
+        <span class="hl">writeln!</span>(f, <span class="str">"  │ {}"</span>, <span class="hl">self</span>.msg)?;
+        <span class="kw">if</span> <span class="kw">let</span> <span class="hl">Some</span>(ref note) = <span class="hl">self</span>.note {
+            <span class="hl">writeln!</span>(f, <span class="str">"  │"</span>)?;
+            <span class="hl">writeln!</span>(f, <span class="str">"  = note: {}"</span>, note)?;
+        }
+        <span class="hl">Ok</span>(())
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>diag.ml</span></div>
+    <pre><code><span class="kw">type</span> diag = {
+  level:  string;
+  msg:    string;
+  file:   string;
+  line:   int;
+  col:    int;
+  source: string;
+  note:   string option;
+}
+
+<span class="kw">let</span> <span class="fn">format</span> d =
+  <span class="hl">Printf.sprintf</span>
+    <span class="str">"%s: %s\n\
+       ┌─&gt; %s:%d:%d\n\
+      \n\
+      %4d │ %s\n\
+        │ %s^^\n\
+        │ %s\n%s"
+    d.level d.msg
+    d.file d.line d.col
+    d.line d.source
+    (<span class="hl">String.make</span> (d.col - 1) ' ')
+    d.msg
+    (<span class="kw">match</span> d.note <span class="kw">with</span>
+     | <span class="hl">Some</span> n -&gt; <span class="hl">Printf.sprintf</span> <span class="str">"\n  = note: %s"</span> n
+     | <span class="hl">None</span>  -&gt; <span class="str">""</span>)</code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>Error recovery</strong>
+A good type checker does not stop at the first error. It continues checking the rest of the program, collecting all errors, and presents them together. This is how <code>rustc</code> works — and how our compiler should work too. We use a <code>Vec&lt;Diag&gt;</code> accumulator threaded through the checker. When we encounter an error, we push to the accumulator and return <code>TypeResult::Error</code>, allowing the checker to keep going.
+</div>
+
+<h3>Checking a Complete Function</h3>
+
+<p>Let us walk through type-checking the full <code>main</code> function step by step. We will trace the execution of the checker on this program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> <span class="ty">x</span>: <span class="ty">bool</span> = <span class="num">42</span>;
+    <span class="kw">return</span> x;
+}</code></pre>
+
+<div class="diagram">Enter check_func(main, ret_type=i32, params=[])
+  |
+  ├─ push_scope()
+  |  (register no parameters — main takes none)
+  |
+  ├─ Enter check_block(body)
+  |  |
+  |  ├─ push_scope()
+  |  |
+  |  ├─ Check stmt[0]: VarDecl(x: bool = 42)
+  |  |  ├─ check_expr(Int(42))
+  |  |  |   └─ return Type(i32)
+  |  |  ├─ Expected type: bool
+  |  |  ├─ Actual type:   i32
+  |  |  ├─ MISMATCH → emit error
+  |  |  └─ (still register x as bool in symbol table)
+  |  |
+  |  ├─ Check stmt[1]: Return(Ident("x"))
+  |  |  ├─ check_expr(Ident("x"))
+  |  |  |   └─ lookup "x" → bool
+  |  |  |   └─ return Type(bool)
+  |  |  ├─ Expected return type: i32
+  |  |  ├─ Actual type:         bool
+  |  |  ├─ MISMATCH → emit error
+  |  |  └─ return Error(propagated)
+  |  |
+  |  └─ pop_scope()
+  |
+  └─ pop_scope()</div>
+
+<p>Two errors are emitted, both pointing to the exact source location. The user sees both at once:</p>
+
+<pre><code><span class="lb">error:</span> <span class="ty">type mismatch</span>: expected <span class="ty">bool</span>, found <span class="ty">i32</span>
+  ┌─&gt; test.l1s:2:20
+  │
+<span class="num">2</span> │     let x: bool = 42;
+  │                    ^^ this expression has type <span class="ty">i32</span>
+
+<span class="lb">error:</span> <span class="ty">type mismatch</span>: expected <span class="ty">i32</span>, found <span class="ty">bool</span>
+  ┌─&gt; test.l1s:3:5
+  │
+<span class="num">3</span> │     return x;
+  │     ^^^^^^^^^^ function returns <span class="ty">i32</span></code></pre>
+
+<p>This is the same error-reporting philosophy that <code>rustc</code> uses: structured diagnostics with source underlines, multi-line formatting, and helpful notes. Our format is inspired by Rust's, and for the same reason — it makes the error immediately understandable.</p>
+
+<h3>What the Type Checker Enables</h3>
+
+<p>With a symbol table and type checker in place, we can now:</p>
+
+<ul>
+  <li><strong>Reject invalid programs</strong> before they reach code generation.</li>
+  <li><strong>Provide rich error messages</strong> with source locations.</li>
+  <li><strong>Annotate the AST</strong> with computed types for later passes.</li>
+  <li><strong>Verify function calls</strong> match their declarations (arity and types).</li>
+  <li><strong>Check control flow</strong> — every path through a non-void function must return.</li>
+  <li><strong>Verify conditions</strong> in <code>if</code> and <code>while</code> are boolean.</li>
+</ul>
+
+<p>The type checker is the gatekeeper. Nothing gets past it that does not make sense.</p>
+
+<div class="callout">
+<strong>The type checker is also a documentation generator</strong>
+Once every expression is annotated with its type, we know the precise type of every sub-expression in the program. This information is invaluable for code generation: we know how many bytes each value occupies, which registers to use, and how to call functions with the right calling convention.
+</div>
+
+<h3>Putting It Together</h3>
+
+<p>Here is how the pipeline looks with semantic analysis added:</p>
+
+<div class="diagram">Source text
+    │
+    ▼  Lexer
+  Tokens
+    │
+    ▼  Parser
+  AST
+    │
+    ▼  Symbol table (Phase 1)
+  Annotated AST + SymbolTable
+    │
+    ▼  Type checker (Phase 2)
+  Validated AST + SymbolTable + TypeAnnotations
+    │
+    ▼  IR Builder
+  Intermediate Representation</div>
+
+<p>Two passes over the AST. The first collects names. The second checks types. Both produce errors if something is wrong. If both pass, the program is semantically valid and ready for code generation.</p>
+
+<h3>The Companion Files</h3>
+
+<table class="file-table">
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>src/symbol.rs</code></td><td>Symbol table definition, scope management, name lookup</td></tr>
+  <tr><td><code>src/check.rs</code></td><td>Type checker: expression typing, statement validation, error reporting</td></tr>
+  <tr><td><code>src/diag.rs</code></td><td>Diagnostic data structure, pretty-printing with source underlines</td></tr>
+</table>
+
+<h3>Walkthrough: Type-Checking a Complete Program</h3>
+
+<p>Let us trace the type checker through a complete, correct program to see every rule applied:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> <span class="ty">a</span>: <span class="ty">i32</span> = <span class="num">5</span>;
+    <span class="kw">let</span> <span class="ty">b</span>: <span class="ty">i32</span> = a * <span class="num">2</span>;
+
+    <span class="kw">if</span> (b &gt; <span class="num">3</span>) {
+        <span class="kw">return</span> b;
+    } <span class="kw">else</span> {
+        <span class="kw">return</span> <span class="num">0</span>;
+    }
+}</code></pre>
+
+<div class="diagram">check_func(main, ret_type=i32, params=[])
+  ├─ push_scope()
+  │
+  ├─ check_block(body stmts):
+  │   │
+  │   ├─ stmt[0]: VarDecl(a: i32 = Int(5))
+  │   │   ├─ check_expr(Int(5)) → Type(i32)
+  │   │   ├─ expected i32 == actual i32 ✓
+  │   │   └─ register "a" → LocalVar(i32)
+  │   │
+  │   ├─ stmt[1]: VarDecl(b: i32 = Binary(Mul, Ident("a"), Int(2)))
+  │   │   ├─ check_expr(Ident("a")):
+  │   │   │   └─ lookup("a") → Some(LocalVar(i32))
+  │   │   │   └─ return Type(i32)
+  │   │   ├─ check_expr(Int(2)) → Type(i32)
+  │   │   ├─ op=Mul → both operands i32 ✓ → return Type(i32)
+  │   │   ├─ expected i32 == actual i32 ✓
+  │   │   └─ register "b" → LocalVar(i32)
+  │   │
+  │   ├─ stmt[2]: If(cond=Binary(Gt, Ident("b"), Int(3)),
+  │   │             then=Block(Return(Ident("b"))),
+  │   │             else=Block(Return(Int(0))))
+  │   │   │
+  │   │   ├─ check_expr(cond):
+  │   │   │   ├─ check_expr(Ident("b")) → Type(i32)
+  │   │   │   ├─ check_expr(Int(3)) → Type(i32)
+  │   │   │   ├─ op=Gt → both operands i32 ✓ → return Type(bool)
+  │   │   │   └─ result Type(bool) ✓ (if condition must be bool)
+  │   │   │
+  │   │   ├─ push_scope()
+  │   │   ├─ check_block(then):
+  │   │   │   └─ check_stmt(Return(Ident("b"))):
+  │   │   │       ├─ check_expr(Ident("b")) → Type(i32)
+  │   │   │       ├─ expected ret i32 == actual i32 ✓
+  │   │   │       └─ void
+  │   │   ├─ pop_scope()
+  │   │   │
+  │   │   ├─ push_scope()
+  │   │   ├─ check_block(else):
+  │   │   │   └─ check_stmt(Return(Int(0))):
+  │   │   │       ├─ check_expr(Int(0)) → Type(i32)
+  │   │   │       ├─ expected ret i32 == actual i32 ✓
+  │   │   │       └─ void
+  │   │   ├─ pop_scope()
+  │   │   │
+  │   │   └─ void
+  │   │
+  │   └─ (end of block — all paths return ✓)
+  │
+  └─ pop_scope()</div>
+
+<p>Every expression was checked. Every type matched. The function returns on all paths. The program passes semantic analysis. Now it can proceed to code generation.</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Add struct type checking</strong>
+Extend the type checker to support struct types. A struct declaration <code>struct Point { x: i32, y: i32 }</code> defines a new named type. Field access <code>p.x</code> retrieves the field's type. What changes are needed in the symbol table? In the type checker? How do you handle recursive structs?
+</div>
+
+<div class="exercise">
+<strong>2. Function overload resolution</strong>
+Our language currently forbids duplicate function names. Change it to support overloading: two functions with the same name but different parameter types. The type checker must select the correct overload based on argument types. What changes in the symbol table? How do you handle ambiguity?
+</div>
+
+<div class="exercise">
+<strong>3. Control flow analysis</strong>
+Add a pass that verifies every path through a non-void function ends with a <code>return</code> statement. This is a simple reachability analysis on the AST: after an <code>if</code> with both branches, control resumes after the if; after a <code>return</code>, control stops. A function is valid if all paths through its body end in <code>return</code>. Rust calls this "reachability checking."
+</div>
+
+<div class="exercise">
+<strong>4. Type aliases</strong>
+Add <code>type Int = i32;</code> declarations. The type checker should resolve aliases to their underlying type. Store alias mappings in the symbol table. A value of type <code>Int</code> is interchangeable with <code>i32</code>.
+</div>
+
+<div class="exercise">
+<strong>5. Integer literal type inference</strong>
+Currently all integer literals are <code>i32</code>. Add support for explicit suffixes: <code>42u64</code>, <code>7i8</code>. The type checker should read the suffix and produce the correct type. If no suffix is present, default to <code>i32</code> (like Rust's default integer type).
+</div>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="04-ast.html" class="prev">The Shape of a Program</a>
+  <a href="06-ir.html" class="next">The Bridge: Intermediate Representation</a>
+</div>
+
+</body>
+</html>

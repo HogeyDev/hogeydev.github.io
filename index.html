@@ -1,6 +1,61 @@
 <!DOCTYPE html>
-<html>
-  <link rel='stylesheet' href='./styles.css' type='text/css'>
-  <title>Kourtet's Page</title>
-  <script src='./script.js'></script>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kourtet's Page</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="hero">
+  <h1>Kourtet's Page</h1>
+  <p class="subtitle">Compilers, emulation, and other adventures.</p>
+</div>
+
+<section>
+  <h2>Projects</h2>
+  <div class="card-grid">
+    <a href="NESList/" class="card">
+      <h3>NESList</h3>
+      <p>NES emulator in Rust.</p>
+    </a>
+    <a href="RadMan/" class="card">
+      <h3>RadMan</h3>
+      <p>Ray marching visualizer.</p>
+    </a>
+  </div>
+</section>
+
+<section>
+  <h2>Building a Compiler from Scratch</h2>
+  <p class="section-desc">A first-principles journey through compiler construction. <br>Five editions of the book, each with a different focus.</p>
+  <div class="card-grid">
+    <a href="L1S/v1/" class="card">
+      <h3>v1 <span class="tag">Codebase Tour</span></h3>
+      <p>A complete walkthrough of the L1S (Ignis) compiler. All 17 chapters covering the full Rust compiler pipeline.</p>
+    </a>
+    <a href="L1S/v2/" class="card">
+      <h3>v2 <span class="tag">Pedagogical</span></h3>
+      <p>Concept-first explanations with Ignis as the running example. 18 chapters, ~8,000 lines.</p>
+    </a>
+    <a href="L1S/v3/" class="card">
+      <h3>v3 <span class="tag">Dual Language</span></h3>
+      <p>Complete rewrite building two compilers side by side — Rust and OCaml — from first principles.</p>
+    </a>
+    <a href="L1S/v3-rust/" class="card">
+      <h3>v3 <span class="tag">Rust Edition</span></h3>
+      <p>The v3 journey with all code shown in Rust.</p>
+    </a>
+    <a href="L1S/v3-ocaml/" class="card">
+      <h3>v3 <span class="tag">OCaml Edition</span></h3>
+      <p>The v3 journey with all code shown in OCaml.</p>
+    </a>
+  </div>
+  <div class="extra-links">
+    <a href="L1S/v1/compiler-book.html">v1 Single-Page Version</a>
+  </div>
+</section>
+
+</body>
 </html>

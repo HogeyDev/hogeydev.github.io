@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 14: Code Generation &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="13-regalloc.html">&larr; Chapter 13</a> &ensp; Chapter 14: Code Generation &ensp; <a href="15-link.html">Chapter 15 &rarr;</a></span>
+</div>
+
+<h2 id="codegen">14 &ensp; Code Generation</h2>
+
+<h3>What is Code Generation?</h3>
+
+<p>Code generation is the phase where the compiler's intermediate representation is translated into actual machine instructions for a target architecture. This is where the compiler moves from abstract, architecture-neutral data structures to concrete, architecture-specific assembly code. Every decision made in earlier phases &mdash; parsing, type checking, optimization &mdash; converges here into sequences of bytes that a CPU can execute.</p>
+
+<p>A code generator must solve three interrelated problems:</p>
+
+<ol>
+<li><strong>Instruction selection</strong>: Mapping each IR operation to one or more target machine instructions. An IR <code>Add</code> might become a single x86-64 <code>add</code> instruction, while a division might require a sequence involving <code>cdq</code> and <code>idiv</code>.</li>
+<li><strong>Register allocation</strong>: Deciding which virtual registers map to physical registers versus stack slots. The allocator from Chapter 13 feeds into this.</li>
+<li><strong>Calling convention</strong>: Following the ABI (Application Binary Interface) rules for how functions pass parameters, return values, and maintain the stack frame.</li>
+</ol>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Pipeline position:</strong><br><br>
+<span class="box">IR Module</span> <span class="arrow">&rarr;</span>
+<span class="box">Codegen</span> <span class="arrow">&rarr;</span>
+<span class="box">.asm file</span> <span class="arrow">&rarr;</span>
+<span class="box">nasm</span> <span class="arrow">&rarr;</span>
+<span class="box">.o file</span> <span class="arrow">&rarr;</span>
+<span class="box">cc (linker)</span> <span class="arrow">&rarr;</span>
+<span class="box">executable</span>
+</div>
+
+<h3>Approaches to Code Generation</h3>
+
+<p>There is a broad spectrum of code generation strategies, each with different tradeoffs between implementation effort, code quality, and maintainability:</p>
+
+<ul>
+<li><strong>Hand-written AST walkers</strong>: The simplest approach. Walk the IR and emit assembly directly for each construct. Easy to implement and debug, but producing optimal code requires enormous effort. This is what L1S, early C compilers (K&amp;R C), and <code>tcc</code> (Tiny C Compiler) use.</li>
+<li><strong>Template-based codegen</strong>: Pre-defined assembly templates with holes for operands. The code generator matches IR patterns to templates. GCC used this approach with RTL (Register Transfer Language) descriptions.</li>
+<li><strong>Instruction-selection DAGs</strong>: Build a Directed Acyclic Graph of target-independent operations, then tile it with target-specific machine instructions via dynamic programming. LLVM's <code>SelectionDAG</code> is the most prominent example. This approach can produce excellent code but is complex to implement.</li>
+<li><strong>Table-driven codegen</strong>: Machine descriptions (like <code>.td</code> files in LLVM) drive automatic code generation. The compiler writer describes the instruction set declaratively, and tooling generates the instruction selector.</li>
+<li><strong>Backend as a library (LLVM)</strong>: Instead of writing your own code generator, pass your IR to LLVM and let it handle instruction selection, register allocation, and optimization. This is the most pragmatic choice for production compilers (Rust, Swift, Clang all use LLVM).</li>
+</ul>
+
+<p>L1S takes the simplest possible approach: hand-written code generation where each <code>IrInstr</code> variant maps to a fixed pattern of NASM instructions. The register allocator from Chapter 13 provides a stack slot for every virtual register, so the code generator loads operands from memory and stores results back to memory on every instruction &mdash; maximally simple, minimally performant.</p>
+
+<h3>Targeting x86-64 and NASM Syntax</h3>
+
+<p>L1S targets x86-64 Linux using the System V AMD64 ABI. The code generator emits NASM (Netwide Assembler) syntax, which is a common choice for x86-64 assembly on Linux. Key conventions of the target:</p>
+
+<ul>
+<li><strong>Integer arguments</strong>: Passed in <code>rdi</code>, <code>rsi</code>, <code>rdx</code>, <code>rcx</code>, <code>r8</code>, <code>r9</code> (first through sixth). Additional arguments go on the stack.</li>
+<li><strong>Return value</strong>: Placed in <code>rax</code>.</li>
+<li><strong>Stack alignment</strong>: The stack must be 16-byte aligned at the point of a <code>call</code> instruction.</li>
+<li><strong>Callee-saved registers</strong>: <code>rbx</code>, <code>rbp</code>, <code>r12</code>&ndash;<code>r15</code> must be preserved. L1S only uses <code>rbp</code> as the frame pointer.</li>
+</ul>
+
+<h3>How Ignis Generates Code</h3>
+
+<p>Ignis's <code>Codegen</code> struct is straightforward: it holds a mutable <code>String</code> buffer for the assembly output and a reference to the type arena. The entry point, <code>generate()</code>, produces three NASM sections:</p>
+
+<div class="code-header"><span>src/codegen.rs &mdash; Codegen struct and generate()</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Codegen</span>&lt;'a&gt; {
+    <span class="kw">pub</span> output: <span class="ty">String</span>,
+    <span class="kw">pub</span> types: &amp;<span class="ty">TypeArena</span>,
+}
+
+<span class="kw">impl</span>&lt;'a&gt; <span class="ty">Codegen</span>&lt;'a&gt; {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">generate</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, module: &amp;<span class="ty">IrModule</span>) -&gt; <span class="ty">String</span> {
+        <span class="kw">self</span>.output.<span class="fn">clear</span>();
+        <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"section .text"</span>);
+        <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"global main"</span>);
+        <span class="kw">for</span> func <span class="kw">in</span> &amp;module.functions { <span class="kw">self</span>.<span class="fn">generate_func</span>(func); }
+        <span class="kw">if</span> !module.strings.<span class="fn">is_empty</span>() { <span class="cm">/* section .rodata */</span> }
+        <span class="kw">if</span> !module.globals.<span class="fn">is_empty</span>() { <span class="cm">/* section .data */</span> }
+        <span class="kw">self</span>.output.<span class="fn">clone</span>()
+    }
+}</code></pre>
+
+<p>The three NASM sections serve distinct purposes:</p>
+<ul>
+<li><strong><code>.text</code></strong>: Executable code. Every function becomes a label followed by its instructions.</li>
+<li><strong><code>.rodata</code></strong>: Read-only data. String literals emitted as <code>db</code> directives with unique labels (<code>str_0</code>, <code>str_1</code>, ...).</li>
+<li><strong><code>.data</code></strong>: Mutable data. Global variables emitted with <code>dd 0</code> (zero-initialized 4-byte values).</li>
+</ul>
+
+<h3>Function Prologue and Epilogue</h3>
+
+<p>Every function begins with a prologue that sets up the stack frame and ends with an epilogue that tears it down. This is the standard x86-64 calling convention pattern:</p>
+
+<div class="code-header"><span>src/codegen.rs &mdash; Function code generation</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">generate_func</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, func: &amp;<span class="ty">IrFunction</span>) {
+    <span class="kw">let</span> <span class="kw">mut</span> alloc = <span class="ty">StackAllocator</span>::<span class="fn">new</span>();
+    alloc.<span class="fn">allocate</span>(func);
+
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"global {}"</span>, func.name));
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"{}:"</span>, func.name));
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  push rbp"</span>);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  mov rbp, rsp"</span>);
+    <span class="kw">if</span> alloc.stack_size != <span class="num">0</span> {
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  sub rsp, {}"</span>, -alloc.stack_size));
+    }
+    <span class="cm">// Spill parameter registers to stack slots</span>
+    <span class="kw">for</span> (i, param) <span class="kw">in</span> func.params.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+        <span class="kw">let</span> slot = alloc.<span class="fn">slot</span>(param.vreg);
+        <span class="kw">let</span> reg = <span class="kw">self</span>.<span class="fn">param_reg</span>(i);
+        <span class="kw">if</span> slot != <span class="num">0</span> {
+            <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov [rbp{}], {}"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(slot), reg));
+        }
+    }
+    <span class="cm">// Emit basic blocks</span>
+    <span class="kw">for</span> block <span class="kw">in</span> &amp;func.blocks { <span class="cm">/* ... */</span> }
+    <span class="cm">// Shared return label (epilogue)</span>
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">".return_{}:"</span>, func.name));
+    <span class="kw">if</span> alloc.stack_size != <span class="num">0</span> { <span class="cm">/* add rsp, N */</span> }
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  pop rbp"</span>);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  ret"</span>);
+}</code></pre>
+
+<p>The prologue sequence deserves careful explanation:</p>
+<ul>
+<li><code>push rbp</code>: Save the caller's frame pointer on the stack (8 bytes).</li>
+<li><code>mov rbp, rsp</code>: Set our own frame pointer to the current stack pointer. All local variables and parameters are now accessed as offsets from <code>rbp</code>.</li>
+<li><code>sub rsp, N</code>: Allocate N bytes on the stack for local variables. N is the (negated) stack size from the <code>StackAllocator</code>, rounded to 16-byte alignment.</li>
+</ul>
+
+<p>The epilogue reverses these steps: <code>add rsp, N</code> deallocates the stack frame, <code>pop rbp</code> restores the caller's frame pointer, and <code>ret</code> returns control to the caller. All return paths converge to a single shared return label rather than inlining the epilogue at every return point &mdash; a code-size tradeoff.</p>
+
+<h3>Instruction Selection Patterns</h3>
+
+<p>The heart of the code generator is the <code>emit_instr()</code> method, which maps each <code>IrInstr</code> variant to NASM instructions. The patterns fall into several categories:</p>
+
+<h4>Binary Operations (Add, Sub, Mul, And, Or, Xor)</h4>
+
+<p>These share a uniform three-step pattern via the <code>binary()</code> helper:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">binary</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, op: &amp;<span class="ty">str</span>, dest: &amp;<span class="ty">VReg</span>, a: &amp;<span class="ty">VReg</span>, b: &amp;<span class="ty">VReg</span>, alloc: &amp;<span class="ty">StackAllocator</span>) {
+    <span class="kw">self</span>.<span class="fn">load_to_rax</span>(*a, alloc);       <span class="cm">// rax = a (load from stack)</span>
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*b, <span class="str">"rcx"</span>, alloc);   <span class="cm">// rcx = b (load from stack)</span>
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  {} eax, ecx"</span>, op));  <span class="cm">// eax = eax op ecx</span>
+    <span class="kw">self</span>.<span class="fn">store_from_rax</span>(*dest, alloc);  <span class="cm">// dest = rax (store to stack)</span>
+}</code></pre>
+
+<p>This is a three-address-code style: both operands are loaded into registers, the operation executes, and the result is stored back. The use of <code>rax</code> and <code>rcx</code> as temporary registers is arbitrary but consistent &mdash; any caller-saved register would work.</p>
+
+<h4>Division and Remainder</h4>
+
+<p>x86-64 division uses implicit register pairs, making it more complex:</p>
+
+<pre><code><span class="ty">IrInstr</span>::<span class="fn">SDiv</span>(dest, a, b) =&gt; {
+    <span class="kw">self</span>.<span class="fn">load_to_rax</span>(*a, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  cdq"</span>);              <span class="cm">// sign-extend eax → edx:eax</span>
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*b, <span class="str">"rcx"</span>, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  idiv ecx"</span>);          <span class="cm">// quotient in eax, remainder in edx</span>
+    <span class="kw">self</span>.<span class="fn">store_from_rax</span>(*dest, alloc);
+}</code></pre>
+
+<p>The <code>cdq</code> instruction sign-extends <code>eax</code> into the <code>edx:eax</code> register pair, forming the 64-bit dividend. <code>idiv ecx</code> divides this 64-bit value by <code>ecx</code>. The quotient lands in <code>eax</code> and the remainder in <code>edx</code>. For remainder operations (<code>SRem</code>), the code generator reads from <code>rdx</code> instead of <code>rax</code>.</p>
+
+<h4>Comparison Instructions</h4>
+
+<p>Comparisons use a two-step pattern: set CPU flags with <code>cmp</code>, then capture a flag with a <code>setcc</code> instruction:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">cmp</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, setcc: &amp;<span class="ty">str</span>, dest: &amp;<span class="ty">VReg</span>, a: &amp;<span class="ty">VReg</span>, b: &amp;<span class="ty">VReg</span>, alloc: &amp;<span class="ty">StackAllocator</span>) {
+    <span class="kw">self</span>.<span class="fn">load_to_rax</span>(*a, alloc);
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*b, <span class="str">"rcx"</span>, alloc);
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  cmp eax, ecx"</span>);        <span class="cm">// set flags based on a - b</span>
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  {} al"</span>, setcc));   <span class="cm">// al = 0 or 1 based on flag</span>
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  movzx eax, al"</span>);      <span class="cm">// zero-extend byte to dword</span>
+    <span class="kw">self</span>.<span class="fn">store_from_rax</span>(*dest, alloc);
+}</code></pre>
+
+<p>The <code>setcc</code> mnemonic varies by comparison: <code>sete</code> for equality, <code>setne</code> for inequality, <code>setl</code> for signed less-than, <code>setg</code> for signed greater-than, etc. The <code>movzx eax, al</code> zero-extends the 8-bit result to 32 bits, since <code>setcc</code> only writes to the low byte of a register.</p>
+
+<h4>Function Calls</h4>
+
+<p>Function calls must respect the calling convention: arguments are loaded into the SysV argument registers, then <code>call</code> is emitted, and the return value in <code>rax</code> is stored:</p>
+
+<pre><code><span class="ty">IrInstr</span>::<span class="fn">Call</span>(dest, name, args) =&gt; {
+    <span class="kw">for</span> (i, arg) <span class="kw">in</span> args.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+        <span class="kw">let</span> reg = <span class="kw">self</span>.<span class="fn">arg_reg</span>(i);    <span class="cm">// rdi, rsi, rdx, rcx, r8, r9</span>
+        <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov {}, [rbp{}]"</span>, reg, <span class="kw">self</span>.<span class="fn">signed</span>(slot)));
+    }
+    <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  call {}"</span>, name));
+    <span class="kw">let</span> d_slot = alloc.<span class="fn">slot</span>(*dest);
+    <span class="kw">if</span> d_slot != <span class="num">0</span> { <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  mov [rbp{}], rax"</span>, <span class="kw">self</span>.<span class="fn">signed</span>(d_slot))); }
+}</code></pre>
+
+<p>Note that L1S currently only handles up to 6 arguments (the register-passing limit). The 7th+ argument would need to be pushed on the stack per the SysV ABI, but L1S's fallback <code>_ =&gt; "rdi"</code> silently reuses <code>rdi</code>, which is a latent bug for functions with more than 6 parameters.</p>
+
+<h4>GetElementPtr (GEP)</h4>
+
+<p>The GEP instruction computes pointer arithmetic at runtime: <code>base + index * stride</code>. This is used for array indexing and struct field access:</p>
+
+<pre><code><span class="ty">IrInstr</span>::<span class="fn">Gep</span>(dest, base, index, stride) =&gt; {
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*base, <span class="str">"rax"</span>, alloc);
+    <span class="kw">self</span>.<span class="fn">load_to_reg</span>(*index, <span class="str">"rcx"</span>, alloc);
+    <span class="kw">if</span> *stride &gt; <span class="num">1</span> { <span class="kw">self</span>.<span class="fn">emit</span>(&amp;<span class="fn">format!</span>(<span class="str">"  imul rcx, rcx, {}"</span>, stride)); }
+    <span class="kw">self</span>.<span class="fn">emit</span>(<span class="str">"  add rax, rcx"</span>);
+    <span class="kw">self</span>.<span class="fn">store_from_rax</span>(*dest, alloc);
+}</code></pre>
+
+<p>The stride is the element size (e.g., 4 for <code>i32</code>, 8 for a pointer). When stride is 1 (byte addressing), the multiplication is skipped as an optimization.</p>
+
+<h3>The Spill-Everything Register Model</h3>
+
+<p>A critical design choice visible throughout the code generator is that every instruction loads operands from memory and stores results to memory. There is no attempt to keep values in registers across instructions. This "spill-everything" model has important consequences:</p>
+
+<ul>
+<li><strong>Correctness is trivial</strong>: Since every value is always in its known stack slot, there is no register allocation interference between instructions.</li>
+<li><strong>Performance is poor</strong>: Each arithmetic instruction generates 3&ndash;4 memory accesses (load a, load b, store dest), when a register-only version would need 0. This is 3&ndash;4x more memory traffic.</li>
+<li><strong>Register pressure is zero</strong>: The code generator only uses <code>rax</code> and <code>rcx</code> as temporary registers. Even with hundreds of virtual registers, the generated code never spills.</li>
+</ul>
+
+<div class="callout info">
+<strong>Why spill everything?</strong> For a teaching compiler, correctness and simplicity trump performance. The spill-everything model eliminates an entire class of register allocation bugs. A production compiler would use a graph-coloring register allocator (like Chaitin's algorithm) to keep frequently-used values in registers.
+</div>
+
+<h3>Code Generation for Control Flow</h3>
+
+<p>Basic block terminators are translated to jump instructions. The pattern is a direct mapping from IR to x86-64:</p>
+
+<table class="file-table">
+<tr><th>IR Terminator</th><th>NASM Output</th></tr>
+<tr><td><code>Jump(target)</code></td><td><code>jmp .func_target</code></td></tr>
+<tr><td><code>Branch(cond, t, f)</code></td><td><code>mov rax, [rbp+slot]; test eax, eax; jnz .func_t; jmp .func_f</code></td></tr>
+<tr><td><code>Return(val)</code></td><td><code>mov rax, [rbp+slot]; jmp .return_func</code></td></tr>
+</table>
+
+<p>Branch conditions are evaluated as "non-zero is true": the condition value is loaded, <code>test eax, eax</code> sets the Zero Flag if it is zero, and <code>jnz</code> jumps to the true target if it was non-zero.</p>
+
+<h3>Traced Example: Code Generation Walkthrough</h3>
+
+<p>Consider this L1S function:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}</code></pre>
+
+<p>The IR builder produces a function with two parameters (<code>%0 = a</code>, <code>%1 = b</code>), one <code>Alloc</code> for the temporary (<code>%2</code>), one <code>Add</code> instruction, and a <code>Return</code> terminator. The <code>StackAllocator</code> assigns slots: <code>%0 &rarr; rbp-8</code>, <code>%1 &rarr; rbp-16</code>, <code>%2 &rarr; rbp-24</code>. The generated assembly:</p>
+
+<pre><code><span class="kw">global</span> add
+add:
+  push rbp
+  mov rbp, rsp
+  sub rsp, 24
+  mov [rbp-8], rdi          <span class="cm">; spill %0 (a) from rdi</span>
+  mov [rbp-16], rsi         <span class="cm">; spill %1 (b) from rsi</span>
+.add_0:
+  mov rax, [rbp-8]          <span class="cm">; load %0 (a)</span>
+  mov rcx, [rbp-16]         <span class="cm">; load %1 (b)</span>
+  add eax, ecx              <span class="cm">; %2 = a + b</span>
+  mov [rbp-24], rax         <span class="cm">; spill %2</span>
+  mov rax, [rbp-24]         <span class="cm">; load return value</span>
+  jmp .return_add
+.return_add:
+  add rsp, 24
+  pop rbp
+  ret</code></pre>
+
+<p>Notice the redundant load of <code>%2</code> immediately after storing it &mdash; the result of <code>add</code> is in <code>rax</code>, but the spill-everything model stores it and then immediately reloads it for the return. An optimizing code generator would detect this and keep the value in <code>rax</code>.</p>
+
+<h3>Testing Code Generation</h3>
+
+<p>The <code>Codegen</code> struct itself has no dedicated unit tests; correctness is verified through end-to-end integration tests that compile L1S programs, assemble and link them, and run the resulting executables. The <code>StackAllocator</code> (on which codegen depends) has unit tests in <code>regalloc.rs</code> that verify slot assignment and stack size computation.</p>
+
+<p>To run all tests including codegen:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test
+</code></pre>
+
+<p>A minimal end-to-end test:</p>
+<pre><code><span style="color:var(--fg2)">$</span> echo "func main(i32) { return 42; }" &gt; /tmp/test.is
+<span style="color:var(--fg2)">$</span> cargo run -- /tmp/test.is
+<span style="color:var(--fg2)">$</span> /tmp/test; echo $?
+42</code></pre>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+<li><strong>Stack offset sign errors</strong>: Stack slots are negative offsets from <code>rbp</code>. A positive offset would corrupt the caller's frame. The <code>signed()</code> helper is critical.</li>
+<li><strong>Missing size specifiers</strong>: NASM requires explicit size specifiers like <code>qword</code> when writing immediates to memory: <code>mov qword [rbp-8], 42</code>, not <code>mov [rbp-8], 42</code>.</li>
+<li><strong>Caller-saved register clobbers</strong>: The code generator does not track which registers are live across calls. Since every value is on the stack, this is safe, but a register-allocating code generator would need to save and restore caller-saved registers around calls.</li>
+<li><strong>Division by zero</strong>: x86-64 <code>idiv</code> raises SIGFPE on division by zero. L1S does not check for this.</li>
+<li><strong>6-argument limit</strong>: Beyond 6 arguments, the SysV ABI requires stack-based passing, but L1S silently reuses <code>rdi</code>.</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="13-regalloc.html">&larr; Chapter 13</a> &ensp; Chapter 14: Code Generation &ensp; <a href="15-link.html">Chapter 15 &rarr;</a></span>
+</div>
+
+</body>
+</html>

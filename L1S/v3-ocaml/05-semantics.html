@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Does This Make Sense? — Building a Compiler (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">OCaml Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3ocaml-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3ocaml-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>5 · Does This Make Sense?</h2>
+
+<p>
+  The parser gave us a beautiful AST. Every <code>if</code> has its branches, every
+  <code>while</code> has its body, every expression nests just right. The tree is
+  <em>syntactically</em> valid. But is it <em>meaningful</em>?
+</p>
+
+<p>
+  Consider this program — and notice how naturally we reach for a variant type:
+</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+  <span class="kw">let</span> x: <span class="ty">bool</span> = <span class="num">42</span>;
+}</code></pre>
+
+<p>
+  The parser will happily build an AST for this. It doesn't know that <code>42</code>
+  isn't a <code>bool</code>. It doesn't <em>care</em>. The parser's job is just to check
+  that the tokens form a valid tree according to our grammar.
+</p>
+
+<p>
+  Now it's our job — the semantic analyzer's job — to determine whether the tree
+  actually <em>means</em> something. In OCaml terms, we're about to write a
+  recursive function over the AST that returns either a typed tree or an error,
+  making the <em>proof</em> of well-typedness explicit in the types.
+</p>
+
+<div class="callout info">
+<strong>Two phases, one pass?</strong>
+  Some textbooks separate "semantic analysis" into distinct phases:
+  binding (connecting identifiers to declarations) and type checking (checking
+  type constraints). We'll do them together in a single pass over the AST,
+  because they interleave naturally: to check the type of an identifier, we
+  need to look it up in the symbol table.
+</div>
+
+<h3>Phase 1: Building a Symbol Table</h3>
+
+<p>
+  Before we can check types, we need to know what every name refers to.
+  A <strong>symbol table</strong> is a data structure that maps names to their
+  declarations. Think of it as a dictionary the compiler carries around:
+  "What is <code>x</code>? Oh, it's a variable of type <code>i32</code>, declared on line 12."
+</p>
+
+<p>
+  Our language has three kinds of scopes:
+</p>
+
+<ul>
+  <li><strong>Global scope</strong> — function names and global variables.</li>
+  <li><strong>Function scope</strong> — parameter names.</li>
+  <li><strong>Block scope</strong> — local variables declared with <code>let</code> inside a block.</li>
+</ul>
+
+<p>
+  Scopes nest. A variable declared in an outer block is visible in inner blocks,
+  but a variable in an inner block shadows the outer one. When we enter a new
+  block, we push a new scope. When we leave it, we pop it off.
+</p>
+
+<div class="callout tip">
+<strong>OCaml's module system lets us encapsulate the symbol table cleanly.</strong>
+  Unlike languages where a symbol table is just a hash map, in OCaml we can wrap
+  it in a module that enforces scope discipline at the type level. The
+  <code>SymbolTable</code> module hides the representation; you interact with it
+  only through <code>enter_scope</code>, <code>exit_scope</code>, <code>insert</code>,
+  and <code>lookup</code>. This is the same pattern Appel uses in his ML textbook,
+  and it's idiomatic OCaml.
+</div>
+
+<p>
+  Here's what our symbol table looks like:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>symbol.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">symbol</span> =
+  | <span class="fn">Variable</span> of <span class="ty">typ</span>
+  | <span class="fn">Function</span> of {
+      params: <span class="ty">typ</span> <span class="kw">list</span>;
+      ret: <span class="ty">typ</span>;
+    }
+
+<span class="kw">module</span> <span class="ty">SymbolTable</span> : <span class="kw">sig</span>
+  <span class="kw">type</span> <span class="ty">t</span>
+  <span class="kw">val</span> <span class="fn">create</span> : <span class="kw">unit</span> -> <span class="ty">t</span>
+  <span class="kw">val</span> <span class="fn">enter_scope</span> : <span class="ty">t</span> -> <span class="kw">unit</span>
+  <span class="kw">val</span> <span class="fn">exit_scope</span> : <span class="ty">t</span> -> <span class="kw">unit</span>
+  <span class="kw">val</span> <span class="fn">insert</span> : <span class="ty">t</span> -> <span class="kw">string</span> -> <span class="ty">symbol</span> -> <span class="kw">unit</span>
+  <span class="kw">val</span> <span class="fn">lookup</span> : <span class="ty">t</span> -> <span class="kw">string</span> -> <span class="ty">symbol</span> <span class="kw">option</span>
+<span class="kw">end</span> = <span class="kw">struct</span>
+  <span class="kw">type</span> <span class="ty">scope</span> = (<span class="kw">string</span>, <span class="ty">symbol</span>) <span class="ty">Hashtbl</span>.t
+  <span class="kw">type</span> <span class="ty">t</span> = { mutable scopes: <span class="ty">scope</span> <span class="kw">list</span> }
+
+  <span class="kw">let</span> <span class="fn">create</span> () = { scopes = [<span class="fn">Hashtbl</span>.<span class="fn">create</span> <span class="num">16</span>] }
+
+  <span class="kw">let</span> <span class="fn">enter_scope</span> tbl =
+    tbl.scopes <- <span class="fn">Hashtbl</span>.<span class="fn">create</span> <span class="num">16</span> :: tbl.scopes
+
+  <span class="kw">let</span> <span class="fn">exit_scope</span> tbl =
+    <span class="kw">match</span> tbl.scopes <span class="kw">with</span>
+    | [] -> <span class="fn">failwith</span> <span class="str">"scope imbalance"</span>
+    | _ :: rest -> tbl.scopes <- rest
+
+  <span class="kw">let</span> <span class="fn">insert</span> tbl name sym =
+    <span class="kw">match</span> tbl.scopes <span class="kw">with</span>
+    | [] -> <span class="fn">failwith</span> <span class="str">"no active scope"</span>
+    | scope :: _ -> <span class="fn">Hashtbl</span>.<span class="fn">replace</span> scope name sym
+
+  <span class="kw">let</span> <span class="fn">lookup</span> tbl name =
+    <span class="kw">let</span> <span class="kw">rec</span> <span class="fn">go</span> = <span class="kw">function</span>
+      | [] -> <span class="ty">None</span>
+      | scope :: rest ->
+        <span class="kw">match</span> <span class="fn">Hashtbl</span>.<span class="fn">find_opt</span> scope name <span class="kw">with</span>
+        | <span class="ty">Some</span> _ as s -> s
+        | <span class="ty">None</span> -> <span class="fn">go</span> rest
+    <span class="kw">in</span>
+    <span class="fn">go</span> tbl.scopes
+<span class="kw">end</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/symbol.rs</span></div>
+    <pre><code><span class="kw">use</span> std::collections::HashMap;
+<span class="kw">use</span> crate::ast::*;
+
+<span class="kw">pub enum</span> <span class="ty">Symbol</span> {
+  <span class="fn">Variable</span>(<span class="ty">Type</span>),
+  <span class="fn">Function</span> { params: <span class="ty">Vec</span>&lt;<span class="ty">Type</span>&gt;, ret: <span class="ty">Type</span> },
+}
+
+<span class="kw">pub struct</span> <span class="ty">SymbolTable</span> {
+  scopes: <span class="ty">Vec</span>&lt;<span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">Symbol</span>&gt;&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">SymbolTable</span> {
+  <span class="kw">pub fn</span> <span class="fn">new</span>() -> <span class="ty">Self</span> {
+    <span class="ty">SymbolTable</span> { scopes: <span class="fn">vec!</span>[<span class="ty">HashMap</span>::<span class="fn">new</span>()] }
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">enter_scope</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">self</span>.scopes.<span class="fn">push</span>(<span class="ty">HashMap</span>::<span class="fn">new</span>());
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">exit_scope</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">self</span>.scopes.<span class="fn">pop</span>();
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">insert</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, name: &amp;<span class="kw">str</span>, sym: <span class="ty">Symbol</span>) {
+    <span class="kw">if let</span> <span class="ty">Some</span>(scope) = <span class="kw">self</span>.scopes.<span class="fn">last_mut</span>() {
+      scope.<span class="fn">insert</span>(name.<span class="fn">to_string</span>(), sym);
+    }
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">lookup</span>(&amp;<span class="kw">self</span>, name: &amp;<span class="kw">str</span>) -> <span class="ty">Option</span>&lt;&amp;<span class="ty">Symbol</span>&gt; {
+    <span class="kw">for</span> scope <span class="kw">in</span> <span class="kw">self</span>.scopes.<span class="fn">iter</span>().<span class="fn">rev</span>() {
+      <span class="kw">if let</span> <span class="ty">Some</span>(sym) = scope.<span class="fn">get</span>(name) {
+        <span class="kw">return</span> <span class="ty">Some</span>(sym);
+      }
+    }
+    <span class="ty">None</span>
+  }
+}</code></pre>
+  </div>
+</div>
+
+<p>
+  The key insight here is the <code>lookup</code> function: it walks scopes from
+  innermost to outermost, returning the first match. This gives us lexical (static)
+  scoping — a name always refers to the innermost declaration in scope. In OCaml,
+  the <code>go</code> inner function is a perfect example of using a recursive
+  helper to traverse a list until we find what we need.
+</p>
+
+<h4>Populating the Symbol Table</h4>
+
+<p>
+  We populate the symbol table with a top-level walk. For each function declaration,
+  we insert the function name and its signature. Then we walk the body to find
+  local declarations. We do this <em>before</em> type checking so that when we
+  encounter a function call or variable reference, we already know about it.
+</p>
+
+<p>
+  This two-phase approach — collect first, check second — is a pattern that
+  appears throughout compiler construction. In OCaml, we implement it with two
+  separate recursive functions: <code>collect_decls</code> and <code>check_func</code>.
+  The types keep us honest: <code>collect_decls</code> returns a
+  <code>symbol_table</code>, which <code>check_func</code> reads but does not modify.
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>symbol.ml — building the table</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">collect_decls</span> ast =
+  <span class="kw">let</span> tbl = <span class="ty">SymbolTable</span>.<span class="fn">create</span> () <span class="kw">in</span>
+  <span class="kw">let</span> add_decl = <span class="kw">function</span>
+    | <span class="ty">Decl</span>.<span class="fn">Function</span> f ->
+      <span class="kw">let</span> params = <span class="ty">List</span>.<span class="fn">map</span> (<span class="kw">fun</span> p -> p.ty) f.params <span class="kw">in</span>
+      <span class="ty">SymbolTable</span>.<span class="fn">insert</span> tbl f.name
+        (<span class="ty">Function</span> { params; ret = f.ret_ty });
+      <span class="ty">SymbolTable</span>.<span class="fn">enter_scope</span> tbl;
+      <span class="ty">List</span>.<span class="fn">iter</span> (<span class="kw">fun</span> p ->
+        <span class="ty">SymbolTable</span>.<span class="fn">insert</span> tbl p.name
+          (<span class="ty">Variable</span> p.ty)
+      ) f.params;
+      <span class="fn">walk_let_decls</span> tbl f.body;
+      <span class="ty">SymbolTable</span>.<span class="fn">exit_scope</span> tbl
+    | <span class="ty">Decl</span>.<span class="fn">Var</span> v ->
+      <span class="ty">SymbolTable</span>.<span class="fn">insert</span> tbl v.name
+        (<span class="ty">Variable</span> v.ty)
+  <span class="kw">in</span>
+  <span class="ty">List</span>.<span class="fn">iter</span> add_decl ast.decls;
+  tbl
+
+<span class="cm">(* Walk a block to register all let-declared variables *)</span>
+<span class="kw">and</span> <span class="fn">walk_let_decls</span> tbl block =
+  <span class="ty">SymbolTable</span>.<span class="fn">enter_scope</span> tbl;
+  <span class="ty">List</span>.<span class="fn">iter</span> (<span class="kw">function</span>
+    | <span class="ty">Stmt</span>.<span class="fn">Let</span> (_, name, ty, _) ->
+      <span class="ty">SymbolTable</span>.<span class="fn">insert</span> tbl name (<span class="ty">Variable</span> ty)
+    | <span class="ty">Stmt</span>.<span class="fn">Block</span> b -> <span class="fn">walk_let_decls</span> tbl b
+    | _ -> ()
+  ) block.stmts;
+  <span class="ty">SymbolTable</span>.<span class="fn">exit_scope</span> tbl</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/symbol.rs — building the table</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">build</span>(ast: &amp;<span class="ty">Program</span>) -> <span class="ty">SymbolTable</span> {
+  <span class="kw">let mut</span> table = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+
+  <span class="kw">for</span> decl <span class="kw">in</span> &amp;ast.decls {
+    <span class="kw">match</span> decl {
+      <span class="ty">Decl</span>::<span class="fn">Func</span>(func) => {
+        <span class="kw">let</span> params =
+          func.params.<span class="fn">iter</span>()
+            .<span class="fn">map</span>(|p| p.ty.<span class="fn">clone</span>())
+            .<span class="fn">collect</span>();
+        table.<span class="fn">insert</span>(&amp;func.name,
+          <span class="ty">Symbol</span>::<span class="fn">Func</span> { params, ret: func.ret_ty.<span class="fn">clone</span>() });
+        table.<span class="fn">enter_scope</span>();
+        <span class="kw">for</span> param <span class="kw">in</span> &amp;func.params {
+          table.<span class="fn">insert</span>(&amp;param.name,
+            <span class="ty">Symbol</span>::<span class="fn">Var</span>(param.ty.<span class="fn">clone</span>()));
+        }
+        <span class="fn">walk_let_decls</span>(&amp;<span class="kw">mut</span> table, &amp;func.body);
+        table.<span class="fn">exit_scope</span>();
+      }
+      <span class="ty">Decl</span>::<span class="fn">Var</span>(v) => {
+        table.<span class="fn">insert</span>(&amp;v.name,
+          <span class="ty">Symbol</span>::<span class="fn">Var</span>(v.ty.<span class="fn">clone</span>()));
+      }
+    }
+  }
+  table
+}
+
+<span class="kw">fn</span> <span class="fn">walk_let_decls</span>(table: &amp;<span class="kw">mut</span> <span class="ty">SymbolTable</span>, block: &amp;<span class="ty">Block</span>) {
+  table.<span class="fn">enter_scope</span>();
+  <span class="kw">for</span> stmt <span class="kw">in</span> &amp;block.stmts {
+    <span class="kw">match</span> stmt {
+      <span class="ty">Stmt</span>::<span class="fn">Let</span>(_, name, ty, _) =>
+        table.<span class="fn">insert</span>(name, <span class="ty">Symbol</span>::<span class="fn">Var</span>(ty.<span class="fn">clone</span>())),
+      <span class="ty">Stmt</span>::<span class="fn">Block</span>(b) => <span class="fn">walk_let_decls</span>(table, b),
+      _ => {}
+    }
+  }
+  table.<span class="fn">exit_scope</span>();
+}</code></pre>
+  </div>
+</div>
+
+<div class="callout">
+<strong>Forward references?</strong>
+  Our language supports calling functions defined later in the file. The symbol
+  table phase handles this: we register all function names <em>before</em> type
+  checking, so a function can call any other function regardless of definition
+  order. This is the same trick OCaml's own compiler uses for
+  <code>let rec</code> and <code>and</code> bindings.
+</div>
+
+<h3>Phase 2: Type Checking</h3>
+
+<p>
+  With a populated symbol table, we can now walk the AST a second time and
+  check every expression and statement for type correctness. This is the heart
+  of semantic analysis — and it's where OCaml's pattern matching really shines.
+</p>
+
+<p>
+  Every expression in our language has a <strong>type</strong>. The type checker's
+  job is to determine that type and verify it's used correctly. The rules are
+  straightforward:
+</p>
+
+<div class="diagram">Type Checking Rules (informal):
+
+  Integer literal      → declared type (i32 by default)
+  Bool literal         → bool
+  Identifier           → type from symbol table
+  Binary op (+, -, etc) → both operands must be same numeric type
+  Comparison (==, &lt;)  → both operands same type, result is bool
+  Function call        → args match param types, result is return type
+  Assignment           → RHS type matches declared LHS type
+  Cast                 → any numeric type to any numeric type
+  If/while condition   → must be bool
+  Return               → type must match function's return type
+</div>
+
+<p>
+  Here's the type checker. Notice how each <code>match</code> case reads like a
+  specification rule — that's the beauty of pattern matching on variant types:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>check.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">checker</span> = {
+  symbols: <span class="ty">SymbolTable</span>.t;
+  mutable errors: <span class="ty">error</span> <span class="kw">list</span>;
+  mutable current_ret: <span class="ty">typ</span>;
+}
+
+<span class="kw">let</span> <span class="fn">create</span> symbols =
+  { symbols; errors = []; current_ret = <span class="ty">Type</span>.<span class="fn">Void</span> }
+
+<span class="kw">let</span> <span class="fn">error</span> ck span msg =
+  ck.errors <- { span; msg } :: ck.errors
+
+<span class="kw">let rec</span> <span class="fn">check_expr</span> ck : <span class="ty">expr</span> -> <span class="ty">typ</span> = <span class="kw">function</span>
+  | <span class="ty">Int</span> _    -> <span class="ty">Type</span>.<span class="fn">I32</span>
+  | <span class="ty">Bool</span> _   -> <span class="ty">Type</span>.<span class="fn">Bool</span>
+
+  | <span class="ty">Ident</span> (span, name) -> (
+    <span class="kw">match</span> <span class="ty">SymbolTable</span>.<span class="fn">lookup</span> ck.symbols name <span class="kw">with</span>
+    | <span class="ty">Some</span> (<span class="ty">Variable</span> ty) -> ty
+    | <span class="ty">Some</span> (<span class="ty">Function</span> _) ->
+      <span class="fn">error</span> ck span <span class="str">"expected a variable, found function"</span>;
+      <span class="ty">Type</span>.<span class="fn">I32</span>
+    | <span class="ty">None</span> ->
+      <span class="fn">error</span> ck span (<span class="str">"undefined variable `"</span> ^ name ^ <span class="str">"`"</span>);
+      <span class="ty">Type</span>.<span class="fn">I32</span>
+  )
+
+  | <span class="ty">Binary</span> (span, op, lhs, rhs) ->
+    <span class="kw">let</span> lt = <span class="fn">check_expr</span> ck lhs <span class="kw">in</span>
+    <span class="kw">let</span> rt = <span class="fn">check_expr</span> ck rhs <span class="kw">in</span>
+    <span class="kw">if</span> lt &lt;&gt; rt <span class="kw">then</span>
+      <span class="fn">error</span> ck span
+        (<span class="str">"type mismatch: expected "</span> ^ <span class="fn">string_of_type</span> lt
+         ^ <span class="str">", found "</span> ^ <span class="fn">string_of_type</span> rt);
+    (<span class="kw">match</span> op <span class="kw">with</span>
+    | <span class="ty">Add</span> | <span class="ty">Sub</span> | <span class="ty">Mul</span> | <span class="ty">Div</span> -> lt
+    | <span class="ty">Eq</span> | <span class="ty">Lt</span> | <span class="ty">Gt</span> -> <span class="ty">Type</span>.<span class="fn">Bool</span>
+    | <span class="ty">And</span> | <span class="ty">Or</span> ->
+      <span class="kw">if</span> lt &lt;&gt; <span class="ty">Type</span>.<span class="fn">Bool</span> <span class="kw">then</span>
+        <span class="fn">error</span> ck span <span class="str">"logical op requires bool operands"</span>;
+      <span class="ty">Type</span>.<span class="fn">Bool</span>)
+
+  | <span class="ty">Call</span> (span, name, args) -> (
+    <span class="kw">match</span> <span class="ty">SymbolTable</span>.<span class="fn">lookup</span> ck.symbols name <span class="kw">with</span>
+    | <span class="ty">Some</span> (<span class="ty">Function</span> { params; ret }) ->
+      <span class="kw">let</span> n_params = <span class="ty">List</span>.<span class="fn">length</span> params <span class="kw">in</span>
+      <span class="kw">let</span> n_args = <span class="ty">List</span>.<span class="fn">length</span> args <span class="kw">in</span>
+      <span class="kw">if</span> n_params &lt;&gt; n_args <span class="kw">then</span>
+        <span class="fn">error</span> ck span
+          (<span class="str">"function `"</span> ^ name ^ <span class="str">"` expects "</span>
+           ^ <span class="fn">string_of_int</span> n_params
+           ^ <span class="str">" arguments, got "</span>
+           ^ <span class="fn">string_of_int</span> n_args);
+      <span class="ty">List</span>.<span class="fn">iteri</span> (<span class="kw">fun</span> i (arg, param_ty) ->
+        <span class="kw">let</span> arg_ty = <span class="fn">check_expr</span> ck arg <span class="kw">in</span>
+        <span class="kw">if</span> arg_ty &lt;&gt; param_ty <span class="kw">then</span>
+          <span class="fn">error</span> ck arg.span
+            (<span class="str">"argument "</span> ^ <span class="fn">string_of_int</span> (i+<span class="num">1</span>)
+             ^ <span class="str">": expected "</span> ^ <span class="fn">string_of_type</span> param_ty
+             ^ <span class="str">", found "</span> ^ <span class="fn">string_of_type</span> arg_ty)
+      ) (<span class="ty">List</span>.<span class="fn">combine</span> args params);
+      ret
+    | _ ->
+      <span class="fn">error</span> ck span (<span class="str">"undefined function `"</span> ^ name ^ <span class="str">"`"</span>);
+      <span class="ty">Type</span>.<span class="fn">I32</span>
+  )
+
+  | <span class="ty">Cast</span> (_, to_ty, inner) ->
+    <span class="kw">let</span> inner_ty = <span class="fn">check_expr</span> ck inner <span class="kw">in</span>
+    <span class="kw">if</span> <span class="fn">not</span> (<span class="fn">is_numeric</span> inner_ty &amp;&amp; <span class="fn">is_numeric</span> to_ty) <span class="kw">then</span>
+      <span class="fn">error</span> ck inner.span
+        <span class="str">"cast only supported between numeric types"</span>;
+    to_ty
+
+  | <span class="ty">Assign</span> (span, target, value) ->
+    <span class="kw">let</span> t_ty = <span class="fn">check_expr</span> ck target <span class="kw">in</span>
+    <span class="kw">let</span> v_ty = <span class="fn">check_expr</span> ck value <span class="kw">in</span>
+    <span class="kw">if</span> t_ty &lt;&gt; v_ty <span class="kw">then</span>
+      <span class="fn">error</span> ck span
+        (<span class="str">"assignment type mismatch: "</span>
+         ^ <span class="fn">string_of_type</span> t_ty ^ <span class="str">" vs "</span>
+         ^ <span class="fn">string_of_type</span> v_ty);
+    <span class="ty">Type</span>.<span class="fn">Void</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/check.rs</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">Checker</span> {
+  symbols: <span class="ty">SymbolTable</span>,
+  <span class="kw">pub</span> errors: <span class="ty">Vec</span>&lt;<span class="ty">Error</span>&gt;,
+  current_ret: <span class="ty">Type</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Checker</span> {
+  <span class="kw">pub fn</span> <span class="fn">new</span>(symbols: <span class="ty">SymbolTable</span>) -> <span class="ty">Self</span> {
+    <span class="ty">Checker</span> { symbols, errors: <span class="fn">vec!</span>[], current_ret: <span class="ty">Type</span>::<span class="fn">Void</span> }
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">check_expr</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, expr: &amp;<span class="ty">Expr</span>) -> <span class="ty">Type</span> {
+    <span class="kw">match</span> expr {
+      <span class="ty">Expr</span>::<span class="fn">Int</span>(_) => <span class="ty">Type</span>::<span class="fn">I32</span>,
+      <span class="ty">Expr</span>::<span class="fn">Bool</span>(_) => <span class="ty">Type</span>::<span class="fn">Bool</span>,
+
+      <span class="ty">Expr</span>::<span class="fn">Ident</span>(span, name) => {
+        <span class="kw">match</span> <span class="kw">self</span>.symbols.<span class="fn">lookup</span>(name) {
+          <span class="ty">Some</span>(<span class="ty">Symbol</span>::<span class="fn">Var</span>(ty)) => ty.<span class="fn">clone</span>(),
+          <span class="ty">Some</span>(<span class="ty">Symbol</span>::<span class="fn">Func</span>(_)) => {
+            <span class="kw">self</span>.<span class="fn">error</span>(span, <span class="str">"expected variable, found function"</span>);
+            <span class="ty">Type</span>::<span class="fn">I32</span>
+          }
+          <span class="ty">None</span> => {
+            <span class="kw">self</span>.<span class="fn">error</span>(span,
+              &amp;<span class="fn">format</span>(<span class="str">"undefined variable `{}`"</span>, name));
+            <span class="ty">Type</span>::<span class="fn">I32</span>
+          }
+        }
+      }
+
+      <span class="ty">Expr</span>::<span class="fn">Binary</span>(span, op, lhs, rhs) => {
+        <span class="kw">let</span> lt = <span class="kw">self</span>.<span class="fn">check_expr</span>(lhs);
+        <span class="kw">let</span> rt = <span class="kw">self</span>.<span class="fn">check_expr</span>(rhs);
+        <span class="kw">if</span> lt != rt {
+          <span class="kw">self</span>.<span class="fn">error</span>(span,
+            &amp;<span class="fn">format</span>(<span class="str">"type mismatch: expected {}, found {}"</span>,
+              lt, rt));
+        }
+        <span class="kw">match</span> op {
+          <span class="ty">BinOp</span>::<span class="fn">Add</span> | <span class="ty">BinOp</span>::<span class="fn">Sub</span>
+          | <span class="ty">BinOp</span>::<span class="fn">Mul</span> | <span class="ty">BinOp</span>::<span class="fn">Div</span> => lt,
+          <span class="ty">BinOp</span>::<span class="fn">Eq</span> | <span class="ty">BinOp</span>::<span class="fn">Lt</span> | <span class="ty">BinOp</span>::<span class="fn">Gt</span> => <span class="ty">Type</span>::<span class="fn">Bool</span>,
+          <span class="ty">BinOp</span>::<span class="fn">And</span> | <span class="ty">BinOp</span>::<span class="fn">Or</span> => {
+            <span class="kw">if</span> lt != <span class="ty">Type</span>::<span class="fn">Bool</span> {
+              <span class="kw">self</span>.<span class="fn">error</span>(span, <span class="str">"logical op needs bool operands"</span>);
+            }
+            <span class="ty">Type</span>::<span class="fn">Bool</span>
+          }
+        }
+      }
+
+      <span class="ty">Expr</span>::<span class="fn">Call</span>(span, name, args) => {
+        <span class="kw">match</span> <span class="kw">self</span>.symbols.<span class="fn">lookup</span>(name) {
+          <span class="ty">Some</span>(<span class="ty">Symbol</span>::<span class="fn">Func</span>{params, ret}) => {
+            <span class="kw">if</span> args.<span class="fn">len</span>() != params.<span class="fn">len</span>() {
+              <span class="kw">self</span>.<span class="fn">error</span>(span,
+                &amp;<span class="fn">format</span>(<span class="str">"function `{}` expects {} args, got {}"</span>,
+                  name, params.<span class="fn">len</span>(), args.<span class="fn">len</span>()));
+            }
+            <span class="kw">for</span> (i, (arg, param_ty))
+                <span class="kw">in</span> args.<span class="fn">iter</span>().<span class="fn">zip</span>(&amp;params).<span class="fn">enumerate</span>() {
+              <span class="kw">let</span> arg_ty = <span class="kw">self</span>.<span class="fn">check_expr</span>(arg);
+              <span class="kw">if</span> &amp;arg_ty != param_ty {
+                <span class="kw">self</span>.<span class="fn">error</span>(&amp;arg.span,
+                  &amp;<span class="fn">format</span>(<span class="str">"arg {}: expected {}, found {}"</span>,
+                    i+<span class="num">1</span>, param_ty, arg_ty));
+              }
+            }
+            ret.<span class="fn">clone</span>()
+          }
+          _ => {
+            <span class="kw">self</span>.<span class="fn">error</span>(span,
+              &amp;<span class="fn">format</span>(<span class="str">"undefined function `{}`"</span>, name));
+            <span class="ty">Type</span>::<span class="fn">I32</span>
+          }
+        }
+      }
+
+      <span class="ty">Expr</span>::<span class="fn">Cast</span>(_, to_ty, inner) => {
+        <span class="kw">let</span> inner_ty = <span class="kw">self</span>.<span class="fn">check_expr</span>(inner);
+        <span class="kw">if</span> !<span class="fn">is_numeric</span>(&amp;inner_ty) || !<span class="fn">is_numeric</span>(to_ty) {
+          <span class="kw">self</span>.<span class="fn">error</span>(&amp;inner.span,
+            <span class="str">"cast only between numeric types"</span>);
+        }
+        to_ty.<span class="fn">clone</span>()
+      }
+    }
+  }
+}</code></pre>
+  </div>
+</div>
+
+<h3>Checking Statements</h3>
+
+<p>
+  Statements don't have types — they have effects. But they still need checking.
+  A <code>return</code> statement's expression must match the function's return type.
+  An <code>if</code> condition must be <code>bool</code>. A <code>let</code> initializer
+  must match the declared type.
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>check.ml — statement checking</span></div>
+    <pre><code><span class="kw">let rec</span> <span class="fn">check_stmt</span> ck = <span class="kw">function</span>
+  | <span class="ty">Let</span> (span, name, ty, init) -> (
+    <span class="kw">match</span> init <span class="kw">with</span>
+    | <span class="ty">None</span> -> ()
+    | <span class="ty">Some</span> init_expr ->
+      <span class="kw">let</span> init_ty = <span class="fn">check_expr</span> ck init_expr <span class="kw">in</span>
+      <span class="kw">if</span> init_ty &lt;&gt; ty <span class="kw">then</span>
+        <span class="fn">error</span> ck span
+          (<span class="str">"type mismatch: expected "</span>
+           ^ <span class="fn">string_of_type</span> ty
+           ^ <span class="str">", found "</span>
+           ^ <span class="fn">string_of_type</span> init_ty)
+  )
+
+  | <span class="ty">Return</span> (span, expr) ->
+    <span class="kw">let</span> expr_ty = <span class="fn">check_expr</span> ck expr <span class="kw">in</span>
+    <span class="kw">if</span> expr_ty &lt;&gt; ck.current_ret <span class="kw">then</span>
+      <span class="fn">error</span> ck span
+        (<span class="str">"return type mismatch: expected "</span>
+         ^ <span class="fn">string_of_type</span> ck.current_ret
+         ^ <span class="str">", found "</span>
+         ^ <span class="fn">string_of_type</span> expr_ty)
+
+  | <span class="ty">If</span> (span, cond, then_blk, else_blk) ->
+    <span class="kw">let</span> cond_ty = <span class="fn">check_expr</span> ck cond <span class="kw">in</span>
+    <span class="kw">if</span> cond_ty &lt;&gt; <span class="ty">Type</span>.<span class="fn">Bool</span> <span class="kw">then</span>
+      <span class="fn">error</span> ck span <span class="str">"if condition must be bool"</span>;
+    <span class="ty">SymbolTable</span>.<span class="fn">enter_scope</span> ck.symbols;
+    <span class="ty">List</span>.<span class="fn">iter</span> (<span class="fn">check_stmt</span> ck) then_blk.stmts;
+    <span class="ty">SymbolTable</span>.<span class="fn">exit_scope</span> ck.symbols;
+    (<span class="kw">match</span> else_blk <span class="kw">with</span>
+    | <span class="ty">None</span> -> ()
+    | <span class="ty">Some</span> blk ->
+      <span class="ty">SymbolTable</span>.<span class="fn">enter_scope</span> ck.symbols;
+      <span class="ty">List</span>.<span class="fn">iter</span> (<span class="fn">check_stmt</span> ck) blk.stmts;
+      <span class="ty">SymbolTable</span>.<span class="fn">exit_scope</span> ck.symbols)
+
+  | <span class="ty">While</span> (span, cond, body) ->
+    <span class="kw">let</span> cond_ty = <span class="fn">check_expr</span> ck cond <span class="kw">in</span>
+    <span class="kw">if</span> cond_ty &lt;&gt; <span class="ty">Type</span>.<span class="fn">Bool</span> <span class="kw">then</span>
+      <span class="fn">error</span> ck span <span class="str">"while condition must be bool"</span>;
+    <span class="ty">SymbolTable</span>.<span class="fn">enter_scope</span> ck.symbols;
+    <span class="ty">List</span>.<span class="fn">iter</span> (<span class="fn">check_stmt</span> ck) body.stmts;
+    <span class="ty">SymbolTable</span>.<span class="fn">exit_scope</span> ck.symbols
+
+  | <span class="ty">Expr</span> (_, expr) ->
+    <span class="fn">check_expr</span> ck expr
+
+  | <span class="ty">Block</span> b ->
+    <span class="ty">SymbolTable</span>.<span class="fn">enter_scope</span> ck.symbols;
+    <span class="ty">List</span>.<span class="fn">iter</span> (<span class="fn">check_stmt</span> ck) b.stmts;
+    <span class="ty">SymbolTable</span>.<span class="fn">exit_scope</span> ck.symbols</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/check.rs — statement checking</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">check_stmt</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, stmt: &amp;<span class="ty">Stmt</span>) {
+  <span class="kw">match</span> stmt {
+    <span class="ty">Stmt</span>::<span class="fn">Let</span>(span, name, ty, init) => {
+      <span class="kw">if let</span> <span class="ty">Some</span>(init) = init {
+        <span class="kw">let</span> init_ty = <span class="kw">self</span>.<span class="fn">check_expr</span>(init);
+        <span class="kw">if</span> &amp;init_ty != ty {
+          <span class="kw">self</span>.<span class="fn">error</span>(span,
+            &amp;<span class="fn">format</span>(<span class="str">"type mismatch: expected {}, found {}"</span>,
+              ty, init_ty));
+        }
+      }
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">Return</span>(span, expr) => {
+      <span class="kw">let</span> expr_ty = <span class="kw">self</span>.<span class="fn">check_expr</span>(expr);
+      <span class="kw">if</span> expr_ty != <span class="kw">self</span>.current_ret {
+        <span class="kw">self</span>.<span class="fn">error</span>(span,
+          &amp;<span class="fn">format</span>(<span class="str">"return type mismatch: expected {}, found {}"</span>,
+            <span class="kw">self</span>.current_ret, expr_ty));
+      }
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">If</span>(span, cond, then_blk, else_blk) => {
+      <span class="kw">let</span> cond_ty = <span class="kw">self</span>.<span class="fn">check_expr</span>(cond);
+      <span class="kw">if</span> cond_ty != <span class="ty">Type</span>::<span class="fn">Bool</span> {
+        <span class="kw">self</span>.<span class="fn">error</span>(span, <span class="str">"if condition must be bool"</span>);
+      }
+      <span class="kw">self</span>.symbols.<span class="fn">enter_scope</span>();
+      <span class="kw">for</span> s <span class="kw">in</span> &amp;then_blk.stmts { <span class="kw">self</span>.<span class="fn">check_stmt</span>(s); }
+      <span class="kw">self</span>.symbols.<span class="fn">exit_scope</span>();
+      <span class="kw">if let</span> <span class="ty">Some</span>(else_b) = else_blk {
+        <span class="kw">self</span>.symbols.<span class="fn">enter_scope</span>();
+        <span class="kw">for</span> s <span class="kw">in</span> &amp;else_b.stmts { <span class="kw">self</span>.<span class="fn">check_stmt</span>(s); }
+        <span class="kw">self</span>.symbols.<span class="fn">exit_scope</span>();
+      }
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">While</span>(span, cond, body) => {
+      <span class="kw">let</span> cond_ty = <span class="kw">self</span>.<span class="fn">check_expr</span>(cond);
+      <span class="kw">if</span> cond_ty != <span class="ty">Type</span>::<span class="fn">Bool</span> {
+        <span class="kw">self</span>.<span class="fn">error</span>(span, <span class="str">"while condition must be bool"</span>);
+      }
+      <span class="kw">self</span>.symbols.<span class="fn">enter_scope</span>();
+      <span class="kw">for</span> s <span class="kw">in</span> &amp;body.stmts { <span class="kw">self</span>.<span class="fn">check_stmt</span>(s); }
+      <span class="kw">self</span>.symbols.<span class="fn">exit_scope</span>();
+    }
+
+    <span class="ty">Stmt</span>::<span class="fn">Expr</span>(_, expr) => { <span class="kw">self</span>.<span class="fn">check_expr</span>(expr); }
+    <span class="ty">Stmt</span>::<span class="fn">Block</span>(b) => {
+      <span class="kw">self</span>.symbols.<span class="fn">enter_scope</span>();
+      <span class="kw">for</span> s <span class="kw">in</span> &amp;b.stmts { <span class="kw">self</span>.<span class="fn">check_stmt</span>(s); }
+      <span class="kw">self</span>.symbols.<span class="fn">exit_scope</span>();
+    }
+  }
+}</code></pre>
+  </div>
+</div>
+
+<h3>Error Messages with Spans</h3>
+
+<p>
+  Remember those spans from Chapter 1? This is where they earn their keep.
+  Instead of just saying "type error", we can point the user to the exact
+  character that caused the problem.
+</p>
+
+<p>
+  Here's how our <code>error</code> function produces a message with source
+  underlines — notice how OCaml's <code>Printf.sprintf</code> makes formatting
+  natural, and how we use <code>String.make</code> for the wave underline:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>errors.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">underline</span> source span =
+  <span class="kw">let</span> lines = <span class="fn">String</span>.<span class="fn">split_on_char</span> <span class="str">'\n'</span> source <span class="kw">in</span>
+  <span class="kw">let</span> line_num, col, line_start =
+    <span class="fn">line_col_from_offset</span> source span.start
+  <span class="kw">in</span>
+  <span class="kw">let</span> line_str = <span class="ty">List</span>.<span class="fn">nth</span> lines (line_num - <span class="num">1</span>) <span class="kw">in</span>
+  <span class="kw">let</span> indent = <span class="fn">String</span>.<span class="fn">make</span> (span.start - line_start) <span class="str">' '</span> <span class="kw">in</span>
+  <span class="kw">let</span> wave = <span class="fn">String</span>.<span class="fn">make</span> (span.end_ - span.start) <span class="str">'~'</span> <span class="kw">in</span>
+  <span class="fn">Printf</span>.<span class="fn">sprintf</span>
+    <span class="str">"%d │ %s\n  │ %s%s"</span>
+    line_num line_str indent wave
+
+<span class="kw">let</span> <span class="fn">report_error</span> source span message =
+  <span class="fn">Printf</span>.<span class="fn">eprintf</span>
+    <span class="str">"error: %s\n  ┌─ %s\n  │\n%s  │\n"</span>
+    message
+    (<span class="fn">string_of_span</span> span)
+    (<span class="fn">underline</span> source span)</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/errors.rs</span></div>
+    <pre><code><span class="kw">pub fn</span> <span class="fn">report_error</span>(
+  source: &amp;<span class="ty">str</span>, span: &amp;<span class="ty">Span</span>, message: &amp;<span class="ty">str</span>,
+) {
+  <span class="kw">let</span> (line, col) = span.<span class="fn">start_line_col</span>(source);
+  <span class="fn">eprintln!</span>(
+    <span class="str">"error: {}\n  ┌─ {}:{}:{}\n  │\n{}  │"</span>,
+    message, span.file, line, col,
+    <span class="fn">underline</span>(source, span),
+  );
+}
+
+<span class="kw">fn</span> <span class="fn">underline</span>(source: &amp;<span class="ty">str</span>, span: &amp;<span class="ty">Span</span>) -> <span class="ty">String</span> {
+  <span class="kw">let</span> lines: <span class="ty">Vec</span>&lt;&amp;<span class="kw">str</span>&gt; = source.<span class="fn">lines</span>().<span class="fn">collect</span>();
+  <span class="kw">let</span> (line, _) = span.<span class="fn">start_line_col</span>(source);
+  <span class="kw">let</span> line_str = lines[line - <span class="num">1</span>];
+  <span class="fn">format!</span>(
+    <span class="str">"{} │ {}\n  │ {}{}"</span>,
+    line, line_str,
+    <span class="str">" "</span>.<span class="fn">repeat</span>(span.start - span.line_start),
+    <span class="str">"~"</span>.<span class="fn">repeat</span>(span.end - span.start),
+  )
+}</code></pre>
+  </div>
+</div>
+
+<p>
+  The <code>~</code> underline points to the exact position of the error. For
+  our type mismatch example, the output looks like:
+</p>
+
+<pre><code>error[E0001]: <span class="kw">type mismatch</span>: expected bool, found i32
+  ┌─ test.spark:2:3
+  │
+<span class="num">2</span> │   <span class="kw">let</span> x: <span class="ty">bool</span> = <span class="num">42</span>;
+  │   ───────────────────
+  │   │
+  │   └── type mismatch in variable declaration</code></pre>
+
+<div class="callout">
+<strong>Error recovery</strong>: Notice that our type checker doesn't stop
+  at the first error. It continues checking the rest of the function, using a
+  "default type" (usually <code>i32</code>) for expressions that failed.
+  This way, the user sees all errors in one compilation — no
+  "fix error 1 to see error 2" frustration.
+</div>
+
+<h3>The "Aha" Moment</h3>
+
+<p>
+  Here's what we've realized: <strong>the type checker is where most of the
+  "compile error" user experience lives</strong>. The parser catches syntax errors.
+  The lexer catches token errors. But the type checker catches the errors that
+  real programmers make every day.
+</p>
+
+<p>
+  In OCaml, there's a deeper insight here. The <code>check_expr</code> function
+  we wrote — returning a <code>typ</code> — is essentially an <em>algorithmic
+  implementation of a type system</em>. Appel calls this "syntax-directed
+  translation": the structure of the type rules mirrors the structure of the
+  AST. Every <code>match</code> case is one typing rule.
+</p>
+
+<p>
+  The symbol table + type checker pattern is universal. Every statically typed
+  language has one. Rust has its <em>typeck</em> pass. OCaml has its
+  <em>typing</em> module (a masterpiece of algorithmic type checking with
+  side-effectful unification). Our tiny checker is the same idea, scaled down
+  but structurally identical.
+</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Dead code warning</strong>
+  <p>Add a warning for unreachable code after a <code>return</code> statement.
+  In a block like <code>{ return 1; let x = 2; }</code>, the <code>let</code>
+  is dead code. In OCaml, this is easy: thread a boolean <code>has_returned</code>
+  through <code>check_stmt</code> using a reference cell.</p>
+</div>
+
+<div class="exercise">
+<strong>2. Implicit widening</strong>
+  <p>Modify the type checker to allow implicit widening from <code>u8</code> to
+  <code>i32</code>. What does this do to your <code>check_expr</code> function?
+  Consider using a <code>coerce</code> helper that returns the widened type.</p>
+</div>
+
+<div class="exercise">
+<strong>3. Constant folding in the type checker</strong>
+  <p>When you see <code>let x: i32 = 2 + 3;</code>, evaluate the constant
+  expression during type checking. Transform the AST to replace
+  <code>Binary(Add, Int(2), Int(3))</code> with <code>Int(5)</code>. OCaml's
+  immutable data structures make this transformation elegant: build a new AST
+  node, don't mutate the old one.</p>
+</div>
+
+<div class="exercise">
+<strong>4. <code>Type.Error</code> for better error recovery</strong>
+  <p>Add a <code>Type.Error</code> variant that suppresses cascading errors.
+  When an expression fails to type check, return <code>Type.Error</code> instead
+  of <code>Type.I32</code>. Make <code>Type.Error</code> equal-check as compatible
+  with any type so it doesn't trigger further mismatches.</p>
+  <p><em>Hint:</em> In OCaml, you can use <code>poly_equal</code> or define a
+  custom <code>compatible</code> function on types.</p>
+</div>
+
+<div class="exercise">
+<strong>5. Module-level type checking</strong>
+  <p>Wrap the checker in a <code>Checker</code> module with an
+  <code>Error</code> type and a <code>result</code> type. This is the pattern
+  OCaml's own compiler uses: <code>Typedtree</code> is the output of type
+  checking, and <code>Typetexp</code> handles errors. Apply this approach to
+  our compiler.</p>
+</div>
+
+<h3>What's Next</h3>
+
+<p>
+  We have a semantically valid program. Every name is bound. Every type checks
+  out. The AST is correct and meaningful. Now we face a new problem:
+  <strong>the AST is tied to the source language</strong>. It has
+  <code>If</code> nodes and <code>While</code> loops and function declarations.
+  But the machine doesn't know about any of that. We need something in between —
+  an intermediate representation that bridges the gap.
+</p>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="04-ast.html" class="prev">The Shape of a Program</a>
+  <a href="06-ir.html" class="next">Bridging the Gap</a>
+</div>
+
+</body>
+</html>

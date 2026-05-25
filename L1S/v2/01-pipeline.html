@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 1: Pipeline Overview &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .diagram .box.highlight { border-color: var(--orange); color: var(--orange); }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="00-setup.html">&larr; Chapter 0</a> &ensp; Chapter 1: Pipeline Overview &ensp; <a href="02-span.html">Chapter 2 &rarr;</a></span>
+</div>
+
+<h2 id="pipeline">1 &ensp; Pipeline Overview</h2>
+
+<h3>The Idea of a Compiler Pipeline</h3>
+
+<p>Every compiler, regardless of language or target, is fundamentally a sequence of transformations. Source text enters one end, machine code exits the other, and each intermediate step operates on a progressively lower-level representation. This sequence is called the <strong>compiler pipeline</strong>.</p>
+
+<p>The key insight is <strong>separation of concerns</strong>. Rather than one enormous function that goes from source to machine code (a "compiler-monolith"), we decompose the problem into phases. Each phase has a well-defined input, a well-defined output, and a single responsibility. This makes the compiler easier to reason about, test, and extend.</p>
+
+<p>Most compilers divide into two major halves:</p>
+<ul>
+<li><strong>Frontend</strong> &mdash; Analyzes the source program: lexing, parsing, semantic analysis. Produces an <em>annotated AST</em> (abstract syntax tree with type information).</li>
+<li><strong>Backend</strong> &mdash; Synthesizes target code: instruction selection, register allocation, assembly emission. Produces machine code or assembly.</li>
+</ul>
+
+<p>Between them often sits an <strong>Intermediate Representation (IR)</strong>&mdash;a data structure that is independent of both the source language and the target architecture. IRs are what make retargetable compilers possible: change the frontend to support a new language, change the backend to support a new CPU, keep the IR and its optimization passes unchanged.</p>
+
+<h3>Pipeline Design Tradeoffs</h3>
+
+<p>How many phases should a compiler have? The answer depends on what you are optimizing for:</p>
+
+<ul>
+<li><strong>Single-pass compilers</strong> (Pascal, early C) emit code as they parse. They are fast and use little memory, but the language must be designed so that every construct can be compiled without looking ahead. You cannot use a function before declaring it. These are rare today.</li>
+<li><strong>Two-pass compilers</strong> (many toy compilers) separate analysis from code generation. The first pass builds a data structure (often an AST), the second emits code from it. Simple and effective, but optimizations are limited.</li>
+<li><strong>Multi-pass compilers</strong> (LLVM, GCC, Rust, modern C) have many phases: lexing, parsing, name resolution, type checking, several IR transformations, instruction selection, register allocation, peephole optimization. Each pass is small and testable. This is the dominant model.</li>
+</ul>
+
+<p>There is also a stylistic choice around <strong>error handling</strong>: some compilers abort on the first error, while others collect as many errors as possible in each phase before giving up. Modern compilers favor the latter&mdash;it is deeply frustrating to fix one typo only to discover another one on the next compilation.</p>
+
+<h3>The Ignis Pipeline at a Glance</h3>
+
+<p>Ignis uses an eight-phase multi-pass pipeline. Here is the data flow:</p>
+
+<div class="diagram">
+<span class="box">Source</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">Lexer</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">Parser</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">Type Checker</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">IR Builder</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">Optimizer</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">Reg Alloc</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--blue);color:var(--blue);">Codegen</span>
+<span class="arrow">&rarr;</span>
+<span class="box" style="border-color:var(--green);color:var(--green);">Assembly</span>
+</div>
+
+<p>And here is what each phase does with its input:</p>
+
+<table class="file-table">
+<tr><th>#</th><th>Phase</th><th>Input</th><th>Output</th></tr>
+<tr><td>1</td><td><strong>Lexer</strong></td><td>Source text (<code>String</code>)</td><td>List of tokens (<code>Vec&lt;SpannedToken&gt;</code>)</td></tr>
+<tr><td>2</td><td><strong>Parser</strong></td><td>Token stream</td><td>AST (<code>Program</code>)</td></tr>
+<tr><td>3</td><td><strong>Type Checker</strong></td><td>Unchecked AST</td><td>Checked AST + type annotations</td></tr>
+<tr><td>4</td><td><strong>IR Builder</strong></td><td>Checked AST</td><td>IR module (<code>IrModule</code>)</td></tr>
+<tr><td>5</td><td><strong>Optimizer</strong></td><td>IR module</td><td>Optimized IR module</td></tr>
+<tr><td>6</td><td><strong>Reg Alloc</strong></td><td>Optimized IR</td><td>IR with assigned registers</td></tr>
+<tr><td>7</td><td><strong>Codegen</strong></td><td>Allocated IR</td><td>x86-64 assembly (<code>String</code>)</td></tr>
+<tr><td>&mdash;</td><td><strong>Driver</strong></td><td>Assembly</td><td>Executable (via nasm + cc)</td></tr>
+</table>
+
+<p>Phases 1&ndash;3 are the <strong>frontend</strong>. They analyze the program and detect all errors. Phases 4&ndash;7 are the <strong>backend</strong>. They synthesize code and cannot fail (if the frontend produced valid output). The driver running nasm and cc is technically outside the compiler proper, but it is the final step that makes a usable tool.</p>
+
+<h3>What Data Flows Between Phases?</h3>
+
+<p>Each phase transforms its input into a new representation. These representations form a hierarchy of increasing specificity and decreasing abstraction:</p>
+
+<p><strong>Source text</strong> &rarr; a flat string of characters. The lexer cannot use this directly for any analysis beyond character grouping.</p>
+
+<p><strong>Tokens</strong> &rarr; a flat sequence of tagged values. The parser consumes these to build structure. Tokens carry <code>Span</code>s so errors can point back to the original source.</p>
+
+<p><strong>AST</strong> &rarr; a tree reflecting the grammatical structure of the program. After type checking, every expression node carries its resolved type.</p>
+
+<p><strong>IR</strong> &rarr; a control-flow graph of basic blocks containing low-level instructions. Virtual registers are infinite (the register allocator later maps them to real registers). This representation makes optimizations straightforward to implement and reason about.</p>
+
+<p><strong>Assembly</strong> &rarr; a string of x86-64 mnemonics. This is the final output of the compiler; nasm turns it into machine code bytes.</p>
+
+<h3>Internal vs External Phases</h3>
+
+<p>Some compiler phases are truly internal (they exist only within the compiler binary), while others rely on external tools. In Ignis, phases 1&ndash;7 are internal Rust code. Phase 8&mdash;assembling and linking&mdash;delegates to NASM and the system C compiler. This is a pragmatic choice: writing an assembler and linker from scratch would add thousands of lines without teaching anything new about compilation.</p>
+
+<p>Many real compilers do the same. GCC emits assembly and calls an external assembler (<code>as</code>) and linker (<code>ld</code>). LLVM can emit assembly, object code, or use an integrated assembler. The boundary between "the compiler" and "the toolchain" is fluid and depends on your goals.</p>
+
+<p>The advantage of using NASM is that the generated assembly is human-readable. You can open the <code>.asm</code> file and see exactly what instructions the compiler produced. This is invaluable for debugging and learning.</p>
+
+<h3>How the Pipeline is Wired in Ignis</h3>
+
+<p>The general pattern of a pipeline driver in Ignis is a straight-line sequence in <code>main.rs</code>. Let's walk through each call:</p>
+
+<div class="code-header"><span>src/main.rs &mdash; the pipeline driver (annotated)</span></div>
+<pre><code><span class="cm">// === PHASE 1: LEXER ===</span>
+<span class="cm">// The lexer takes a &amp;str and returns (tokens, errors).</span>
+<span class="cm">// Errors are collected but not fatal - we keep going.</span>
+<span class="kw">let</span> <span class="kw">mut</span> lexer = lexer::<span class="ty">Lexer</span>::<span class="fn">new</span>(&amp;source);
+<span class="kw">let</span> (tokens, _lex_errors) = lexer.<span class="fn">tokenize</span>();
+
+<span class="cm">// === PHASE 2: PARSER ===</span>
+<span class="cm">// The parser builds an AST from the token stream.</span>
+<span class="cm">// It owns the Diagnostics object and accumulates errors.</span>
+<span class="kw">let</span> diag = diag::<span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+<span class="kw">let</span> <span class="kw">mut</span> parser = parser::<span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+<span class="kw">let</span> <span class="kw">mut</span> prog = parser.<span class="fn">parse_program</span>();
+<span class="kw">let</span> <span class="kw">mut</span> diag = parser.<span class="fn">into_diagnostics</span>();
+
+<span class="cm">// Error checkpoint: abort if parsing failed.</span>
+<span class="kw">if</span> diag.<span class="fn">has_errors</span>() {
+    diag.<span class="fn">print_all</span>();
+    std::process::<span class="fn">exit</span>(1);
+}
+
+<span class="cm">// === PHASE 3: TYPE CHECKER ===</span>
+<span class="cm">// The type checker walks the AST, resolves types, and</span>
+<span class="cm">// annotates every expression with its type.</span>
+<span class="kw">let</span> <span class="kw">mut</span> types = types::<span class="ty">TypeArena</span>::<span class="fn">new</span>();
+<span class="kw">let</span> <span class="kw">mut</span> symbols = symbol::<span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+<span class="kw">let</span> <span class="kw">mut</span> tc = typeck::<span class="ty">TypeChecker</span>::<span class="fn">new</span>(
+    &amp;<span class="kw">mut</span> types, &amp;<span class="kw">mut</span> symbols, &amp;<span class="kw">mut</span> diag);
+tc.<span class="fn">check_program</span>(&amp;<span class="kw">mut</span> prog);
+<span class="kw">let</span> annotations = tc.annotations.<span class="fn">clone</span>();
+<span class="kw">let</span> has_errors = tc.diag.<span class="fn">has_errors</span>();
+<span class="kw">drop</span>(tc);
+
+<span class="cm">// Error checkpoint: type errors abort before codegen.</span>
+<span class="kw">if</span> has_errors {
+    diag.<span class="fn">print_all</span>();
+    std::process::<span class="fn">exit</span>(1);
+}
+
+<span class="cm">// === PHASE 4: IR BUILDER ===</span>
+<span class="cm">// Lowers the checked AST into a control-flow-graph IR.</span>
+<span class="kw">let</span> builder = ir_build::<span class="ty">IrBuilder</span>::<span class="fn">new</span>(
+    &amp;types, &amp;annotations, &amp;<span class="kw">mut</span> diag);
+<span class="kw">let</span> <span class="kw">mut</span> ir_module = builder.<span class="fn">build</span>(&amp;prog);
+
+<span class="cm">// === PHASE 5: OPTIMIZER ===</span>
+<span class="cm">// Runs constant folding, dead code elimination, and</span>
+<span class="cm">// copy propagation on the IR.</span>
+ir_opt::<span class="fn">optimize</span>(&amp;<span class="kw">mut</span> ir_module);
+
+<span class="cm">// === PHASE 6 (implicit) &amp; 7: REG ALLOC + CODEGEN ===</span>
+<span class="cm">// The codegen handles register allocation internally.</span>
+<span class="kw">let</span> <span class="kw">mut</span> codegen = codegen::<span class="ty">Codegen</span>::<span class="fn">new</span>(&amp;types);
+<span class="kw">let</span> asm = codegen.<span class="fn">generate</span>(&amp;ir_module);
+
+<span class="cm">// === PHASE 8: ASSEMBLE &amp; LINK ===</span>
+<span class="cm">// Write .asm file, call nasm, call cc, clean up.</span>
+fs::<span class="fn">write</span>(&amp;asm_path, &amp;asm);
+Command::<span class="fn">new</span>(<span class="str">"nasm"</span>).<span class="fn">args</span>(&amp;[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, <span class="str">"-o"</span>, &amp;o_path, &amp;asm_path]);
+Command::<span class="fn">new</span>(<span class="str">"cc"</span>).<span class="fn">args</span>(&amp;[<span class="str">"-o"</span>, &amp;bin_path, &amp;o_path, <span class="str">"-no-pie"</span>]);</code></pre>
+
+<p>Notice the two error checkpoints: one after parsing and one after type checking. If either produces errors, the compiler prints diagnostics and exits before attempting code generation. This means the backend never has to handle malformed input&mdash;a significant simplification.</p>
+
+<div class="callout info">
+<strong>Why two separate error checkpoints?</strong> Parse errors indicate the program is not even syntactically valid. Trying to type-check a syntactically invalid program would produce confusing cascading errors. By checking after parsing, we report only syntax errors. Then we type-check, and report only semantic errors. The user gets clean, separated error output.
+</div>
+
+<h3>Phase Granularity: Combined vs Separate</h3>
+
+<p>Some compilers combine adjacent phases. For example, a lexer and parser are often fused into a single pass because they are tightly coupled: the parser calls the lexer on demand (this is called a <em>lexer with parser feedback</em> or a <em>scannerless parser</em>). Ignis keeps them separate, which means the lexer produces a complete token list before the parser starts. This has two advantages:</p>
+
+<ul>
+<li><strong>Testability</strong>: You can test the lexer in isolation by inspecting its token output.</li>
+<li><strong>Simplicity</strong>: The parser does not need to worry about character-level details.</li>
+</ul>
+
+<p>The cost is memory: the entire token list is stored before parsing begins. For a small language like Ignis this is negligible. For languages with millions of lines of code, some compilers use a two-lexer approach (one fast pre-lexer for the parser's lookahead needs) or re-lex on demand.</p>
+
+<p>Similarly, the register allocator and code generator could be fused. Ignis keeps them separate because register allocation is a well-defined problem (mapping virtual registers to real ones) that benefits from its own dedicated pass and data structures.</p>
+
+<h3>Tracing a Program Through the Pipeline</h3>
+
+<p>Let's see what happens when we run the compiler on a simple program. This input:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> 42;
+}</code></pre>
+
+<p>...travels through each phase as follows:</p>
+
+<table class="file-table">
+<tr><th>Phase</th><th>What happens</th><th>Output sample</th></tr>
+<tr><td>Lexer</td><td>Recognizes <code>func</code> as keyword, <code>main</code> as identifier, <code>(</code>, <code>i32</code>, <code>)</code>, <code>{</code>, <code>return</code>, <code>42</code>, <code>;</code>, <code>}</code></td><td><code>[Func, Ident("main"), OpenParen, I32, CloseParen, OpenBrace, Return, NumLiteral("42"), Semicolon, CloseBrace, Eof]</code></td></tr>
+<tr><td>Parser</td><td>Builds a function declaration node with a block containing a return statement with a literal expression</td><td><code>Program { funcs: [FuncDecl { name: "main", return_type: I32, body: Block { stmts: [Return(Lit(42))] } } }</code></td></tr>
+<tr><td>Type Checker</td><td>Verifies <code>42</code> is <code>i32</code>, return type matches, no name conflicts</td><td>AST annotated: <code>Lit(42): i32</code></td></tr>
+<tr><td>IR Builder</td><td>Creates function entry block, assigns virtual register for <code>42</code>, emits return instruction</td><td><code>func main: { b1: v0 = const 42; ret v0 }</code></td></tr>
+<tr><td>Optimizer</td><td>Constant folding: <code>42</code> is already a constant, no change</td><td>(same IR)</td></tr>
+<tr><td>Codegen</td><td>Emits x86-64: moves <code>42</code> into <code>eax</code>, returns</td><td><code>mov eax, 42; ret</code></td></tr>
+<tr><td>Driver</td><td>Writes <code>.asm</code>, invokes nasm, invokes cc</td><td>Executable binary</td></tr>
+</table>
+
+<h3>Error Handling Philosophy</h3>
+
+<p>Different phases handle errors differently, reflecting their position in the pipeline:</p>
+
+<ul>
+<li><strong>Lexer</strong>: Never crashes. Collects errors in a <code>Vec&lt;LexError&gt;</code> and continues producing tokens. Invalid characters are skipped.</li>
+<li><strong>Parser</strong>: Never crashes. Uses the <code>Diagnostics</code> system to record errors and employs error recovery strategies (e.g., token synchronization) to continue parsing.</li>
+<li><strong>Type Checker</strong>: Never crashes. Records every type error and continues checking other parts of the program.</li>
+<li><strong>Backend (IR Builder, Codegen)</strong>: If the frontend produced valid output, the backend should never encounter errors. If it does, it is a compiler bug, not a user error.</li>
+</ul>
+
+<p>This layered approach means a user sees as many errors as possible in a single compilation run. Lexer errors might produce garbled tokens that cause parser errors, so the driver currently stops after parsing if there are lex errors. A production compiler would filter errors to avoid cascading noise, but the infrastructure to collect and report them is in place.</p>
+
+<h3>What About the Diagnostics Module?</h3>
+
+<p>You may have noticed <code>mod diag</code> in the module list but no dedicated pipeline phase for it. That is because <strong>diagnostics is not a phase</strong>&mdash;it is a library used by multiple phases. The parser, type checker, and IR builder all report errors through the same <code>Diagnostics</code> object. Separating error collection from error reporting means each phase can focus on its primary job and simply call <code>diag.report(...)</code> when something goes wrong.</p>
+
+<p>This is the same pattern used in rustc (which has a <code>Session</code> object for diagnostics) and LLVM (which has <code>DiagnosticHandler</code>). It is another example of separation of concerns within the pipeline architecture.</p>
+
+<h3>Why This Design Works for Learning</h3>
+
+<p>The eight-phase pipeline is more phases than strictly necessary (a minimal compiler could do it in four: lex, parse, codegen, link). But the extra phases&mdash;type checking, IR building, optimization, register allocation&mdash;each teach a distinct concept that appears in every production compiler. By separating them, you can study each in isolation:</p>
+
+<ul>
+<li><strong>Lexing</strong> teaches finite-state machines and character-level scanning.</li>
+<li><strong>Parsing</strong> teaches grammar, recursion, and tree construction.</li>
+<li><strong>Type checking</strong> teaches constraint satisfaction and semantic analysis.</li>
+<li><strong>IR</strong> teaches intermediate representations and control-flow graphs.</li>
+<li><strong>Optimization</strong> teaches program analysis and transformation.</li>
+<li><strong>Register allocation</strong> teaches graph coloring and resource constraints.</li>
+<li><strong>Code generation</strong> teaches instruction selection and calling conventions.</li>
+</ul>
+
+<p>Each phase is small enough (typically 200&ndash;500 lines of Rust) to read in one sitting. The total compiler is under 5,000 lines of code&mdash;small enough to fit in your head, large enough to be a real compiler.</p>
+
+<h3>Summary</h3>
+
+<p>The Ignis pipeline is a linear sequence of well-defined transformations, each building on the previous. The frontend (lexer, parser, type checker) analyzes the program and reports errors. The backend (IR builder, optimizer, codegen) synthesizes assembly. The driver (assembly + linking) produces the final executable. This structure is not unique to Ignis&mdash;it follows the same architectural principles as GCC, LLVM, and rustc, though at a much smaller scale that fits in a single afternoon of reading.</p>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="00-setup.html">&larr; Chapter 0</a> &ensp; Chapter 1: Pipeline Overview &ensp; <a href="02-span.html">Chapter 2 &rarr;</a></span>
+</div>
+
+</body>
+</html>

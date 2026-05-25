@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 0: Before You Begin &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span>Chapter 0: Before You Begin &ensp; <a href="01-pipeline.html">Chapter 1 &rarr;</a></span>
+</div>
+
+<h2 id="setup">0 &ensp; Before You Begin</h2>
+
+<h3>What is a Compiler?</h3>
+
+<p>A compiler is a program that translates source code written in one language (the <em>source language</em>) into another language (the <em>target language</em>), typically machine code. The fundamental challenge is that humans think in high-level abstractions&mdash;functions, loops, variables, types&mdash;while CPUs operate on raw bytes, registers, and jump instructions. A compiler bridges this gap through a series of transformations, each step removing one layer of abstraction.</p>
+
+<p>Not every language implementation is a compiler. The design space includes:</p>
+
+<ul>
+<li><strong>Interpreters</strong> execute source code directly without translation. They offer fast startup and easy introspection but slower execution. Examples: Python, Bash.</li>
+<li><strong>Just-In-Time (JIT) compilers</strong> translate code at runtime, blending compilation speed with execution speed. Examples: Java HotSpot, V8 (JavaScript).</li>
+<li><strong>Ahead-Of-Time (AOT) compilers</strong> translate entirely before execution. Startup is instant but the compilation itself takes time. Examples: C, Rust, Go.</li>
+<li><strong>Transpilers</strong> translate between high-level languages (e.g., TypeScript to JavaScript).</li>
+</ul>
+
+<p>L1S is an <strong>AOT compiler</strong> with a traditional multi-phase pipeline. It translates a C-like language into x86-64 assembly, then uses NASM and the system linker to produce a standalone executable.</p>
+
+<div class="callout info">
+<strong>Why build a compiler?</strong> You learn exactly how high-level language features map to machine code. There is no magic&mdash;just a series of well-defined transformations. After building one, you will never look at <code>if</code>, <code>while</code>, or function calls the same way again.
+</div>
+
+<h3>Prerequisites</h3>
+
+<p>To build and run L1S you need three tools:</p>
+
+<table class="file-table">
+<tr><th>Tool</th><th>Version</th><th>Purpose</th></tr>
+<tr><td><strong>Rust</strong></td><td>1.75+</td><td>Compiler implementation language</td></tr>
+<tr><td><strong>NASM</strong></td><td>2.15+</td><td>Assembles the generated x86-64 assembly into object files</td></tr>
+<tr><td><strong>GCC / Clang</strong></td><td>any</td><td>Links object files into a final executable</td></tr>
+</table>
+
+<p>The Rust toolchain handles the entire build process via Cargo. NASM and the C linker are invoked at runtime when compiling an L1S program&mdash;they are not needed during development of the compiler itself.</p>
+
+<h3>Building L1S</h3>
+
+<p>Building the compiler is a standard Cargo workflow:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> git clone &lt;repo-url&gt; L1S
+<span style="color:var(--fg2)">$</span> cd L1S
+<span style="color:var(--fg2)">$</span> cargo build --release
+<span style="color:var(--fg2)">$</span> ./target/release/ignis --help</code></pre>
+
+<p>The <code>--release</code> flag is important: the compiler itself benefits from optimization, especially on larger input programs.</p>
+
+<h3>Running the Compiler</h3>
+
+<p>The compiler takes a single source file and an optional output path:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cat hello.is
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> 42;
+}
+
+<span style="color:var(--fg2)">$</span> ./target/release/ignis hello.is
+<span style="color:var(--fg2)">wrote hello</span>
+<span style="color:var(--fg2)">$</span> ./hello
+<span style="color:var(--fg2)">$</span> echo $?
+42</pre></code>
+
+<p>The intermediate <code>hello.asm</code> file is left on disk for inspection. You can open it to see exactly what x86-64 instructions the compiler generated for your program.</p>
+
+<p>If no <code>-o</code> flag is given, the output binary gets the same name as the source file without the <code>.is</code> extension. Under the hood, the compiler produces a <code>.asm</code> file, invokes NASM to create a <code>.o</code>, then invokes <code>cc</code> to link it into an executable.</p>
+
+<h3>The Source Language &mdash; Ignis</h3>
+
+<p>L1S compiles a language called <strong>Ignis</strong> (Latin for "fire"). It is a minimal, statically-typed, C-like language with:</p>
+
+<ul>
+<li>Functions with explicit parameter types and return types</li>
+<li><code>i32</code>, <code>bool</code>, <code>char</code>, pointer (<code>@T</code>), and array (<code>[N]T</code>) types</li>
+<li><code>let</code> bindings with explicit type annotations</li>
+<li><code>if</code>/<code>else</code>, <code>while</code>, <code>return</code></li>
+<li>Integer literals in decimal, hex, binary, and octal with underscore separators</li>
+<li>Integer literals in decimal, hex, binary, and octal with underscore separators</li>
+<li>Strings, characters, comments</li>
+</ul>
+
+<p>Here is a complete Ignis program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">gcd</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+    <span class="kw">if</span> b == 0 {
+        <span class="kw">return</span> a;
+    }
+    <span class="kw">return</span> <span class="fn">gcd</span>(b, a % b);
+}
+
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="fn">gcd</span>(42, 56);
+    <span class="kw">return</span> x;
+}</code></pre>
+
+<p>The compiler pipeline will transform this into x86-64 assembly, then into an executable.</p>
+
+<h3>Project Structure</h3>
+
+<p>Every compiler pipeline has roughly the same logical phases. The L1S source tree is organized to mirror this pipeline directly. Each phase lives in its own module:</p>
+
+<div class="code-header"><span>src/main.rs &mdash; module declarations and pipeline orchestration</span></div>
+<pre><code><span class="kw">mod</span> <span class="fn">span</span>;       <span class="cm">// Source locations (byte offsets, line/col)</span>
+<span class="kw">mod</span> <span class="fn">token</span>;     <span class="cm">// Token definitions (keywords, operators, literals)</span>
+<span class="kw">mod</span> <span class="fn">diag</span>;      <span class="cm">// Error reporting and diagnostics</span>
+<span class="kw">mod</span> <span class="fn">lexer</span>;     <span class="cm">// Lexical analysis (source &rarr; tokens)</span>
+<span class="kw">mod</span> <span class="fn">ast</span>;       <span class="cm">// Abstract syntax tree definitions</span>
+<span class="kw">mod</span> <span class="fn">parser</span>;    <span class="cm">// Syntactic analysis (tokens &rarr; AST)</span>
+<span class="kw">mod</span> <span class="fn">types</span>;     <span class="cm">// Type system (arena-allocated types)</span>
+<span class="kw">mod</span> <span class="fn">symbol</span>;    <span class="cm">// Symbol table (scope-chain name resolution)</span>
+<span class="kw">mod</span> <span class="fn">typeck</span>;    <span class="cm">// Semantic analysis / type checking</span>
+<span class="kw">mod</span> <span class="fn">ir</span>;        <span class="cm">// Intermediate representation definitions</span>
+<span class="kw">mod</span> <span class="fn">ir_build</span>;  <span class="cm">// IR construction (AST &rarr; IR)</span>
+<span class="kw">mod</span> <span class="fn">ir_opt</span>;    <span class="cm">// IR optimization passes</span>
+<span class="kw">mod</span> <span class="fn">abi</span>;       <span class="cm">// Calling convention and ABI details</span>
+<span class="kw">mod</span> <span class="fn">regalloc</span>;  <span class="cm">// Register allocation</span>
+<span class="kw">mod</span> <span class="fn">codegen</span>;   <span class="cm">// x86-64 code generation (IR &rarr; assembly)</span></code></pre>
+
+<p>Reading top to bottom, the module list tells the story of the compiler. Early modules (<code>span</code>, <code>token</code>, <code>diag</code>) are foundational data types used everywhere. Middle modules (<code>lexer</code>, <code>parser</code>, <code>typeck</code>) perform analysis. Late modules (<code>ir_build</code>, <code>ir_opt</code>, <code>regalloc</code>, <code>codegen</code>) perform synthesis and code generation. The <code>abi</code> module sits at the boundary between IR and codegen, defining how types are laid out in memory and how function calls pass arguments.</p>
+
+<h3>The Compiler Driver</h3>
+
+<p>The <code>main</code> function in <code>main.rs</code> is the <em>driver</em>&mdash;it orchestrates the entire pipeline. Here is how the general pattern of a multi-phase compiler driver plays out in Ignis:</p>
+
+<div class="code-header"><span>src/main.rs &mdash; the pipeline driver</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// 1. Parse CLI arguments</span>
+    <span class="kw">let</span> args: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = env::<span class="fn">args</span>().<span class="fn">collect</span>();
+    <span class="kw">if</span> args.<span class="fn">len</span>() &lt; 2 {
+        <span class="fn">eprintln!</span>(<span class="str">"usage: ignis &lt;file.is&gt; [-o &lt;output&gt;]"</span>);
+        std::process::<span class="fn">exit</span>(1);
+    }
+
+    <span class="cm">// 2. Read source file</span>
+    <span class="kw">let</span> source = fs::<span class="fn">read_to_string</span>(&amp;args[1]).<span class="fn">unwrap_or_else</span>(|e| { <span class="cm">/* ... */</span> });
+
+    <span class="cm">// 3. Lexical analysis: source &rarr; tokens</span>
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = lexer::<span class="ty">Lexer</span>::<span class="fn">new</span>(&amp;source);
+    <span class="kw">let</span> (tokens, _lex_errors) = lexer.<span class="fn">tokenize</span>();
+
+    <span class="cm">// 4. Syntactic analysis: tokens &rarr; AST</span>
+    <span class="kw">let</span> diag = diag::<span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> parser = parser::<span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+    <span class="kw">let</span> <span class="kw">mut</span> prog = parser.<span class="fn">parse_program</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> diag = parser.<span class="fn">into_diagnostics</span>();
+
+    <span class="cm">// 5. Error check before proceeding</span>
+    <span class="kw">if</span> diag.<span class="fn">has_errors</span>() { diag.<span class="fn">print_all</span>(); std::process::<span class="fn">exit</span>(1); }
+
+    <span class="cm">// 6. Semantic analysis: type checking</span>
+    <span class="kw">let</span> <span class="kw">mut</span> types = types::<span class="ty">TypeArena</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> symbols = symbol::<span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> tc = typeck::<span class="ty">TypeChecker</span>::<span class="fn">new</span>(&amp;<span class="kw">mut</span> types, &amp;<span class="kw">mut</span> symbols, &amp;<span class="kw">mut</span> diag);
+    tc.<span class="fn">check_program</span>(&amp;<span class="kw">mut</span> prog);
+    <span class="kw">let</span> annotations = tc.annotations.<span class="fn">clone</span>();
+    <span class="kw">let</span> has_errors = tc.diag.<span class="fn">has_errors</span>();
+    <span class="kw">drop</span>(tc);
+    <span class="kw">if</span> has_errors { diag.<span class="fn">print_all</span>(); std::process::<span class="fn">exit</span>(1); }
+
+    <span class="cm">// 7. IR construction and optimization</span>
+    <span class="kw">let</span> builder = ir_build::<span class="ty">IrBuilder</span>::<span class="fn">new</span>(&amp;types, &amp;annotations, &amp;<span class="kw">mut</span> diag);
+    <span class="kw">let</span> <span class="kw">mut</span> ir_module = builder.<span class="fn">build</span>(&amp;prog);
+    ir_opt::<span class="fn">optimize</span>(&amp;<span class="kw">mut</span> ir_module);
+
+    <span class="cm">// 8. Code generation and linking</span>
+    <span class="kw">let</span> <span class="kw">mut</span> codegen = codegen::<span class="ty">Codegen</span>::<span class="fn">new</span>(&amp;types);
+    <span class="kw">let</span> asm = codegen.<span class="fn">generate</span>(&amp;ir_module);
+
+    <span class="cm">// 9. Write assembly, assemble, link</span>
+    <span class="cm">// ... (path resolution, nasm, cc invocations)</span>
+}</code></pre>
+
+<p>The structure is linear and explicit. Each phase transforms its input into the next phase's input. Early-exit checks after parsing and type checking ensure that malformed programs fail fast with clear error messages rather than producing garbage IR or assembly.</p>
+
+<div class="callout tip">
+<strong>Pipeline design philosophy:</strong> The driver does nothing clever. It is a straight-line sequence of function calls with error checks. This simplicity is deliberate&mdash;when something goes wrong, you can trace the exact path through the driver to find the bug. Every compiler phase is a pure-ish function: given valid input, it produces deterministic output or a list of errors.
+</div>
+
+<h3>Running Tests</h3>
+
+<p>L1S has unit tests embedded in each module and integration tests. Run them with:</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo test</code></pre>
+
+<p>To run tests for a specific module (e.g., the lexer):</p>
+
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- lexer</code></pre>
+
+<p>The test suite covers both happy paths and error cases. Many modules follow the pattern of defining a test helper that creates the phase, runs it, and returns the output, keeping tests concise and focused.</p>
+
+<h3>A Note About the Compiler's Name</h3>
+
+<p>The compiler is called <strong>Ignis</strong> (Latin for "fire"), and its source files use the <code>.is</code> extension. This name was chosen early in development and has stuck. Throughout this book, "Ignis" refers to the compiler itself, and "L1S" is the name of this book and the overall project repository. Think of L1S as the tutorial and Ignis as the tool being built.</p>
+
+<h3>Understanding main.rs: The Complete Program</h3>
+
+<p>Since <code>main.rs</code> is the entry point and the orchestrator, let's look at its full structure beyond just the pipeline calls. The file also handles:</p>
+
+<ul>
+<li><strong>Argument parsing</strong>: Reading the input file path and optional <code>-o</code> output flag.</li>
+<li><strong>File I/O</strong>: Reading the source file into a string, writing the assembly output.</li>
+<li><strong>External tool invocation</strong>: Running <code>nasm</code> to assemble and <code>cc</code> to link.</li>
+<li><strong>Cleanup</strong>: Removing the intermediate <code>.o</code> file after linking.</li>
+</ul>
+
+<p>The driver does not parse command-line flags beyond the bare minimum. A production compiler would add <code>--emit=asm</code>, <code>-O2</code>, <code>-g</code>, etc. But for a learning compiler, the simple interface is a feature, not a bug&mdash;there is less code to read and fewer paths to test.</p>
+
+<h3>What You Will Build</h3>
+
+<p>By following this book, you will understand every line of a working compiler. The chapters are ordered to match the pipeline sequence:</p>
+
+<ol>
+<li><strong>Setup</strong> &mdash; You are here.</li>
+<li><strong>Pipeline Overview</strong> &mdash; The big picture of data flow.</li>
+<li><strong>Span</strong> &mdash; How the compiler tracks source locations.</li>
+<li><strong>Tokens</strong> &mdash; The token types the language uses.</li>
+<li><strong>Lexer</strong> &mdash; Breaking source text into tokens.</li>
+<li><strong>AST</strong> &mdash; The tree structure that represents programs.</li>
+<li><strong>Parser</strong> &mdash; Building ASTs from token streams.</li>
+<li><strong>Types</strong> &mdash; The type representation system.</li>
+<li><strong>Symbols</strong> &mdash; Name resolution and scoping.</li>
+<li><strong>Type Checker</strong> &mdash; Validating program semantics.</li>
+<li><strong>IR</strong> &mdash; The intermediate representation.</li>
+<li><strong>IR Builder</strong> &mdash; Lowering AST to IR.</li>
+<li><strong>Optimizer</strong> &mdash; Making IR more efficient.</li>
+<li><strong>Register Allocator</strong> &mdash; Mapping virtual registers to hardware.</li>
+<li><strong>Code Generator</strong> &mdash; Emitting x86-64 assembly.</li>
+<li><strong>Assembly &amp; Linking</strong> &mdash; From assembly to executable.</li>
+<li><strong>Diagnostics</strong> &mdash; Error reporting infrastructure.</li>
+</ol>
+
+<p>Each chapter introduces a general compiler concept, discusses design alternatives, then shows how Ignis implements it with annotated source code.</p>
+
+<div class="callout info">
+<strong>Ready?</strong> Start with <a href="01-pipeline.html">Chapter 1: Pipeline Overview</a> to see the full compilation pipeline from source to executable.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span>Chapter 0: Before You Begin &ensp; <a href="01-pipeline.html">Chapter 1 &rarr;</a></span>
+</div>
+
+</body>
+</html>

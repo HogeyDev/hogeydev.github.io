@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 9: Type Checking &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="08-symbols.html">&larr; Chapter 8</a> &ensp; Chapter 9: Type Checking &ensp; <a href="10-ir.html">Chapter 10 &rarr;</a></span>
+</div>
+
+<h2 id="typeck">9 &ensp; Type Checking</h2>
+
+<h3>What is Type Checking?</h3>
+
+<p>After parsing and building the symbol table, the compiler needs to verify that the program is <strong>type-safe</strong>. Type checking ensures that:
+<em>Every expression has a known type.</em>
+<em>Operations are applied to compatible operands.</em>
+<em>Function arguments match parameter types.</em>
+<em>Return statements match the declared return type.</em>
+</p>
+
+<p>The L1S type checker is a <strong>multi-phase</strong> semantic analysis pass. It runs after parsing and symbol table construction but before IR generation.</p>
+
+<h3>Why Multi-Phase?</h3>
+
+<p>L1S supports forward references &mdash; a function can call another function defined later in the file, and structs can contain pointers to structs not yet fully defined. A single linear pass would fail because definitions are encountered after their uses.</p>
+
+<p>The solution is four phases:</p>
+
+<div class="diagram" style="text-align:left;">
+<strong>Phase 1: Collect</strong> &rarr; Register all function signatures, struct/enum placeholders, typedefs, specs, and globals in the symbol table.<br>
+<strong>Phase 2: Check Structs &amp; Enums</strong> &rarr; Compute field types, offsets, sizes, and variant values.<br>
+<strong>Phase 3: Check Functions</strong> &rarr; Type-check all function bodies with full type information available.<br>
+<strong>Phase 4: Check Impls</strong> &rarr; Verify spec implementations against spec declarations.
+</div>
+
+<p>This separation means that when checking <code>func foo(void) { bar(); }</code>, <code>bar</code> is already in the symbol table even if defined later. Similarly, struct <code>Node</code> can have a field <code>@Node</code> because its <code>TypeId</code> is created (as a placeholder) in phase 1.</p>
+
+<h3>The TypeChecker Struct</h3>
+
+<div class="code-header"><span>src/typeck.rs &mdash; TypeChecker struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">TypeChecker</span>&lt;'a&gt; {
+    <span class="kw">pub</span> types: &amp;<span class="kw">mut</span> <span class="ty">TypeArena</span>,
+    <span class="kw">pub</span> symbols: &amp;<span class="kw">mut</span> <span class="ty">SymbolTable</span>,
+    <span class="kw">pub</span> diag: &amp;<span class="kw">mut</span> <span class="ty">Diagnostics</span>,
+    <span class="kw">pub</span> annotations: <span class="ty">HashMap</span>&lt;<span class="ty">Span</span>, <span class="ty">TypeId</span>&gt;,
+    current_func_return: <span class="ty">Option</span>&lt;<span class="ty">TypeId</span>&gt;,
+    spec_impls: <span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">Vec</span>&lt;(<span class="ty">TypeId</span>, <span class="ty">Vec</span>&lt;(<span class="ty">String</span>, <span class="ty">TypeId</span>)&gt;)&gt;&gt;,
+}</code></pre>
+
+<p>Key fields:</p>
+<ul>
+<li><strong><code>types</code></strong>: The <code>TypeArena</code> (see Chapter 7), used to intern types and query size/alignment.</li>
+<li><strong><code>symbols</code></strong>: The <code>SymbolTable</code> (see Chapter 8), used to look up and insert declarations.</li>
+<li><strong><code>diag</code></strong>: The diagnostics system, used to report type errors with source locations.</li>
+<li><strong><code>annotations</code></strong>: A map from <code>Span</code> to <code>TypeId</code> that records the inferred type of every expression. This is consumed by the IR builder to know what type each value has.</li>
+<li><strong><code>current_func_return</code></strong>: Tracks the return type of the function currently being checked, so <code>return</code> statements can validate their value.</li>
+<li><strong><code>spec_impls</code></strong>: Accumulated impl blocks, keyed by spec name, checked in phase 4.</li>
+</ul>
+
+<h3>Phase 1: <code>check_program</code> and <code>collect_decl</code></h3>
+
+<p><code>check_program</code> orchestrates all four phases:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">check_program</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, prog: &amp;<span class="kw">mut</span> <span class="ty">AstProgram</span>) {
+    <span class="kw">let</span> decls = prog.decls.<span class="fn">clone</span>();
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls { <span class="kw">self</span>.<span class="fn">collect_decl</span>(decl); }   <span class="cm">// Phase 1</span>
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls {
+        <span class="kw">match</span> decl {
+            <span class="ty">AstDecl::Struct</span>(s) =&gt; <span class="kw">self</span>.<span class="fn">check_struct</span>(s),
+            <span class="ty">AstDecl::Enum</span>(e) =&gt; <span class="kw">self</span>.<span class="fn">check_enum</span>(e),     <span class="cm">// Phase 2</span>
+            _ =&gt; {}
+        }
+    }
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls {                                  <span class="cm">// Phase 3</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Func</span>(f) = decl { <span class="kw">self</span>.<span class="fn">check_func</span>(f); }
+    }
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls {                                  <span class="cm">// Phase 4</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Impl</span>(imp) = decl { <span class="kw">self</span>.<span class="fn">check_impl</span>(imp); }
+    }
+}</code></pre>
+
+<p>Note the <code>prog.decls.clone()</code> at the top. We clone the declarations list so that we can iterate it multiple times without borrowing conflicts, since <code>check_struct</code> and <code>check_func</code> may mutate the program through the type arena and symbol table.</p>
+
+<p><code>collect_decl</code> registers each declaration in the symbol table. For functions it computes the full <code>TypeNode::Func</code> type; for structs and enums it creates placeholders via <code>add_struct_placeholder</code> / <code>add_enum_placeholder</code>:</p>
+
+<div class="code-header"><span>src/typeck.rs &mdash; collect_decl for structs and functions</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">collect_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, decl: &amp;<span class="ty">AstDecl</span>) {
+    <span class="kw">match</span> decl {
+        <span class="ty">AstDecl::Func</span>(f) =&gt; {
+            <span class="kw">let</span> func_type = <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;f.return_type);
+            <span class="kw">let</span> <span class="kw">mut</span> param_types = <span class="ty">Vec</span>::<span class="fn">new</span>();
+            <span class="kw">for</span> p <span class="kw">in</span> &amp;f.params {
+                param_types.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;p.type_));
+            }
+            <span class="kw">let</span> ft = <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Func</span>(param_types, func_type));
+            <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert_global</span>(&amp;f.name, <span class="ty">SymbolKind::Function</span>(ft), f.span, f.pub_);
+        }
+        <span class="ty">AstDecl::Struct</span>(s) =&gt; {
+            <span class="kw">let</span> tid = <span class="kw">self</span>.types.<span class="fn">add_struct_placeholder</span>();
+            <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert_global</span>(&amp;s.name, <span class="ty">SymbolKind::TypeDecl</span>(tid), s.span, s.pub_);
+        }
+        <span class="cm">// ... enum, spec, typedef, import, static_var, impl follow the same pattern</span>
+    }
+}</code></pre>
+
+<p>The placeholder is crucial: it creates a <code>TypeId</code> that other declarations can reference before the struct body is checked. Without it, a <code>@Node</code> pointer in a struct field would fail because <code>Node</code> has no type yet.</p>
+
+<h3>Phase 2a: <code>check_struct</code> &mdash; Alignment and Padding</h3>
+
+<p>Struct layout computes the offset of each field, respecting alignment requirements. This mirrors how C compilers lay out structs:</p>
+
+<div class="code-header"><span>src/typeck.rs &mdash; check_struct with alignment padding</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">check_struct</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, s: &amp;<span class="ty">AstStructDecl</span>) {
+    <span class="kw">let</span> entry = <span class="kw">self</span>.symbols.<span class="fn">lookup</span>(&amp;s.name).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> tid = <span class="kw">match</span> &amp;entry.kind {
+        <span class="ty">SymbolKind::TypeDecl</span>(tid) =&gt; *tid, _ =&gt; <span class="kw">return</span>,
+    };
+    <span class="kw">let</span> <span class="kw">mut</span> fields = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> offset: <span class="ty">u64</span> = <span class="num">0</span>;
+    <span class="kw">let</span> <span class="kw">mut</span> max_align: <span class="ty">u64</span> = <span class="num">1</span>;
+    <span class="kw">for</span> f <span class="kw">in</span> &amp;s.fields {
+        <span class="kw">let</span> ft = <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;f.type_);
+        <span class="kw">let</span> align = <span class="kw">self</span>.types.<span class="fn">align_of</span>(ft);
+        <span class="kw">let</span> padded = (offset + align - <span class="num">1</span>) / align * align;  <span class="cm">// round up to alignment</span>
+        offset = padded;
+        fields.<span class="fn">push</span>(<span class="ty">FieldInfo</span> { name: f.name.<span class="fn">clone</span>(), type_: ft, offset });
+        offset += <span class="kw">self</span>.types.<span class="fn">size_of</span>(ft);
+        <span class="kw">if</span> align &gt; max_align { max_align = align; }
+    }
+    <span class="kw">let</span> final_size = (offset + max_align - <span class="num">1</span>) / max_align * max_align;
+    <span class="cm">// Store computed layout back into the struct info</span>
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(sinfo) = <span class="kw">self</span>.types.<span class="fn">get_struct_mut</span>(tid) {
+        sinfo.name = s.name.<span class="fn">clone</span>();
+        sinfo.fields = fields;
+        sinfo.size = final_size;
+        sinfo.align = max_align;
+    }
+}</code></pre>
+
+<p>The padding formula <code>(offset + align - 1) / align * align</code> rounds <code>offset</code> up to the next multiple of <code>align</code>. For example, if <code>offset = 5</code> and <code>align = 4</code>, the result is <code>(5 + 3) / 4 * 4 = 8 / 4 * 4 = 8</code> &mdash; 3 bytes of padding before the field.</p>
+
+<p>The final struct size is also rounded up to the alignment of the most-aligned field, matching C's struct layout rules.</p>
+
+<h3>Phase 2b: <code>check_enum</code> &mdash; Variant Numbering</h3>
+
+<p>Enums are simpler: variants are numbered sequentially starting from 0, or from explicit values:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check_enum</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, e: &amp;<span class="ty">AstEnumDecl</span>) {
+    <span class="kw">let</span> entry = <span class="kw">self</span>.symbols.<span class="fn">lookup</span>(&amp;e.name).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> tid = <span class="kw">match</span> &amp;entry.kind {
+        <span class="ty">SymbolKind::TypeDecl</span>(tid) =&gt; *tid, _ =&gt; <span class="kw">return</span>,
+    };
+    <span class="kw">let</span> <span class="kw">mut</span> variants = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> val: <span class="ty">u64</span> = <span class="num">0</span>;
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> values) = e.variant_values {
+        <span class="kw">for</span> (i, v) <span class="kw">in</span> e.variants.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+            <span class="kw">let</span> actual = <span class="kw">if</span> i &lt; values.<span class="fn">len</span>() { values[i] } <span class="kw">else</span> { val };
+            variants.<span class="fn">push</span>(<span class="ty">VariantInfo</span> { name: v.<span class="fn">clone</span>(), value: actual });
+            val = actual + <span class="num">1</span>;
+        }
+    } <span class="kw">else</span> { <span class="cm">/* auto-number from 0 */</span> }
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(einfo) = <span class="kw">self</span>.types.<span class="fn">get_enum_mut</span>(tid) {
+        einfo.name = e.name.<span class="fn">clone</span>(); einfo.variants = variants; einfo.noprefix = e.noprefix;
+    }
+    <span class="cm">// Register each variant as a global symbol so they can be used as values</span>
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(einfo) = <span class="kw">self</span>.types.<span class="fn">get_enum</span>(tid) {
+        <span class="kw">for</span> v <span class="kw">in</span> &amp;einfo.variants {
+            <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert_global</span>(&amp;v.name, <span class="ty">SymbolKind::EnumVariant</span>(v.value), e.span, e.pub_);
+        }
+    }
+}</code></pre>
+
+<h3>Phase 3: <code>check_func</code> &mdash; Function Body Checking</h3>
+
+<p>Function checking pushes a new scope for parameters, then checks the body:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check_func</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, f: &amp;<span class="ty">AstFuncDecl</span>) {
+    <span class="kw">self</span>.current_func_return = <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;f.return_type));
+    <span class="kw">self</span>.symbols.<span class="fn">push_scope</span>();             <span class="cm">// new scope for params + locals</span>
+    <span class="kw">for</span> p <span class="kw">in</span> &amp;f.params {
+        <span class="kw">let</span> pt = <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;p.type_);
+        <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert</span>(&amp;p.name, <span class="ty">SymbolKind::Variable</span>(pt), p.span, <span class="kw">false</span>);
+    }
+    <span class="kw">self</span>.<span class="fn">check_block</span>(&amp;f.body);
+    <span class="kw">self</span>.symbols.<span class="fn">pop_scope</span>();              <span class="cm">// restore outer scope</span>
+    <span class="kw">self</span>.current_func_return = <span class="ty">None</span>;
+}</code></pre>
+
+<h3><code>check_block</code>, <code>check_stmt</code>, <code>check_expr</code></h3>
+
+<p>Blocks push/pop scopes:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check_block</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, block: &amp;<span class="ty">AstBlock</span>) {
+    <span class="kw">self</span>.symbols.<span class="fn">push_scope</span>();
+    <span class="kw">for</span> stmt <span class="kw">in</span> &amp;block.stmts { <span class="kw">self</span>.<span class="fn">check_stmt</span>(stmt); }
+    <span class="kw">self</span>.symbols.<span class="fn">pop_scope</span>();
+}</code></pre>
+
+<p>Statement checking dispatches on the variant. Variable declarations check optional type annotations and optional initializers:</p>
+
+<pre><code><span class="ty">AstStmt::VarDecl</span>(v) =&gt; {
+    <span class="kw">let</span> t = <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> type_) = v.type_ {
+        <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(type_)
+    } <span class="kw">else</span> {
+        <span class="kw">self</span>.diag.<span class="fn">error</span>(<span class="str">"type inference not yet supported"</span>, <span class="ty">Some</span>(v.span));
+        <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>)
+    };
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> init) = v.init {
+        <span class="kw">let</span> init_type = <span class="kw">self</span>.<span class="fn">check_expr</span>(init);
+        <span class="kw">if</span> !<span class="kw">self</span>.<span class="fn">types_equal</span>(init_type, t) {
+            <span class="kw">self</span>.diag.<span class="fn">error</span>(
+                <span class="fn">format!</span>(<span class="str">"type mismatch: expected {}, got {}"</span>,
+                    <span class="kw">self</span>.<span class="fn">type_str</span>(t), <span class="kw">self</span>.<span class="fn">type_str</span>(init_type)),
+                <span class="ty">Some</span>(v.span));
+        }
+    }
+    <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert</span>(&amp;v.name, <span class="ty">SymbolKind::Variable</span>(t), v.span, <span class="kw">false</span>);
+}</code></pre>
+
+<p>Return statements check against <code>current_func_return</code>:</p>
+
+<pre><code><span class="ty">AstStmt::Return</span>(r) =&gt; {
+    <span class="kw">let</span> val_type = <span class="kw">self</span>.<span class="fn">check_expr</span>(&amp;r.value);
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(ret) = <span class="kw">self</span>.current_func_return {
+        <span class="kw">if</span> !<span class="kw">self</span>.<span class="fn">types_equal</span>(val_type, ret) {
+            <span class="kw">self</span>.diag.<span class="fn">error</span>(
+                <span class="fn">format!</span>(<span class="str">"return type mismatch: expected {}, got {}"</span>,
+                    <span class="kw">self</span>.<span class="fn">type_str</span>(ret), <span class="kw">self</span>.<span class="fn">type_str</span>(val_type)),
+                <span class="ty">Some</span>(r.span));
+        }
+    }
+}</code></pre>
+
+<p>Control flow statements validate their conditions:</p>
+
+<pre><code><span class="ty">AstStmt::If</span>(i) =&gt; {
+    <span class="kw">let</span> cond_type = <span class="kw">self</span>.<span class="fn">check_expr</span>(&amp;i.cond);
+    <span class="kw">let</span> bool_id = <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Bool</span>);
+    <span class="kw">if</span> cond_type != bool_id {
+        <span class="kw">self</span>.diag.<span class="fn">error</span>(<span class="str">"if condition must be bool"</span>, <span class="ty">Some</span>(i.cond.<span class="fn">span</span>()));
+    }
+    <span class="kw">self</span>.<span class="fn">check_block</span>(&amp;i.then_block);
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> else_branch) = i.else_branch { <span class="kw">self</span>.<span class="fn">check_stmt</span>(else_branch); }
+}</code></pre>
+
+<h3>Expression Type Inference</h3>
+
+<p><code>check_expr</code> is the workhorse. It calls <code>check_expr_inner</code> and records the result in <code>annotations</code>:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check_expr</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, expr: &amp;<span class="ty">AstExpr</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">let</span> t = <span class="kw">self</span>.<span class="fn">check_expr_inner</span>(expr);
+    <span class="kw">self</span>.annotations.<span class="fn">insert</span>(expr.<span class="fn">span</span>(), t);
+    t
+}</code></pre>
+
+<p>Inside <code>check_expr_inner</code>, expression types are determined recursively. Literals get their obvious types; identifiers are looked up in the symbol table; operators validate their operands numerically:</p>
+
+<div class="code-header"><span>src/typeck.rs &mdash; key expression cases</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">check_expr_inner</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, expr: &amp;<span class="ty">AstExpr</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">match</span> expr {
+        <span class="ty">AstExpr::Int</span>(_, _) =&gt; <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>),
+        <span class="ty">AstExpr::Str</span>(_, _) =&gt; {
+            <span class="kw">let</span> char_t = <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Char</span>);
+            <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Ptr</span>(char_t))
+        }
+        <span class="ty">AstExpr::Bool</span>(_, _) =&gt; <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Bool</span>),
+        <span class="ty">AstExpr::Ident</span>(name, span) =&gt; {
+            <span class="kw">match</span> <span class="kw">self</span>.symbols.<span class="fn">lookup</span>(name) {
+                <span class="ty">Some</span>(entry) =&gt; <span class="kw">match</span> &amp;entry.kind {
+                    <span class="ty">SymbolKind::Variable</span>(t) | <span class="ty">SymbolKind::StaticVar</span>(t) =&gt; *t,
+                    <span class="ty">SymbolKind::EnumVariant</span>(_) =&gt; <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>),
+                    <span class="ty">SymbolKind::Function</span>(ft) =&gt; *ft,
+                    _ =&gt; { <span class="cm">/* error */</span> <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>) }
+                },
+                <span class="ty">None</span> =&gt; { <span class="cm">/* error */</span> <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>) }
+            }
+        }
+        <span class="cm">// ... Deref, AddrOf, Neg, Not, BitNot, Binary, Call, Index, etc.</span>
+    }
+}</code></pre>
+
+<p>Binary operations validate both operands and produce the appropriate result type:</p>
+
+<pre><code><span class="ty">AstExpr::Binary</span>(op, lhs, rhs, _) =&gt; {
+    <span class="kw">let</span> lt = <span class="kw">self</span>.<span class="fn">check_expr</span>(lhs); <span class="kw">let</span> rt = <span class="kw">self</span>.<span class="fn">check_expr</span>(rhs);
+    <span class="kw">match</span> op {
+        <span class="ty">BinaryOp::Eq</span> | <span class="ty">BinaryOp::Ne</span> =&gt; {
+            <span class="kw">if</span> !<span class="kw">self</span>.<span class="fn">types_equal</span>(lt, rt) { <span class="cm">/* error */</span> }
+            <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Bool</span>)
+        }
+        _ =&gt; {
+            <span class="kw">if</span> !<span class="kw">self</span>.<span class="fn">types_equal</span>(lt, rt) { <span class="cm">/* error */</span> }
+            <span class="kw">if</span> !<span class="kw">self</span>.<span class="fn">is_numeric</span>(lt) { <span class="cm">/* error */</span> }
+            lt  <span class="cm">// result type matches operands</span>
+        }
+    }
+}</code></pre>
+
+<h3><code>ast_type_to_id</code> &mdash; From AST Types to Interned Types</h3>
+
+<p>This method converts an <code>AstType</code> (the parser's representation) into a <code>TypeId</code> (the type arena's interned representation). It handles primitives, named types (by symbol lookup), pointers, arrays, function types, and specs:</p>
+
+<div class="code-header"><span>src/typeck.rs &mdash; ast_type_to_id</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">ast_type_to_id</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, t: &amp;<span class="ty">AstType</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">match</span> t {
+        <span class="ty">AstType::Prim</span>(p, _) =&gt; <span class="kw">match</span> p {
+            <span class="ty">PrimType::Void</span> =&gt; <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>),
+            <span class="ty">PrimType::I32</span> =&gt; <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::I32</span>),
+            <span class="cm">// ... other primitives</span>
+        },
+        <span class="ty">AstType::Named</span>(name, span) =&gt; {
+            <span class="kw">match</span> <span class="kw">self</span>.symbols.<span class="fn">lookup</span>(name) {
+                <span class="ty">Some</span>(entry) =&gt; <span class="kw">match</span> &amp;entry.kind {
+                    <span class="ty">SymbolKind::TypeDecl</span>(tid) =&gt; *tid,
+                    _ =&gt; { <span class="cm">/* error: not a type */</span> <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>) }
+                },
+                <span class="ty">None</span> =&gt; { <span class="cm">/* error: undefined type */</span> <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>) }
+            }
+        }
+        <span class="ty">AstType::Ptr</span>(inner, _) =&gt; {
+            <span class="kw">let</span> inner_id = <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(inner);
+            <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Ptr</span>(inner_id))
+        }
+        <span class="ty">AstType::Array</span>(size_expr, inner, _) =&gt; {
+            <span class="kw">let</span> size = <span class="kw">self</span>.<span class="fn">eval_const_expr</span>(size_expr);
+            <span class="kw">let</span> inner_id = <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(inner);
+            <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Array</span>(size, inner_id))
+        }
+        <span class="cm">// ... Func, Spec</span>
+    }
+}</code></pre>
+
+<h3>Helper Methods: <code>types_equal</code>, <code>resolve_type</code>, <code>is_numeric</code>, <code>type_str</code></h3>
+
+<p><code>types_equal</code> respects type aliases by following the <code>Alias</code> chain:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">types_equal</span>(&amp;<span class="kw">self</span>, a: <span class="ty">TypeId</span>, b: <span class="ty">TypeId</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">self</span>.<span class="fn">resolve_type</span>(a) == <span class="kw">self</span>.<span class="fn">resolve_type</span>(b)
+}
+
+<span class="kw">fn</span> <span class="fn">resolve_type</span>(&amp;<span class="kw">self</span>, t: <span class="ty">TypeId</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">match</span> <span class="kw">self</span>.types.<span class="fn">get</span>(t) {
+        <span class="ty">TypeNode::Alias</span>(_, inner) =&gt; <span class="kw">self</span>.<span class="fn">resolve_type</span>(*inner),
+        _ =&gt; t,
+    }
+}</code></pre>
+
+<p>This means <code>MyInt</code> (a <code>typedef MyInt = i32</code>) is equal to <code>i32</code> for type checking purposes, but <code>type_str</code> still displays the alias name for error messages.</p>
+
+<p><code>is_numeric</code> checks if a type is any integer type (including char):</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">is_numeric</span>(&amp;<span class="kw">self</span>, t: <span class="ty">TypeId</span>) -&gt; <span class="ty">bool</span> {
+    <span class="fn">matches!</span>(<span class="kw">self</span>.types.<span class="fn">get</span>(t),
+        <span class="ty">TypeNode::U8</span> | <span class="ty">TypeNode::I8</span>
+        | <span class="ty">TypeNode::U16</span> | <span class="ty">TypeNode::I16</span>
+        | <span class="ty">TypeNode::U32</span> | <span class="ty">TypeNode::I32</span>
+        | <span class="ty">TypeNode::U64</span> | <span class="ty">TypeNode::I64</span>
+        | <span class="ty">TypeNode::Usize</span> | <span class="ty">TypeNode::Isize</span>
+        | <span class="ty">TypeNode::Char</span>
+    )
+}</code></pre>
+
+<p><code>type_str</code> produces human-readable type names for error messages:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">type_str</span>(&amp;<span class="kw">self</span>, t: <span class="ty">TypeId</span>) -&gt; <span class="ty">String</span> {
+    <span class="kw">match</span> <span class="kw">self</span>.types.<span class="fn">get</span>(t) {
+        <span class="ty">TypeNode::Void</span> =&gt; <span class="str">"void"</span>.<span class="fn">into</span>(),
+        <span class="ty">TypeNode::I32</span> =&gt; <span class="str">"i32"</span>.<span class="fn">into</span>(),
+        <span class="ty">TypeNode::Ptr</span>(inner) =&gt; <span class="fn">format!</span>(<span class="str">"@{}"</span>, <span class="kw">self</span>.<span class="fn">type_str</span>(*inner)),
+        <span class="ty">TypeNode::Func</span>(params, ret) =&gt; {
+            <span class="kw">let</span> ps: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = params.<span class="fn">iter</span>().<span class="fn">map</span>(|p| <span class="kw">self</span>.<span class="fn">type_str</span>(*p)).<span class="fn">collect</span>();
+            <span class="fn">format!</span>(<span class="str">"Func&lt;{} -&gt; {}&gt;"</span>, ps.<span class="fn">join</span>(<span class="str">", "</span>), <span class="kw">self</span>.<span class="fn">type_str</span>(*ret))
+        }
+        <span class="ty">TypeNode::Alias</span>(name, _) =&gt; name.<span class="fn">clone</span>(),
+        <span class="cm">// ... remaining variants</span>
+    }
+}</code></pre>
+
+<h3>Testing the Type Checker</h3>
+
+<p>The test helper runs the full pipeline (lex &rarr; parse &rarr; type-check) on a source string and returns the diagnostics:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check</span>(source: &amp;<span class="ty">str</span>) -&gt; (<span class="ty">AstProgram</span>, <span class="ty">Diagnostics</span>, <span class="ty">TypeArena</span>, <span class="ty">SymbolTable</span>) {
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">Lexer</span>::<span class="fn">new</span>(source);
+    <span class="kw">let</span> (tokens, _) = lexer.<span class="fn">tokenize</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> diag = <span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+    diag.<span class="fn">set_source</span>(source, <span class="str">"&lt;test&gt;"</span>);
+    <span class="kw">let</span> <span class="kw">mut</span> parser = <span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+    <span class="kw">let</span> <span class="kw">mut</span> prog = parser.<span class="fn">parse_program</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> diag = parser.<span class="fn">into_diagnostics</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> types = <span class="ty">TypeArena</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> symbols = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> tc = <span class="ty">TypeChecker</span>::<span class="fn">new</span>(&amp;<span class="kw">mut</span> types, &amp;<span class="kw">mut</span> symbols, &amp;<span class="kw">mut</span> diag);
+    tc.<span class="fn">check_program</span>(&amp;<span class="kw">mut</span> prog);
+    (prog, diag, types, symbols)
+}</code></pre>
+
+<p><strong>Key test cases:</strong></p>
+
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_empty_program</span>() {
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(<span class="str">""</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_simple_func</span>() {
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(<span class="str">"func foo(i32) { return 1; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_void_return</span>() {
+    <span class="fn">assert!</span>(<span class="fn">check</span>(<span class="str">"func foo(void) { return 1; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_undefined_ident</span>() {
+    <span class="fn">assert!</span>(<span class="fn">check</span>(<span class="str">"func foo(void) { let x: i32 = y; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_struct_field_access</span>() {
+    <span class="kw">let</span> src = <span class="str">"struct Point { x: i32; y: i32; }
+                    func foo(void) { let p: Point = Point{ x: 1, y: 2 }; let x: i32 = p.x; }"</span>;
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(src).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_if_condition</span>() {
+    <span class="fn">assert!</span>(<span class="fn">check</span>(<span class="str">"func foo(void) { if (1) { } }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_cast_numeric</span>() {
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(<span class="str">"func foo(void) { let x: i32 = cast(i32, 1); }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_typedef</span>() {
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(<span class="str">"typedef MyInt = i32;
+                    func foo(void) { let x: MyInt = 1; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}</code></pre>
+
+<p>To run type checker tests:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- typeck
+</code></pre>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+<li><strong>Missing placeholders</strong>: If you don't create a placeholder for structs/enums before phase 2, circular references (struct A has a pointer to struct B which has a pointer back to A) will fail.</li>
+<li><strong>Scope leaks from function params</strong>: If you don't push a scope in <code>check_func</code>, parameters leak into the surrounding scope and can shadow globals incorrectly.</li>
+<li><strong>Alias equivalence in <code>types_equal</code></strong>: Always call <code>resolve_type</code> before comparing, or <code>typedef A = i32</code> and <code>i32</code> will appear different.</li>
+<li><strong>Forgetting the annotation map</strong>: The IR builder needs every expression's type. If <code>check_expr</code> doesn't insert into <code>annotations</code>, IR generation will fail on that expression.</li>
+</ol>
+
+<div class="callout info">
+<strong>Why not type inference?</strong> L1S currently requires explicit type annotations for all variable declarations. Full type inference (like Rust's <code>let x = 42</code> inferring <code>i32</code>) would require unification-based inference (Hindley-Milner), which is a significant complexity increase. The explicit annotation approach keeps the type checker simple and the error messages clear.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="08-symbols.html">&larr; Chapter 8</a> &ensp; Chapter 9: Type Checking &ensp; <a href="10-ir.html">Chapter 10 &rarr;</a></span>
+</div>
+
+</body>
+</html>

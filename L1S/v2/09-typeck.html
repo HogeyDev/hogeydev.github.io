@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 9: Type Checking &mdash; Building a Compiler from Scratch</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="08-symbols.html">&larr; Chapter 8</a> &ensp; Chapter 9: Type Checking &ensp; <a href="10-ir.html">Chapter 10 &rarr;</a></span>
+</div>
+
+<h2 id="typeck">9 &ensp; Type Checking</h2>
+
+<h3>Concept: Ensuring Programs Are Type-Safe</h3>
+
+<p>Type checking is the phase where the compiler verifies that the program respects the language's type rules. Every expression must have a known, consistent type. Operations must be applied to compatible operands. Function calls must match their declarations. A type error is not a "maybe it works" situation &mdash; it's a guarantee of undefined behavior at runtime.</p>
+
+<p>The core questions a type checker answers:</p>
+<ul>
+<li>What type does this expression produce?</li>
+<li>Are the operands of <code>+</code> numeric?</li>
+<li>Does the condition of <code>if</code> have type <code>bool</code>?</li>
+<li>Do the arguments to this function match its parameter types?</li>
+<li>Does the return value match the function's declared return type?</li>
+</ul>
+
+<h3>Tradeoffs &amp; Design Space</h3>
+
+<p><strong>Single-pass vs. multi-pass.</strong> A single-pass type checker processes declarations in order. This is simple but cannot handle forward references &mdash; a function called before it's defined will fail. Multi-pass solves this: the first pass collects all signatures, and later passes check bodies. L1S uses the multi-pass approach, which is also how C, C++, and Rust work (forward declarations or whole-module analysis).</p>
+
+<p><strong>Structural vs. nominal typing.</strong> Structural typing (TypeScript, Go) considers two types equal if they have the same shape. Nominal typing (C, Java, Rust) considers types equal only if they have the same name. L1S uses structural equality through its interned type arena: two <code>i32</code> types are the same <code>TypeId</code> regardless of how they were written. Type aliases are transparently resolved.</p>
+
+<p><strong>Explicit annotations vs. inference.</strong> Requiring type annotations everywhere (like Java before local-variable type inference) is verbose but simple. Full Hindley-Milner inference (like Haskell, OCaml) is powerful but complex. L1S requires explicit type annotations on all variable declarations, which keeps the checker straightforward.</p>
+
+<p><strong>Annotation map.</strong> The type checker produces a map from <code>Span</code> (source location) to <code>TypeId</code>. This annotation map is the interface between type checking and later compiler phases: the IR builder consults it to know what type every expression has, without re-analyzing the entire program.</p>
+
+<h3>Ignis Implementation: Four-Phase Type Checking</h3>
+
+<p>Ignis's <code>TypeChecker</code> struct orchestrates four sequential phases:</p>
+
+<div class="diagram" style="text-align:left;">
+<strong>Phase 1 (Collect):</strong> Register all declarations in the symbol table. Functions get their full <code>Func</code> type. Structs and enums get <em>placeholder</em> <code>TypeId</code>s so they can be referenced before their bodies are checked.<br>
+<strong>Phase 2 (Struct/Enum):</strong> Compute field offsets, sizes, alignment for structs. Compute variant values for enums. Register enum variants as global symbols.<br>
+<strong>Phase 3 (Functions):</strong> Type-check every function body. Push/pop scopes for parameters and blocks. Validate every expression and statement.<br>
+<strong>Phase 4 (Impls):</strong> Verify that each <code>impl</code> block satisfies the signatures declared in its corresponding <code>spec</code>.
+</div>
+
+<p>The driver method <code>check_program</code> iterates the cloned declarations list four times:</p>
+
+<div class="code-header"><span>src/typeck.rs &mdash; check_program orchestrator</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">check_program</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, prog: &amp;<span class="kw">mut</span> <span class="ty">AstProgram</span>) {
+    <span class="kw">let</span> decls = prog.decls.<span class="fn">clone</span>();
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls { <span class="kw">self</span>.<span class="fn">collect_decl</span>(decl); }         <span class="cm">// Phase 1</span>
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls {
+        <span class="kw">match</span> decl {
+            <span class="ty">AstDecl::Struct</span>(s) =&gt; <span class="kw">self</span>.<span class="fn">check_struct</span>(s),
+            <span class="ty">AstDecl::Enum</span>(e) =&gt; <span class="kw">self</span>.<span class="fn">check_enum</span>(e),         <span class="cm">// Phase 2</span>
+            _ =&gt; {}
+        }
+    }
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls {                                  <span class="cm">// Phase 3</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Func</span>(f) = decl { <span class="kw">self</span>.<span class="fn">check_func</span>(f); }
+    }
+    <span class="kw">for</span> decl <span class="kw">in</span> &amp;decls {                                  <span class="cm">// Phase 4</span>
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">AstDecl::Impl</span>(imp) = decl { <span class="kw">self</span>.<span class="fn">check_impl</span>(imp); }
+    }
+}</code></pre>
+
+<p>The clone is necessary because the checker mutates the type arena and symbol table, and Rust's borrow checker would not allow iterating <code>&amp;prog.decls</code> while holding <code>&amp;mut self</code>.</p>
+
+<h3>Phase 1: Collection with Placeholders</h3>
+
+<p><code>collect_decl</code> registers every declaration in the symbol table. For structs and enums, it creates a <em>placeholder</em> &mdash; a <code>TypeId</code> with empty fields that will be filled in during Phase 2:</p>
+
+<pre><code><span class="ty">AstDecl::Struct</span>(s) =&gt; {
+    <span class="kw">let</span> tid = <span class="kw">self</span>.types.<span class="fn">add_struct_placeholder</span>();
+    <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert_global</span>(&amp;s.name, <span class="ty">SymbolKind::TypeDecl</span>(tid), s.span, s.pub_);
+}</code></pre>
+
+<p>Why placeholders? Without them, a struct like <code>Node</code> with a field <code>@Node</code> (pointer to itself) would fail: <code>Node</code> would need to be fully defined before it could be referenced. The placeholder creates the <code>TypeId</code> early, allowing any declaration to reference it. This is the same trick C uses with forward struct declarations.</p>
+
+<h3>Phase 2: Struct Layout with Alignment</h3>
+
+<p><code>check_struct</code> computes the byte offset of every field, respecting alignment constraints. The padding formula <code>(offset + align - 1) / align * align</code> rounds <code>offset</code> up to the next multiple of <code>align</code>:</p>
+
+<div class="code-header"><span>src/typeck.rs &mdash; struct field layout with padding</span></div>
+<pre><code><span class="kw">let</span> <span class="kw">mut</span> offset: <span class="ty">u64</span> = <span class="num">0</span>;
+<span class="kw">let</span> <span class="kw">mut</span> max_align: <span class="ty">u64</span> = <span class="num">1</span>;
+<span class="kw">for</span> f <span class="kw">in</span> &amp;s.fields {
+    <span class="kw">let</span> ft = <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;f.type_);
+    <span class="kw">let</span> align = <span class="kw">self</span>.types.<span class="fn">align_of</span>(ft);
+    <span class="kw">let</span> padded = (offset + align - <span class="num">1</span>) / align * align;
+    offset = padded;
+    fields.<span class="fn">push</span>(<span class="ty">FieldInfo</span> { name: f.name.<span class="fn">clone</span>(), type_: ft, offset });
+    offset += <span class="kw">self</span>.types.<span class="fn">size_of</span>(ft);
+    <span class="kw">if</span> align &gt; max_align { max_align = align; }
+}
+<span class="kw">let</span> final_size = (offset + max_align - <span class="num">1</span>) / max_align * max_align;</code></pre>
+
+<p>This matches C's struct layout: fields are aligned to their natural alignment, and the struct's total size is rounded up to the alignment of its most-aligned field. An <code>i32</code> (alignment 4) followed by an <code>i8</code> (alignment 1) produces a struct of size 8, with 3 bytes of trailing padding.</p>
+
+<h3>Phase 3: Function Body Checking</h3>
+
+<p>Function checking creates a new scope, inserts parameters as variables, checks the body, and restores the enclosing scope:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check_func</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, f: &amp;<span class="ty">AstFuncDecl</span>) {
+    <span class="kw">self</span>.current_func_return = <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;f.return_type));
+    <span class="kw">self</span>.symbols.<span class="fn">push_scope</span>();
+    <span class="kw">for</span> p <span class="kw">in</span> &amp;f.params {
+        <span class="kw">let</span> pt = <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(&amp;p.type_);
+        <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert</span>(&amp;p.name, <span class="ty">SymbolKind::Variable</span>(pt), p.span, <span class="kw">false</span>);
+    }
+    <span class="kw">self</span>.<span class="fn">check_block</span>(&amp;f.body);
+    <span class="kw">self</span>.symbols.<span class="fn">pop_scope</span>();
+    <span class="kw">self</span>.current_func_return = <span class="ty">None</span>;
+}</code></pre>
+
+<p>The <code>current_func_return</code> field is a stack (well, just a single <code>Option</code>, since L1S doesn't support nested functions) that the <code>return</code> statement checker consults. Every <code>return</code> expression is checked against this expected type.</p>
+
+<p><strong>Expression checking</strong> is recursive. The outer <code>check_expr</code> calls <code>check_expr_inner</code> and records the result:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check_expr</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, expr: &amp;<span class="ty">AstExpr</span>) -&gt; <span class="ty">TypeId</span> {
+    <span class="kw">let</span> t = <span class="kw">self</span>.<span class="fn">check_expr_inner</span>(expr);
+    <span class="kw">self</span>.annotations.<span class="fn">insert</span>(expr.<span class="fn">span</span>(), t);  <span class="cm">// save for IR builder</span>
+    t
+}</code></pre>
+
+<p>The <code>annotations</code> map is critical: the IR builder needs to know the type of every expression, and re-checking would be wasteful and complex. By recording the type at the expression's source span, the IR builder has a cheap lookup table.</p>
+
+<h3>Statement Checking in Detail</h3>
+
+<p>The <code>check_stmt</code> method dispatches on each statement variant. Variable declarations resolve the type (or error if omitted), check the initializer if present, and insert the variable into the current scope:</p>
+
+<pre><code><span class="ty">AstStmt::VarDecl</span>(v) =&gt; {
+    <span class="kw">let</span> t = <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> type_) = v.type_ {
+        <span class="kw">self</span>.<span class="fn">ast_type_to_id</span>(type_)
+    } <span class="kw">else</span> {
+        <span class="kw">self</span>.diag.<span class="fn">error</span>(<span class="str">"type inference not yet supported"</span>, <span class="ty">Some</span>(v.span));
+        <span class="kw">self</span>.types.<span class="fn">intern</span>(<span class="ty">TypeNode::Void</span>)
+    };
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(<span class="kw">ref</span> init) = v.init {
+        <span class="kw">let</span> init_type = <span class="kw">self</span>.<span class="fn">check_expr</span>(init);
+        <span class="kw">if</span> !<span class="kw">self</span>.<span class="fn">types_equal</span>(init_type, t) {
+            <span class="kw">self</span>.diag.<span class="fn">error</span>(
+                <span class="fn">format!</span>(<span class="str">"type mismatch: expected {}, got {}"</span>,
+                    <span class="kw">self</span>.<span class="fn">type_str</span>(t), <span class="kw">self</span>.<span class="fn">type_str</span>(init_type)),
+                <span class="ty">Some</span>(v.span));
+        }
+    }
+    <span class="kw">let</span> _ = <span class="kw">self</span>.symbols.<span class="fn">insert</span>(&amp;v.name, <span class="ty">SymbolKind::Variable</span>(t), v.span, <span class="kw">false</span>);
+}</code></pre>
+
+<p>Control flow statements (if, while, for) check that their conditions are boolean. Return statements check against <code>current_func_return</code>. Block statements push/pop scopes, ensuring local variables don't leak.</p>
+
+<h3>Phase 4: Impl Checking</h3>
+
+<p>The final phase validates <code>impl</code> blocks against their corresponding <code>spec</code> declarations. For each method in the spec, the checker verifies that the impl provides an implementation with a matching signature. This is conceptually similar to Rust's trait impl checking, though L1S's spec system is simpler.</p>
+
+<h3>Type Resolution Helpers</h3>
+
+<p>Several helper methods support the checker:</p>
+
+<ul>
+<li><strong><code>ast_type_to_id</code></strong>: Converts an <code>AstType</code> (the parser's tree-based type representation) into an interned <code>TypeId</code>. Named types are looked up in the symbol table and must be <code>SymbolKind::TypeDecl</code>.</li>
+<li><strong><code>types_equal</code></strong>: Compares two types for equality, resolving type aliases transparently via <code>resolve_type</code>. This means <code>typedef MyInt = i32</code> makes <code>MyInt</code> and <code>i32</code> interchangeable.</li>
+<li><strong><code>is_numeric</code></strong>: Returns true for any integer type (including <code>char</code>). Used by arithmetic operators to reject non-numeric operands.</li>
+<li><strong><code>type_str</code></strong>: Produces a human-readable string for error messages. For example, <code>@i32</code> for a pointer to i32, <code>Func&lt;i32, i32 -> void&gt;</code> for a function type.</li>
+</ul>
+
+<h3>Example: Tracing a Function Call Check</h3>
+
+<p>Consider this program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="fn">add</span>(<span class="num">1</span>, <span class="num">2</span>);
+}</code></pre>
+
+<p>The type checker processes this as follows:</p>
+
+<table class="file-table">
+<tr><th>Step</th><th>Phase</th><th>Action</th></tr>
+<tr><td>1</td><td>P1</td><td><code>collect_decl(add)</code> &rarr; Interns <code>Func([i32, i32], i32)</code>, inserts <code>add</code> as <code>SymbolKind::Function</code> in root scope</td></tr>
+<tr><td>2</td><td>P1</td><td><code>collect_decl(main)</code> &rarr; Same for <code>main</code></td></tr>
+<tr><td>3</td><td>P3</td><td><code>check_func(add)</code> &rarr; Push scope, insert <code>a</code> and <code>b</code> as <code>Variable(i32)</code></td></tr>
+<tr><td>4</td><td>P3</td><td><code>check_expr(a)</code> &rarr; Looks up <code>a</code> in symbol table &rarr; <code>Variable(i32)</code> &rarr; type = <code>i32</code></td></tr>
+<tr><td>5</td><td>P3</td><td><code>check_expr(b)</code> &rarr; Same &rarr; <code>i32</code></td></tr>
+<tr><td>6</td><td>P3</td><td><code>Binary(Add, a, b)</code> &rarr; Both operands are <code>i32</code>, <code>is_numeric</code> passes &rarr; result type = <code>i32</code></td></tr>
+<tr><td>7</td><td>P3</td><td><code>Return</code> &rarr; Value type is <code>i32</code>, <code>current_func_return</code> is <code>i32</code> &rarr; OK</td></tr>
+<tr><td>8</td><td>P3</td><td>Pop scope, restore outer</td></tr>
+<tr><td>9</td><td>P3</td><td><code>check_func(main)</code> &rarr; Push scope</td></tr>
+<tr><td>10</td><td>P3</td><td><code>check_expr(add(1, 2))</code> &rarr; Look up <code>add</code> &rarr; <code>SymbolKind::Function(Func([i32,i32],i32))</code></td></tr>
+<tr><td>11</td><td>P3</td><td><code>check_expr(1)</code> &rarr; <code>i32</code>, <code>check_expr(2)</code> &rarr; <code>i32</code></td></tr>
+<tr><td>12</td><td>P3</td><td>Match argument types <code>[i32, i32]</code> against parameter types <code>[i32, i32]</code> &rarr; OK</td></tr>
+<tr><td>13</td><td>P3</td><td>Return type of call = <code>i32</code></td></tr>
+<tr><td>14</td><td>P3</td><td><code>VarDecl(x, i32, init = add(...))</code> &rarr; init type = <code>i32</code>, declared type = <code>i32</code> &rarr; OK</td></tr>
+</table>
+
+<p>At step 10, notice that <code>add</code>'s signature was already registered in Phase 1, so it's available even though it was defined later in the source. This is the power of multi-phase checking.</p>
+
+<h3>Error Reporting Strategy</h3>
+
+<p>The checker uses the <code>Diagnostics</code> system for all error reporting. Errors include:</p>
+
+<ul>
+<li><strong>Type mismatch</strong>: <code>"type mismatch: expected i32, got bool"</code></li>
+<li><strong>Undefined identifier</strong>: <code>"undefined identifier 'y'"</code></li>
+<li><strong>Non-boolean condition</strong>: <code>"if condition must be bool"</code></li>
+<li><strong>Wrong argument count</strong>: <code>"wrong number of arguments: expected 2, got 3"</code></li>
+<li><strong>Invalid cast</strong>: <code>"cast only supported between numeric types"</code></li>
+</ul>
+
+<p>All errors carry the source span of the offending expression, producing output like:</p>
+
+<pre><code style="color:var(--fg2);">error: type mismatch: expected i32, got bool
+  --> test.gn:2:15
+   |
+ 2 |     let x: i32 = true;
+   |               ^^^^^
+</code></pre>
+
+<div class="callout warn">
+<strong>Type inference limitation.</strong> L1S requires explicit type annotations on all variable declarations. When an annotation is missing, the checker emits <code>"type inference not yet supported"</code> and defaults to <code>void</code>. Adding Hindley-Milner inference would be a natural extension but adds significant complexity to the checker.
+</div>
+
+<h3>Testing the Type Checker</h3>
+
+<p>The test suite runs the full pipeline (lex &rarr; parse &rarr; type-check) on source strings. The helper function <code>check</code> returns the diagnostics and type arena for assertions:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check</span>(source: &amp;<span class="ty">str</span>) -&gt; (<span class="ty">AstProgram</span>, <span class="ty">Diagnostics</span>, <span class="ty">TypeArena</span>, <span class="ty">SymbolTable</span>) {
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">Lexer</span>::<span class="fn">new</span>(source);
+    <span class="kw">let</span> (tokens, _) = lexer.<span class="fn">tokenize</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> diag = <span class="ty">Diagnostics</span>::<span class="fn">new</span>();
+    diag.<span class="fn">set_source</span>(source, <span class="str">"&lt;test&gt;"</span>);
+    <span class="kw">let</span> <span class="kw">mut</span> parser = <span class="ty">Parser</span>::<span class="fn">new</span>(tokens, diag);
+    <span class="kw">let</span> <span class="kw">mut</span> prog = parser.<span class="fn">parse_program</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> diag = parser.<span class="fn">into_diagnostics</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> types = <span class="ty">TypeArena</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> symbols = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> tc = <span class="ty">TypeChecker</span>::<span class="fn">new</span>(&amp;<span class="kw">mut</span> types, &amp;<span class="kw">mut</span> symbols, &amp;<span class="kw">mut</span> diag);
+    tc.<span class="fn">check_program</span>(&amp;<span class="kw">mut</span> prog);
+    (prog, diag, types, symbols)
+}</code></pre>
+
+<p><strong>Valid programs</strong> assert no errors:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_simple_func</span>() {
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(<span class="str">"func foo(i32) { return 1; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_struct_field_access</span>() {
+    <span class="kw">let</span> src = <span class="str">"struct Point { x: i32; y: i32; }
+                    func foo(void) { let p: Point = Point{ x: 1, y: 2 }; let x: i32 = p.x; }"</span>;
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(src).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_typedef</span>() {
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(<span class="str">"typedef MyInt = i32;
+                    func foo(void) { let x: MyInt = 1; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}</code></pre>
+
+<p><strong>Invalid programs</strong> assert errors are detected:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_void_return</span>() {
+    <span class="fn">assert!</span>(<span class="fn">check</span>(<span class="str">"func foo(void) { return 1; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_undefined_ident</span>() {
+    <span class="fn">assert!</span>(<span class="fn">check</span>(<span class="str">"func foo(void) { let x: i32 = y; }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_if_condition</span>() {
+    <span class="fn">assert!</span>(<span class="fn">check</span>(<span class="str">"func foo(void) { if (1) { } }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_cast_numeric</span>() {
+    <span class="fn">assert!</span>(!<span class="fn">check</span>(<span class="str">"func foo(void) { let x: i32 = cast(i32, 1); }"</span>).<span class="num">1</span>.<span class="fn">has_errors</span>());
+}</code></pre>
+
+<p>Run the type checker tests with:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- typeck</code></pre>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+<li><strong>Missing struct/enum placeholders.</strong> If you skip the placeholder allocation, circular references (e.g., struct A has a field of type B which has a field of type A) will fail because the <code>TypeId</code> doesn't exist yet.</li>
+<li><strong>Forgetting the annotation map.</strong> The IR builder depends on <code>annotations</code> to determine types. If <code>check_expr</code> doesn't insert into the map, the IR builder will panic or generate incorrect code.</li>
+<li><strong>Type alias resolution.</strong> Always use <code>types_equal</code> (which calls <code>resolve_type</code>) instead of direct <code>==</code> on <code>TypeId</code>. Otherwise <code>MyInt</code> and <code>i32</code> will appear different.</li>
+<li><strong>Scope disipline.</strong> Every code path through a block must preserve the scope stack. A missing <code>pop_scope</code> in an early return path will corrupt the scope chain for the rest of the module.</li>
+</ol>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="08-symbols.html">&larr; Chapter 8</a> &ensp; Chapter 9: Type Checking &ensp; <a href="10-ir.html">Chapter 10 &rarr;</a></span>
+</div>
+
+</body>
+</html>

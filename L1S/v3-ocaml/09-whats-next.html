@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Where Next? — Building a Compiler (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">OCaml Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3ocaml-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3ocaml-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>9 · Where Next?</h2>
+
+<p>
+  We built a compiler.
+</p>
+
+<p>
+  Not a toy. Not a simulation. A real compiler that takes source code in a real
+  (if small) language and produces x86-64 assembly that runs on real hardware.
+  The pipeline is complete. The executable works. You understand every line of it.
+</p>
+
+<p>
+  Take a breath. This is an accomplishment. Most programmers never build a
+  compiler. You did — in OCaml, one of the finest languages ever designed for
+  this kind of work.
+</p>
+
+<div class="callout">
+<strong>"A compiler is a proof of the pudding."</strong>
+  Andrew Appel begins his seminal textbook "Modern Compiler Implementation in ML"
+  with the observation that a compiler is not just a program — it's a
+  demonstration that the language design, the type system, and the runtime model
+  are all coherent. You've proven that our small language is coherent.
+  Everything fits together because you made it fit.
+</div>
+
+<h3>What We Built</h3>
+
+<p>Let's look back at the full pipeline, from end to end:</p>
+
+<div class="diagram">
+Source Code (.spark)
+    │
+    ▼  Lexer
+  Characters → Tokens
+    │
+    ▼  Parser
+  Tokens → AST (variant types, pattern matching)
+    │
+    ▼  Semantic Analysis
+  Names resolved via symbol table (OCaml module), types checked
+    │
+    ▼  IR Builder
+  AST → IR (virtual registers, basic blocks, control flow graph)
+    │
+    ▼  Code Generator
+  IR → x86-64 Assembly (stack allocation, instruction selection)
+    │
+    ▼  Assembler + Linker
+  Assembly → Executable
+</div>
+
+<table class="file-table">
+  <tr><th>Component</th><th>Lines (OCaml)</th><th>What It Does</th></tr>
+  <tr><td>span.ml</td><td>50</td><td>Source positions, file abstraction, error formatting</td></tr>
+  <tr><td>token.ml</td><td>30</td><td>Token type definitions as variants</td></tr>
+  <tr><td>lexer.ml</td><td>100</td><td>Character-by-character tokenization</td></tr>
+  <tr><td>ast.ml</td><td>60</td><td>AST type definitions (Expr, Stmt, FuncDecl)</td></tr>
+  <tr><td>parser.ml</td><td>200</td><td>Recursive descent parsing with error recovery</td></tr>
+  <tr><td>symbol.ml</td><td>40</td><td>Scoped symbol table as an OCaml module</td></tr>
+  <tr><td>types.ml</td><td>50</td><td>Type representation</td></tr>
+  <tr><td>check.ml</td><td>150</td><td>Type checker: pattern matching on AST</td></tr>
+  <tr><td>ir.ml</td><td>70</td><td>IR type definitions (ir_instr, ir_term, ir_block)</td></tr>
+  <tr><td>ir_builder.ml</td><td>100</td><td>AST → IR translation</td></tr>
+  <tr><td>codegen.ml</td><td>210</td><td>x86-64 code generation with stack allocator</td></tr>
+  <tr><td>emitter.ml</td><td>25</td><td>Assembly text output buffer</td></tr>
+  <tr><td>main.ml</td><td>70</td><td>Pipeline orchestration, NASM and cc invocation</td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>~1155</strong></td><td></td></tr>
+</table>
+
+<p>
+  The OCaml version is remarkably concise. Pattern matching and algebraic data
+  types make tree transformations compact and correct. The module system
+  provides clean encapsulation without boilerplate. Functors offer a path to
+  reusable optimization passes. This is why OCaml has been the language of choice
+  for compiler research for over two decades.
+</p>
+
+<h3>What We Didn't Build</h3>
+
+<p>
+  Our compiler works, but it's minimal. Here's what production compilers have
+  that we left out:
+</p>
+
+<table class="file-table">
+  <tr><th>Feature</th><th>Why It Matters</th><th>Difficulty</th></tr>
+  <tr><td>Optimizations</td><td>Our code is terrible: redundant loads and stores everywhere.</td><td>Medium</td></tr>
+  <tr><td>Register allocation</td><td>We spill everything to the stack. Linear scan or graph coloring would be 10x faster.</td><td>Hard</td></tr>
+  <tr><td>Garbage collection</td><td>No heap allocation, so no GC needed. But adding <code>malloc</code> changes everything.</td><td>Hard</td></tr>
+  <tr><td>Standard library</td><td>No I/O, no strings, no data structures.</td><td>Easy</td></tr>
+  <tr><td>Modules / imports</td><td>All code must be in one file.</td><td>Medium</td></tr>
+  <tr><td>Generics / polymorphism</td><td>Functions can only work with concrete types.</td><td>Hard</td></tr>
+  <tr><td>Closures</td><td>No anonymous functions or environment capture.</td><td>Hard</td></tr>
+  <tr><td>String types</td><td>Only integers and booleans.</td><td>Medium</td></tr>
+  <tr><td>Floating point</td><td>No f32 or f64. Requires SSE/AVX instructions.</td><td>Medium</td></tr>
+  <tr><td>Self-hosting</td><td>The compiler is written in OCaml, not in our language.</td><td>Very Hard</td></tr>
+</table>
+
+<div class="callout">
+<strong>Not a weakness — a starting point</strong>
+  Every production compiler started where we are now. LLVM began as a research
+  project. GCC began as a small C compiler. Rust began as a personal project.
+  OCaml's own compiler started as a PhD thesis. Every feature above was added
+  one at a time.
+</div>
+
+<h3>Ideas for the Reader</h3>
+
+<p>Here are concrete projects, ordered from easiest to hardest:</p>
+
+<h4>Add One Feature at a Time</h4>
+
+<p>
+  The best advice: add the thing <em>you</em> miss most. Is it frustrating that
+  you can't print output? Add a <code>print</code> function that calls
+  <code>printf</code> via the C FFI. Do you want to write recursive functions?
+  Make sure the calling convention handles it correctly (it should already).
+</p>
+
+<p>
+  Each feature teaches you something new. Adding <code>print</code> teaches you
+  about FFI. Adding arrays teaches you about memory layout. Adding closures
+  teaches you about environment capture and heap allocation.
+</p>
+
+<h4>Port to a New Backend</h4>
+
+<p>
+  Our compiler targets x86-64, but the IR is architecture-independent. Port the
+  codegen module to a new target:
+</p>
+
+<ul>
+  <li><strong>ARM64 (AArch64):</strong> Different registers (x0-x30), same concepts. Used in Apple Silicon, most phones.</li>
+  <li><strong>RISC-V:</strong> The cleanest ISA. Only 47 base instructions. Registers x0-x31.</li>
+  <li><strong>WebAssembly:</strong> A stack-based virtual ISA that runs in browsers. Completely different codegen model.</li>
+  <li><strong>LLVM IR:</strong> Generate LLVM IR instead of assembly. LLVM handles register allocation and machine code for you. This is what Rust, Swift, and Clang do.</li>
+</ul>
+
+<p>
+  Porting requires rewriting only the codegen module. The frontend — lexer,
+  parser, type checker, IR builder — stays exactly the same. This is the power
+  of a well-designed IR.
+</p>
+
+<h4>Add an Optimization Pass</h4>
+
+<p>
+  Our generated code is full of redundant loads and stores. Try these:
+</p>
+
+<p>
+  <strong>Constant folding:</strong> If the IR has
+  <code>Const(%0, 3); Const(%1, 4); Add(%2, %0, %1)</code>, replace it with
+  <code>Const(%2, 7)</code>. A single pass over the IR.
+</p>
+
+<p>
+  <strong>Dead store elimination:</strong> If a value is stored to a stack slot
+  and never loaded before being overwritten, the first store is dead. Requires
+  liveness analysis.
+</p>
+
+<p>
+  <strong>Peephole optimization:</strong> After codegen, scan the assembly for
+  inefficient patterns. <code>mov rax, [rbp-8]; mov [rbp-8], rax</code> is a
+  no-op — remove it.
+</p>
+
+<p>
+  In OCaml, each optimization is a functor: <code>module Folded = ConstantFolding(BaseIR)</code>.
+  Compose them: <code>module OptIR = DCE(ConstantFolding(BaseIR))</code>.
+</p>
+
+<h3>References and Further Reading</h3>
+
+<p>
+  If this book has sparked a deeper interest in compilers — and we hope it has —
+  here are the resources that will take you further:
+</p>
+
+<h4>Textbooks</h4>
+
+<ul>
+  <li>
+    <strong>Modern Compiler Implementation in ML</strong> by Andrew W. Appel.
+    This is the direct spiritual successor to what we've built here. Appel walks
+    through the same pipeline (lexing, parsing, type checking, IR generation,
+    code generation) using ML — the language that OCaml descends from. His
+    treatment of register allocation via graph coloring is a classic. If you
+    read one compiler book, read this one.
+  </li>
+  <li>
+    <strong>Compilers: Principles, Techniques, and Tools</strong> (the "Dragon Book")
+    by Aho, Lam, Sethi, and Ullman. The canonical reference for parsing theory,
+    data-flow analysis, and code optimization. The dragon on the cover is
+    legendary for a reason.
+  </li>
+  <li>
+    <strong>Types and Programming Languages</strong> by Benjamin C. Pierce.
+    The definitive introduction to type systems. If you want to understand what
+    our type checker was doing at a deeper theoretical level — inference,
+    polymorphism, subtyping — start here.
+  </li>
+  <li>
+    <strong>Practical Foundations for Programming Languages</strong> by Robert
+    Harper. A more advanced treatment of type theory and semantics. Harper was
+    one of the designers of Standard ML, and his perspective is deeply informed
+    by ML-family languages.
+  </li>
+  <li>
+    <strong>Linkers and Loaders</strong> by John R. Levine. Everything about
+    what happens after assembly: relocation, symbol resolution, dynamic linking,
+    position-independent code.
+  </li>
+</ul>
+
+<h4>OCaml-Specific Resources</h4>
+
+<ul>
+  <li>
+    <strong>Real World OCaml</strong> by Yaron Minsky, Anil Madhavapeddy, and
+    Jason Hickey. The modern guide to OCaml programming, published by O'Reilly.
+    Covers the module system, functors, and the ecosystem. Available free online
+    at dev.realworldocaml.org.
+  </li>
+  <li>
+    <strong>Jane Street</strong> — the largest industrial user of OCaml. Their
+    tech blog and open-source contributions (Core, Incremental, Async) are
+    invaluable for seeing how OCaml is used at scale in production systems,
+    including their internal compiler tools.
+  </li>
+  <li>
+    <strong>OCaml Labs</strong> and <strong>Tarides</strong> — research and
+    development groups that drive the evolution of the OCaml compiler and
+    tooling. Their work on the OCaml compiler itself — the type checker,
+    pattern match compilation, and backend — is directly relevant to what we've
+    built.
+  </li>
+  <li>
+    <strong>The OCaml compiler source code</strong> itself. The real
+    <code>typing/</code> directory implements Hindley-Milner type inference with
+    side-effectful unification. The <code>middle_end/</code> and
+    <code>backend/</code> directories implement the actual compiler pipeline
+    for OCaml programs. It's hundreds of thousands of lines, but the structure
+    will look familiar: AST, type checking, IR, code generation.
+  </li>
+  <li>
+    <strong>OCaml Discuss</strong> (discuss.ocaml.org) and
+    <strong>OCaml Discord</strong> — active communities where you can ask
+    questions about OCaml compiler development.
+  </li>
+</ul>
+
+<h4>Specific Papers and Projects</h4>
+
+<ul>
+  <li>
+    "SSA-based Compiler Design" — a tutorial by Braun, Buchwald, and Hack on
+    the SSA construction algorithm we referenced in Chapter 7. The paper
+    presents the algorithm in a language-agnostic way, but the OCaml
+    implementation is only about 80 lines.
+  </li>
+  <li>
+    "Linear Scan Register Allocation" by Poletto and Sarkar. The paper that
+    introduced the algorithm we sketched in Chapter 8. It's short, readable,
+    and the results are immediately applicable.
+  </li>
+  <li>
+    <strong>LLVM</strong> (llvm.org) — the industry-standard compiler
+    infrastructure. LLVM's IR is more sophisticated than ours, but the concepts
+    are the same. The LLVM documentation is excellent, and the source is written
+    in modern C++ with clear abstractions.
+  </li>
+  <li>
+    <strong>Cranelift</strong> — a code generator written in Rust. Designed for
+    use cases like WebAssembly and JIT compilation. Its codegen pipeline is
+    remarkably similar to what we built, but production-quality.
+  </li>
+</ul>
+
+<h3>The Journey Ahead</h3>
+
+<p>
+  Building a compiler is one of those rare projects that changes how you see
+  every other program. After this, when you open a source file, you don't just
+  see code — you see the pipeline: the lexer carving out tokens, the parser
+  building trees, the type checker walking nodes, the IR builder linearizing
+  control flow, the code generator emitting instructions, the assembler and
+  linker producing bytes.
+</p>
+
+<p>
+  In OCaml, this pipeline felt natural because the language was designed for it.
+  Variant types mirror the structure of syntax trees. Pattern matching makes
+  tree traversal declarative. The module system scales with complexity. If you
+  started this book knowing Rust or another language and learned OCaml along
+  the way, you've gained not just a compiler, but a new way of thinking about
+  programs.
+</p>
+
+<p>
+  What you build next is up to you. Add a feature. Port to ARM64. Implement
+  SSA. Write a garbage collector. Make the compiler self-hosting. The framework
+  is solid, the IR is clean, and the tests pass. Every direction is open.
+</p>
+
+<div class="callout tip">
+<strong>The code is yours now</strong>
+  The companion code in <code>code/ocaml/</code> is your starting point. Modify
+  it. Break it. Fix it. Extend it. The best way to learn compilers is to change
+  a working compiler and see what happens. We've given you a working compiler.
+  Now make it yours.
+</div>
+
+<p>
+  Thank you for reading. Thank you for building. And most of all — thank you
+  for staying curious. The machine speaks because you took the time to learn
+  its language.
+</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Your own language feature</strong>
+  <p>Design and implement a language feature that matters to you. It could be
+  <code>for</code> loops, <code>break</code>/<code>continue</code>, compound
+  assignment operators (<code>+=</code>, <code>-=</code>), or something entirely
+  new. Trace it through every phase of the compiler.</p>
+</div>
+
+<div class="exercise">
+<strong>2. Benchmark your compiler</strong>
+  <p>Write a benchmark: a program that computes something computationally
+  intensive (e.g., Fibonacci, matrix multiply, prime sieve). Compile it with
+  our compiler and with gcc/clang. Compare the generated assembly and the
+  execution times. Where does our compiler fall short? Which optimizations would
+  close the gap?</p>
+</div>
+
+<div class="exercise">
+<strong>3. Read the real OCaml compiler</strong>
+  <p>Download the OCaml compiler source code. Find the equivalent files to the
+  ones we built: <code>parsing/parser.mly</code>, <code>typing/typecore.ml</code>,
+  <code>middle_end/</code>, <code>asmcomp/</code>. Read one file. Compare it to
+  what we built. What's the same? What's different? What do you learn from the
+  production version?</p>
+</div>
+
+<div class="exercise">
+<strong>4. Teach someone else</strong>
+  <p>The best way to cement your understanding is to explain it. Write a blog
+  post, give a talk, or pair-program with a friend who hasn't built a compiler.
+  You'll discover which parts you truly understand and which parts need more
+  work. The compiler community grows when we share what we've learned.</p>
+</div>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="08-assembly.html" class="prev">The Final Mile</a>
+  <span></span>
+</div>
+
+</body>
+</html>

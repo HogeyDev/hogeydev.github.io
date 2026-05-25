@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 4: The Lexer &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="03-tokens.html">&larr; Chapter 3</a> &ensp; Chapter 4: The Lexer &ensp; <a href="05-ast.html">Chapter 5 &rarr;</a></span>
+</div>
+
+<h2 id="lexer">4 &ensp; The Lexer</h2>
+
+<h3>What is Lexing?</h3>
+
+<p>Before a compiler can understand the <em>structure</em> of a program, it needs to break the raw source text into meaningful chunks called <strong>tokens</strong>. This process is <strong>lexical analysis</strong> (or lexing/tokenizing).</p>
+
+<p>Think of lexing like splitting a sentence into words and punctuation:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Input:</strong> <code>func main(i32) { return 42; }</code><br><br>
+<strong>Output tokens:</strong><br>
+<code>Func  Ident("main")  OpenParen  I32  CloseParen  OpenBrace  Return  NumLiteral("42")  Semicolon  CloseBrace  Eof</code>
+</div>
+
+<p>The lexer does <em>not</em> understand whether <code>42</code> is used correctly, whether <code>main</code> is a function or a variable, or whether the braces match &mdash; that's the parser's job. The lexer's job is simply to group characters into the predefined token types from <code>token.rs</code>.</p>
+
+<h3>What Makes a Good Lexer?</h3>
+<ol>
+<li><strong>Error recovery</strong>: Never crash on bad input. Record the error and keep going.</li>
+<li><strong>Accurate positions</strong>: Every token must carry its exact source location (byte offset, line, column) so errors can point back to the right place.</li>
+<li><strong>Deterministic</strong>: Given the same input, always produce the same tokens.</li>
+<li><strong>Fast</strong>: Lexing is O(n) &mdash; every character is examined exactly once.</li>
+</ol>
+
+<h3>The LexError Type</h3>
+
+<p>Before we look at the lexer itself, we define what a lex error looks like. It carries a human-readable message and a <code>Span</code> pointing to the offending character:</p>
+
+<div class="code-header"><span>src/lexer.rs &mdash; LexError</span></div>
+<pre><code><span class="kw">use</span> crate::span::Span;
+<span class="kw">use</span> crate::token::{keyword_token, SpannedToken, Token};
+
+<span class="cm">/// An error produced during lexical analysis.</span>
+<span class="cm">/// The span points to the exact character(s) that caused the error.</span>
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">LexError</span> {
+    <span class="kw">pub</span> message: <span class="ty">String</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">LexError</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(message: <span class="kw">impl</span> <span class="ty">Into</span>&lt;<span class="ty">String</span>&gt;, span: <span class="ty">Span</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">LexError</span> { message: message.<span class="fn">into</span>(), span }
+    }
+}</code></pre>
+
+<p>Simple but effective. The error format <code>impl Into&lt;String&gt;</code> means callers can pass either a <code>&amp;str</code> or a <code>String</code> without explicit conversion.</p>
+
+<div class="callout info">
+<strong>Why not use Diagnostics directly?</strong> The lexer precedes the diagnostics system in the pipeline. Lex errors are collected in a <code>Vec&lt;LexError&gt;</code> and converted/reported during later stages. This keeps the lexer self-contained and testable.
+</div>
+
+<h3>The Lexer Struct</h3>
+
+<p>The core of the lexer is a stateful struct that wraps the source string and tracks position:</p>
+
+<div class="code-header"><span>src/lexer.rs &mdash; Lexer struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Lexer</span>&lt;'a&gt; {
+    <span class="cm">// The original source text. We keep this so we can slice it for error messages.</span>
+    source: &amp;<span class="ty">str</span>,
+    <span class="cm">// A peekable iterator over (byte_offset, char) pairs. Peekable gives
+    // us single-character lookahead without consuming the character.</span>
+    chars: <span class="ty">Peekable</span>&lt;<span class="ty">CharIndices</span>&lt;'a&gt;&gt;,
+    <span class="cm">// Current byte offset in the source</span>
+    pos: <span class="ty">usize</span>,
+    <span class="cm">// Current line number (1-based)</span>
+    line: <span class="ty">u32</span>,
+    <span class="cm">// Current column number (1-based)</span>
+    col: <span class="ty">u32</span>,
+    <span class="cm">// Accumulated errors. We keep going even after finding errors.</span>
+    errors: <span class="ty">Vec</span>&lt;<span class="ty">LexError</span>&gt;,
+}</code></pre>
+
+<p>Let's examine each field:</p>
+
+<ul>
+<li><strong><code>source</code></strong>: The full source text. We never modify it; we just read from it through the <code>chars</code> iterator.</li>
+<li><strong><code>chars</code></strong>: <code>std::str::CharIndices</code> wrapped in <code>Peekable</code>. <code>CharIndices</code> yields <code>(usize, char)</code> pairs &mdash; the byte offset and the Unicode character. Wrapping it in <code>Peekable</code> lets us look at the next character without consuming it, which is essential for recognizing multi-character operators like <code>==</code> and <code>!=</code>.</li>
+<li><strong><code>pos</code></strong>: Current byte position. Updated by <code>advance()</code>. Used for <code>Span::start</code>.</li>
+<li><strong><code>line</code>, <code>col</code></strong>: Human-readable position tracking. Updated by <code>advance()</code>. Line and column are 1-based (first line is line 1, first column is column 1).</li>
+<li><strong><code>errors</code></strong>: Errors collected during tokenization. Instead of panicking or returning <code>Result</code>, the lexer records errors and continues, allowing the compilation to report <em>all</em> errors in one pass.</li>
+</ul>
+
+<h3>Construction</h3>
+
+<p>The constructor initializes all fields:</p>
+
+<pre><code><span class="kw">impl</span>&lt;'a&gt; <span class="ty">Lexer</span>&lt;'a&gt; {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(source: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Lexer</span> {
+            source,
+            chars: source.<span class="fn">char_indices</span>().<span class="fn">peekable</span>(),
+            pos: 0,
+            line: 1,
+            col: 1,
+            errors: <span class="ty">Vec</span>::<span class="fn">new</span>(),
+        }
+    }</code></pre>
+
+<p>Note: we start at <code>line: 1, col: 1</code>, not <code>0, 0</code>. This matches what editors and compilers conventionally display.</p>
+
+<h3>The Main Entry Point: <code>tokenize()</code></h3>
+
+<p>The <code>tokenize</code> method is the public interface. It loops, skipping whitespace and comments, then lexing one token at a time until the source is exhausted:</p>
+
+<div class="code-header"><span>src/lexer.rs &mdash; tokenize()</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">tokenize</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; (<span class="ty">Vec</span>&lt;<span class="ty">SpannedToken</span>&gt;, <span class="ty">Vec</span>&lt;<span class="ty">LexError</span>&gt;) {
+    <span class="kw">let</span> <span class="kw">mut</span> tokens = <span class="ty">Vec</span>::<span class="fn">new</span>();
+
+    <span class="kw">loop</span> {
+        <span class="kw">self</span>.<span class="fn">skip_whitespace</span>();
+        <span class="kw">self</span>.<span class="fn">skip_comment</span>();
+        <span class="kw">self</span>.<span class="fn">skip_whitespace</span>();
+
+        <span class="kw">if</span> <span class="kw">self</span>.chars.<span class="fn">peek</span>().<span class="fn">is_none</span>() {
+            <span class="kw">break</span>;
+        }
+
+        <span class="kw">let</span> start_pos = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> start_line = <span class="kw">self</span>.line;
+        <span class="kw">let</span> start_col = <span class="kw">self</span>.col;
+
+        <span class="kw">let</span> token = <span class="kw">self</span>.<span class="fn">lex_token</span>();
+
+        <span class="kw">let</span> end_pos = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(start_pos, end_pos, start_line, start_col);
+
+        <span class="kw">match</span> token {
+            <span class="ty">Some</span>(tok) =&gt; {
+                <span class="kw">if</span> tok == <span class="ty">Token::Eof</span> {
+                    tokens.<span class="fn">push</span>(<span class="ty">SpannedToken</span>::<span class="fn">new</span>(tok, span));
+                    <span class="kw">break</span>;
+                }
+                tokens.<span class="fn">push</span>(<span class="ty">SpannedToken</span>::<span class="fn">new</span>(tok, span));
+            }
+            <span class="ty">None</span> =&gt; {
+                <span class="cm">// Unrecognized character: record error, advance past it</span>
+                <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>((_, c)) = <span class="kw">self</span>.chars.<span class="fn">next</span>() {
+                    <span class="kw">let</span> len = c.<span class="fn">len_utf8</span>();
+                    <span class="kw">self</span>.pos += len;
+                    <span class="kw">self</span>.col += 1;
+                    <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(start_pos, <span class="kw">self</span>.pos, start_line, start_col);
+                    <span class="kw">self</span>.errors.<span class="fn">push</span>(<span class="ty">LexError</span>::<span class="fn">new</span>(
+                        <span class="fn">format!</span>(<span class="str">"unexpected character '{}'"</span>, c), span));
+                }
+            }
+        }
+    }
+
+    <span class="cm">// Ensure we always emit an Eof token</span>
+    <span class="kw">if</span> tokens.<span class="fn">last</span>().<span class="fn">map</span>(|t| &amp;t.token) != <span class="ty">Some</span>(&amp;<span class="ty">Token::Eof</span>) {
+        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(<span class="kw">self</span>.pos, <span class="kw">self</span>.pos, <span class="kw">self</span>.line, <span class="kw">self</span>.col);
+        tokens.<span class="fn">push</span>(<span class="ty">SpannedToken</span>::<span class="fn">new</span>(<span class="ty">Token::Eof</span>, span));
+    }
+
+    (tokens, std::mem::<span class="fn">take</span>(&amp;<span class="kw">self</span>.errors))
+}</code></pre>
+
+<p><strong>Step-by-step walkthrough:</strong></p>
+
+<ol>
+<li><strong>Skip whitespace and comments</strong>: Before we try to read a token, skip over any whitespace (<code> </code>, <code>\t</code>, <code>\n</code>) and comments (<code>// ...</code>). Comments are treated as whitespace &mdash; they produce no tokens.</li>
+<li><strong>Check for EOF</strong>: If no characters remain, break out of the loop.</li>
+<li><strong>Record start position</strong>: Save the current <code>pos</code>, <code>line</code>, <code>col</code> before consuming the token.</li>
+<li><strong>Lex one token</strong>: Call <code>lex_token()</code>, which returns <code>Option&lt;Token&gt;</code>.</li>
+<li><strong>Create Span</strong>: The span covers from the start position to wherever we ended up after lexing.</li>
+<li><strong>Handle the result</strong>:
+<ul>
+<li><code>Some(tok)</code> &rarr; Push the token with its span. If it's EOF, stop.</li>
+<li><code>None</code> &rarr; Unrecognized character. Advance past it, record error.</li>
+</ul>
+</li>
+<li><strong>Guarantee EOF</strong>: After the loop, ensure we emitted at least one <code>Token::Eof</code>. An empty source still produces <code>[Eof]</code>.</li>
+<li><strong>Return</strong>: Take the errors out of <code>self</code> (using <code>std::mem::take</code>) and return them alongside the tokens.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Why skip_comment after skip_whitespace?</strong> Consider <code>// comment\nfunc</code>. We skip whitespace (nothing before <code>/</code>), then <code>skip_comment</code> detects <code>//</code> and skips to the newline. Then we skip whitespace again (the newline itself). This two-pass approach correctly handles edge cases like whitespace between <code>//</code> and the following token.
+</div>
+
+<h3>Position Tracking: <code>advance()</code></h3>
+
+<p>The <code>advance()</code> method consumes one character from the iterator and updates all position fields. This is the <em>only</em> place where position tracking happens, which keeps it correct and consistent:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">advance</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">char</span>&gt; {
+    <span class="kw">match</span> <span class="kw">self</span>.chars.<span class="fn">next</span>() {
+        <span class="ty">Some</span>((_, c)) =&gt; {
+            <span class="kw">let</span> len = c.<span class="fn">len_utf8</span>();
+            <span class="kw">self</span>.pos += len;           <span class="cm">// byte offset advances by char's UTF-8 length</span>
+            <span class="kw">if</span> c == <span class="str">'\n'</span> {
+                <span class="kw">self</span>.line += 1;             <span class="cm">// new line</span>
+                <span class="kw">self</span>.col = 1;               <span class="cm">// reset column</span>
+            } <span class="kw">else</span> {
+                <span class="kw">self</span>.col += 1;               <span class="cm">// same line, next column</span>
+            }
+            <span class="ty">Some</span>(c)
+        }
+        <span class="ty">None</span> =&gt; <span class="ty">None</span>,
+    }
+}</code></pre>
+
+<p><code>peek()</code> is the complement &mdash; it looks at the next character without consuming it:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">peek</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">char</span>&gt; {
+    <span class="kw">self</span>.chars.<span class="fn">peek</span>().<span class="fn">map</span>(|&amp;(_, c)| c)
+}</code></pre>
+
+<div class="callout info">
+<strong>UTF-8 safety</strong>: <code>CharIndices</code> yields complete Unicode characters, not raw bytes. The <code>len_utf8()</code> method tells us how many bytes the character occupies, so <code>pos</code> always points to the correct byte boundary. This means emoji, accented characters, and CJK characters in comments or strings are handled correctly.
+</div>
+
+<h3>Skipping Whitespace and Comments</h3>
+
+<p><strong>Whitespace</strong> is straightforward &mdash; consume any ASCII whitespace character:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">skip_whitespace</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">loop</span> {
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">Some</span>(c) <span class="kw">if</span> c.<span class="fn">is_ascii_whitespace</span>() =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); }
+            _ =&gt; <span class="kw">break</span>,
+        }
+    }
+}</code></pre>
+
+<p><strong>Comments</strong> use a "peek and decide" pattern. Since comments start with <code>/</code>, which is also the division operator, we need lookahead:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">skip_comment</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'/'</span>) {
+        <span class="cm">// Save state in case this is NOT a comment</span>
+        <span class="kw">let</span> saved = <span class="kw">self</span>.chars.<span class="fn">clone</span>();
+        <span class="kw">let</span> saved_pos = <span class="kw">self</span>.pos;
+        <span class="kw">let</span> saved_line = <span class="kw">self</span>.line;
+        <span class="kw">let</span> saved_col = <span class="kw">self</span>.col;
+
+        <span class="kw">self</span>.<span class="fn">advance</span>();
+        <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'/'</span>) {
+            <span class="cm">// Line comment: consume until newline or EOF</span>
+            <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+                <span class="kw">if</span> c == <span class="str">'\n'</span> { <span class="kw">break</span>; }
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+            }
+        } <span class="kw">else</span> {
+            <span class="cm">// Not a comment! Restore state so '/' can be lexed as Slash</span>
+            <span class="kw">self</span>.chars = saved;
+            <span class="kw">self</span>.pos = saved_pos;
+            <span class="kw">self</span>.line = saved_line;
+            <span class="kw">self</span>.col = saved_col;
+        }
+    }
+}</code></pre>
+
+<p>The save/restore pattern is the key insight here. When we see <code>/</code>, <strong>we don't know yet</strong> if it's a comment or the division operator. We tentatively advance past the <code>/</code>, and then look at the next character. If it's another <code>/</code>, we consume the rest of the line. If not, we <em>restore</em> the saved state, and the <code>/</code> will be picked up by <code>lex_token()</code> as <code>Token::Slash</code>.</p>
+
+<h3>The Token Dispatch: <code>lex_token()</code></h3>
+
+<p>This method examines the current character and dispatches to the appropriate specialized lexer function. It's a giant <code>match</code> on the first character:</p>
+
+<div class="code-header"><span>src/lexer.rs &mdash; lex_token() dispatch</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">lex_token</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">let</span> c = <span class="kw">self</span>.<span class="fn">peek</span>()?;
+
+    <span class="kw">match</span> c {
+        <span class="cm">// Single-character operators</span>
+        <span class="str">'+'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::Plus</span>) }
+        <span class="str">'-'</span> =&gt; {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'>'</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">Some</span>(<span class="ty">Token::Arrow</span>)       <span class="cm">// -&gt; arrow operator</span>
+            } <span class="kw">else</span> {
+                <span class="ty">Some</span>(<span class="ty">Token::Minus</span>)
+            }
+        }
+        <span class="str">'*'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::Star</span>) }
+        <span class="str">'/'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::Slash</span>) }
+        <span class="str">'%'</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Some</span>(<span class="ty">Token::Percent</span>) }
+
+        <span class="cm">// Multi-character operators with &amp;</span>
+        <span class="str">'&amp;'</span> =&gt; {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'&amp;'</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">Some</span>(<span class="ty">Token::AmpAmp</span>)     <span class="cm">// &amp;&amp; logical and</span>
+            } <span class="kw">else</span> {
+                <span class="ty">Some</span>(<span class="ty">Token::Amp</span>)           <span class="cm">// &amp; bitwise and / address-of</span>
+            }
+        }
+
+        <span class="cm">// Equality and comparison (and their multi-char variants)</span>
+        <span class="str">'='</span> =&gt; {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'='</span>) {
+                <span class="kw">self</span>.<span class="fn">advance</span>();
+                <span class="ty">Some</span>(<span class="ty">Token::EqEq</span>)       <span class="cm">// == equality</span>
+            } <span class="kw">else</span> {
+                <span class="ty">Some</span>(<span class="ty">Token::Eq</span>)            <span class="cm">// = assignment</span>
+            }
+        }
+
+        <span class="cm">// ... '!', '&lt;', '&gt;', and other operators follow the same pattern</span>
+
+        <span class="cm">// Strings, chars, numbers, identifiers</span>
+        <span class="str">'"'</span> =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_string</span>()),
+        <span class="str">'\''</span> =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_char</span>()),
+        <span class="str">'0'</span>..=<span class="str">'9'</span> =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_number</span>()),
+        c <span class="kw">if</span> <span class="fn">is_ident_start</span>(c) =&gt; <span class="ty">Some</span>(<span class="kw">self</span>.<span class="fn">lex_identifier_or_keyword</span>()),
+
+        <span class="cm">// Unknown character: return None so tokenize() records an error</span>
+        _ =&gt; <span class="ty">None</span>,
+    }
+}</code></pre>
+
+<p><strong>The dispatch logic:</strong></p>
+
+<ul>
+<li><strong>Single characters</strong> like <code>+</code>, <code>*</code>, <code>(</code>, <code>)</code> &rarr; advance and return the corresponding token variant.</li>
+<li><strong>Ambiguous operators</strong> like <code>-</code> (could be <code>-&gt;</code>), <code>=</code> (could be <code>==</code>): advance, peek at the next char, then decide.</li>
+<li><strong>Complex literals</strong> (<code>"</code>, <code>'</code>, digits, letters): delegate to a specialized method.</li>
+<li><strong>Fallthrough</strong> (<code>_ =&gt; None</code>): the character is unrecognized. Returns <code>None</code> so <code>tokenize()</code> records an error and advances.</li>
+</ul>
+
+<h3>Number Lexing: <code>lex_number()</code></h3>
+
+<p>L1S supports decimal, hexadecimal, binary, and octal integer literals, plus underscores for readability:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_number</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> raw = <span class="ty">String</span>::<span class="fn">new</span>();
+
+    <span class="cm">// Check for radix prefix (0x, 0b, 0o)</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="str">'0'</span>) {
+        <span class="kw">self</span>.<span class="fn">advance</span>();
+        raw.<span class="fn">push</span>(<span class="str">'0'</span>);
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">Some</span>(<span class="str">'x'</span> | <span class="str">'X'</span>) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(<span class="str">'x'</span>);
+                <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+                    <span class="kw">if</span> c.<span class="fn">is_ascii_hexdigit</span>() || c == <span class="str">'_'</span> {
+                        <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(c);
+                    } <span class="kw">else</span> { <span class="kw">break</span>; }
+                }
+            }
+            <span class="ty">Some</span>(<span class="str">'b'</span> | <span class="str">'B'</span>) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(<span class="str">'b'</span>);
+                <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+                    <span class="kw">if</span> c == <span class="str">'0'</span> || c == <span class="str">'1'</span> || c == <span class="str">'_'</span> {
+                        <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(c);
+                    } <span class="kw">else</span> { <span class="kw">break</span>; }
+                }
+            }
+            <span class="ty">Some</span>(<span class="str">'o'</span> | <span class="str">'O'</span>) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(<span class="str">'o'</span>);
+                <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+                    <span class="kw">if</span> c.<span class="fn">is_ascii_digit</span>() &amp;&amp; c &lt; <span class="str">'8'</span> || c == <span class="str">'_'</span> {
+                        <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(c);
+                    } <span class="kw">else</span> { <span class="kw">break</span>; }
+                }
+            }
+            _ =&gt; {
+                <span class="cm">// Plain 0 followed by digits: decimal</span>
+                <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+                    <span class="kw">if</span> c.<span class="fn">is_ascii_digit</span>() || c == <span class="str">'_'</span> {
+                        <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(c);
+                    } <span class="kw">else</span> { <span class="kw">break</span>; }
+                }
+            }
+        }
+    } <span class="kw">else</span> {
+        <span class="cm">// Non-zero decimal number</span>
+        <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="kw">if</span> c.<span class="fn">is_ascii_digit</span>() || c == <span class="str">'_'</span> {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); raw.<span class="fn">push</span>(c);
+            } <span class="kw">else</span> { <span class="kw">break</span>; }
+        }
+    }
+
+    <span class="ty">Token::NumLiteral</span>(raw)
+}</code></pre>
+
+<div class="callout warn">
+<strong>Note</strong>: The lexer does <em>not</em> validate the number format. It just collects the raw string. A token like <code>0xGG</code> would be lexed as a hex literal even though <code>GG</code> is not valid hex. The parser or a later stage should validate the actual value. This keeps the lexer simple and fast.
+</div>
+
+<h3>String Lexing: <code>lex_string()</code></h3>
+
+<p>Strings are delimited by double quotes and support common escape sequences:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_string</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> content = <span class="ty">String</span>::<span class="fn">new</span>();
+    <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume opening '"'</span>
+
+    <span class="kw">loop</span> {
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">None</span> =&gt; {
+                <span class="cm">// Premature EOF: unclosed string</span>
+                <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(<span class="kw">self</span>.pos, <span class="kw">self</span>.pos, <span class="kw">self</span>.line, <span class="kw">self</span>.col);
+                <span class="kw">self</span>.errors.<span class="fn">push</span>(<span class="ty">LexError</span>::<span class="fn">new</span>(<span class="str">"unclosed string literal"</span>, span));
+                <span class="kw">break</span>;
+            }
+            <span class="ty">Some</span>(<span class="str">'"'</span>) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume closing '"'</span>
+                <span class="kw">break</span>;
+            }
+            <span class="ty">Some</span>(<span class="str">'\\'</span>) =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume backslash</span>
+                <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">advance</span>() {
+                    <span class="ty">Some</span>(<span class="str">'n'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\n'</span>),
+                    <span class="ty">Some</span>(<span class="str">'t'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\t'</span>),
+                    <span class="ty">Some</span>(<span class="str">'\\'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\\'</span>),
+                    <span class="ty">Some</span>(<span class="str">'"'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'"'</span>),
+                    <span class="ty">Some</span>(<span class="str">'0'</span>) =&gt; content.<span class="fn">push</span>(<span class="str">'\0'</span>),
+                    <span class="ty">Some</span>(<span class="str">'x'</span>) =&gt; {
+                        <span class="kw">let</span> hex = <span class="kw">self</span>.<span class="fn">lex_hex_escape</span>();
+                        content.<span class="fn">push</span>(hex <span class="kw">as</span> <span class="ty">char</span>);
+                    }
+                    <span class="ty">Some</span>(c) =&gt; {
+                        <span class="cm">// Invalid escape sequence</span>
+                        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(<span class="kw">self</span>.pos, <span class="kw">self</span>.pos, <span class="kw">self</span>.line, <span class="kw">self</span>.col);
+                        <span class="kw">self</span>.errors.<span class="fn">push</span>(<span class="ty">LexError</span>::<span class="fn">new</span>(
+                            <span class="fn">format!</span>(<span class="str">"invalid escape sequence '\\{}'"</span>, c), span));
+                        content.<span class="fn">push</span>(c);
+                    }
+                    <span class="ty">None</span> =&gt; {
+                        <span class="cm">// Unterminated escape at EOF</span>
+                        <span class="kw">let</span> span = <span class="ty">Span</span>::<span class="fn">new</span>(<span class="kw">self</span>.pos, <span class="kw">self</span>.pos, <span class="kw">self</span>.line, <span class="kw">self</span>.col);
+                        <span class="kw">self</span>.errors.<span class="fn">push</span>(<span class="ty">LexError</span>::<span class="fn">new</span>(<span class="str">"unterminated escape sequence"</span>, span));
+                        <span class="kw">break</span>;
+                    }
+                }
+            }
+            <span class="ty">Some</span>(_) =&gt; {
+                <span class="cm">// Normal character: push it</span>
+                <span class="kw">self</span>.<span class="fn">advance</span>().<span class="fn">map</span>(|c| content.<span class="fn">push</span>(c));
+            }
+        }
+    }
+
+    <span class="ty">Token::StrLiteral</span>(content)
+}</code></pre>
+
+<p>Note that <strong>string content is stored with escapes resolved</strong>. <code>"\n"</code> becomes <code>Token::StrLiteral("\n")</code> (a single newline character), not <code>Token::StrLiteral("\\n")</code>. This means the parser and later stages never need to handle escape sequences.</p>
+
+<h3>Character Lexing: <code>lex_char()</code></h3>
+
+<p>Character literals follow the same pattern as strings but produce a single byte:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_char</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// consume opening '\''</span>
+    <span class="kw">let</span> c = <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="ty">None</span> =&gt; { <span class="cm">/* error: unclosed */</span> <span class="kw">return</span> <span class="ty">Token::CharLiteral</span>(0); }
+        <span class="ty">Some</span>(<span class="str">'\\'</span>) =&gt; { <span class="cm">/* escape sequence */</span> }
+        <span class="ty">Some</span>(c) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); c }
+    };
+    <span class="cm">// Expect closing '\''</span>
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="ty">Some</span>(<span class="str">'\''</span>) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">Token::CharLiteral</span>(c <span class="kw">as</span> <span class="ty">u8</span>) }
+        _ =&gt; { <span class="cm">/* error: unclosed */</span> <span class="ty">Token::CharLiteral</span>(c <span class="kw">as</span> <span class="ty">u8</span>) }
+    }
+}</code></pre>
+
+<p>Note the <code>as u8</code> cast: character literals are single bytes. Multi-byte characters are not supported (the lexer explicitly errors on them).</p>
+
+<h3>The Hex Escape Helper</h3>
+
+<p>Both strings and characters use <code>\xHH</code> hex escapes. The helper reads at most two hex digits:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_hex_escape</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">u8</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> hex = <span class="ty">String</span>::<span class="fn">with_capacity</span>(2);
+    <span class="kw">for</span> _ <span class="kw">in</span> 0..2 {
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek</span>() {
+            <span class="ty">Some</span>(c) <span class="kw">if</span> c.<span class="fn">is_ascii_hexdigit</span>() =&gt; {
+                <span class="kw">self</span>.<span class="fn">advance</span>(); hex.<span class="fn">push</span>(c);
+            }
+            _ =&gt; <span class="kw">break</span>,
+        }
+    }
+    <span class="ty">u8</span>::<span class="fn">from_str_radix</span>(&amp;hex, 16).<span class="fn">unwrap_or</span>(0)
+}</code></pre>
+
+<h3>Identifier and Keyword Lexing</h3>
+
+<p>The most elegant part of the lexer is how it handles identifiers and keywords:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">lex_identifier_or_keyword</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> ident = <span class="ty">String</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(c) = <span class="kw">self</span>.<span class="fn">peek</span>() {
+        <span class="kw">if</span> c.<span class="fn">is_alphanumeric</span>() || c == <span class="str">'_'</span> {
+            <span class="kw">self</span>.<span class="fn">advance</span>();
+            ident.<span class="fn">push</span>(c);
+        } <span class="kw">else</span> { <span class="kw">break</span>; }
+    }
+    <span class="fn">keyword_token</span>(&amp;ident).<span class="fn">unwrap_or</span>(<span class="ty">Token::Ident</span>(ident))
+}</code></pre>
+
+<p>The critical call is <code>keyword_token(&amp;ident)</code>. This single line is the bridge between the lexer and the token definitions:</p>
+<ul>
+<li>If the string matches a keyword (like <code>"func"</code>, <code>"let"</code>, <code>"i32"</code>, <code>"bool"</code>), it returns the corresponding token variant (<code>Token::Func</code>, <code>Token::Let</code>, etc.).</li>
+<li>If it doesn't match any keyword, <code>unwrap_or</code> falls back to <code>Token::Ident(ident)</code>.</li>
+</ul>
+
+<p>The helper <code>is_ident_start</code> defines what characters can begin an identifier:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">is_ident_start</span>(c: <span class="ty">char</span>) -&gt; <span class="ty">bool</span> {
+    c.<span class="fn">is_ascii_alphabetic</span>() || c == <span class="str">'_'</span>
+}</code></pre>
+
+<p>Note: digits cannot start an identifier. <code>123foo</code> is a number (<code>123</code>) followed by an identifier (<code>foo</code>). Well, actually the lexer will lex <code>123foo</code> as <code>NumLiteral("123foo")</code> because <code>lex_number</code> consumes any alphanumeric characters after the digits. This is a known simplification &mdash; the parser or type checker should catch invalid numeric literals.</p>
+
+<div class="callout info">
+<strong>Single-function keyword dispatch</strong>: The <code>keyword_token</code> function in <code>token.rs</code> is the single source of truth for the keyword list. Adding a new keyword requires exactly two changes: add a variant to the <code>Token</code> enum, and add a match arm to <code>keyword_token</code>. The lexer code never needs to change.
+</div>
+
+<h3>Error Recovery Philosophy</h3>
+
+<p>The L1S lexer employs a <strong>best-effort error recovery</strong> strategy:</p>
+
+<ol>
+<li><strong>Never panic</strong>: The lexer should never crash, no matter how malformed the input.</li>
+<li><strong>Record and continue</strong>: When an error is encountered (invalid character, unclosed string, bad escape), the lexer records the error, advances past the bad input, and continues lexing. This maximizes the number of errors reported per compilation.</li>
+<li><strong>The caller decides</strong>: Errors are returned as <code>Vec&lt;LexError&gt;</code> alongside the tokens. The caller (the compiler driver) decides whether to abort or continue. Currently the driver ignores lex errors for simplicity, but they could be reported alongside parse errors.</li>
+</ol>
+
+<h3>Traced Example: What the Lexer Produces</h3>
+
+<p>Let's trace the lexer on a small program. Given this input:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> 42;
+}</code></pre>
+
+<p>The lexer produces these tokens (with their spans):</p>
+
+<table class="file-table">
+<tr><th>#</th><th>Token</th><th>Span (line:col)</th><th>Source Text</th></tr>
+<tr><td>1</td><td><code>Func</code></td><td>1:1 &ndash; 1:5</td><td><code>func</code></td></tr>
+<tr><td>2</td><td><code>Ident("main")</code></td><td>1:6 &ndash; 1:10</td><td><code>main</code></td></tr>
+<tr><td>3</td><td><code>OpenParen</code></td><td>1:10 &ndash; 1:11</td><td><code>(</code></td></tr>
+<tr><td>4</td><td><code>I32</code></td><td>1:11 &ndash; 1:14</td><td><code>i32</code></td></tr>
+<tr><td>5</td><td><code>CloseParen</code></td><td>1:14 &ndash; 1:15</td><td><code>)</code></td></tr>
+<tr><td>6</td><td><code>OpenBrace</code></td><td>1:16 &ndash; 1:17</td><td><code>{</code></td></tr>
+<tr><td>7</td><td><code>Return</code></td><td>2:5 &ndash; 2:11</td><td><code>return</code></td></tr>
+<tr><td>8</td><td><code>NumLiteral("42")</code></td><td>2:12 &ndash; 2:14</td><td><code>42</code></td></tr>
+<tr><td>9</td><td><code>Semicolon</code></td><td>2:14 &ndash; 2:15</td><td><code>;</code></td></tr>
+<tr><td>10</td><td><code>CloseBrace</code></td><td>3:1 &ndash; 3:2</td><td><code>}</code></td></tr>
+<tr><td>11</td><td><code>Eof</code></td><td>3:2 &ndash; 3:2</td><td>&lt;end&gt;</td></tr>
+</table>
+
+<p>Notice how the lexer already resolved <code>func</code> &rarr; <code>Func</code> (keyword), <code>main</code> &rarr; <code>Ident</code> (not a keyword), and <code>i32</code> &rarr; <code>I32</code> (primitive type keyword). Whitespace and the newline produced no tokens. Every token has its exact source location, enabling precise error reporting downstream.</p>
+
+<h3>Testing the Lexer</h3>
+
+<p>The lexer comes with extensive tests defined in the <code>#[cfg(test)]</code> module at the bottom of the file. Here are the key test categories:</p>
+
+<p><strong>Empty input and whitespace</strong>:</p>
+<pre><code><span class="kw">fn</span> <span class="fn">lex</span>(source: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">Lexer</span>::<span class="fn">new</span>(source);
+    <span class="kw">let</span> (tokens, errors) = lexer.<span class="fn">tokenize</span>();
+    <span class="fn">assert!</span>(errors.<span class="fn">is_empty</span>(), <span class="str">"Lex errors: {:?}"</span>, errors);
+    tokens.<span class="fn">into_iter</span>().<span class="fn">map</span>(|st| st.token).<span class="fn">collect</span>()
+}
+
+<span class="cm">// ... in the test module:</span>
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_empty_source</span>() {
+    <span class="fn">assert_eq!</span>(<span class="fn">lex</span>(<span class="str">""</span>), <span class="fn">vec!</span>[<span class="ty">Token::Eof</span>]);
+}
+
+<span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_whitespace_only</span>() {
+    <span class="fn">assert_eq!</span>(<span class="fn">lex</span>(<span class="str">"   \n  \t  "</span>), <span class="fn">vec!</span>[<span class="ty">Token::Eof</span>]);
+}</code></pre>
+
+<p><strong>Numbers with radix prefixes and underscores</strong>:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_numbers</span>() {
+    <span class="kw">let</span> tokens = <span class="fn">lex</span>(<span class="str">"42 0x1A 0b1010 0o77 1_000"</span>);
+    <span class="fn">assert_eq!</span>(tokens[0], <span class="ty">Token::NumLiteral</span>(<span class="str">"42"</span>.<span class="fn">into</span>()));
+    <span class="fn">assert_eq!</span>(tokens[1], <span class="ty">Token::NumLiteral</span>(<span class="str">"0x1A"</span>.<span class="fn">into</span>()));
+    <span class="fn">assert_eq!</span>(tokens[2], <span class="ty">Token::NumLiteral</span>(<span class="str">"0b1010"</span>.<span class="fn">into</span>()));
+    <span class="fn">assert_eq!</span>(tokens[3], <span class="ty">Token::NumLiteral</span>(<span class="str">"0o77"</span>.<span class="fn">into</span>()));
+    <span class="fn">assert_eq!</span>(tokens[4], <span class="ty">Token::NumLiteral</span>(<span class="str">"1_000"</span>.<span class="fn">into</span>()));
+}</code></pre>
+
+<p><strong>String escapes</strong>:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_string_hex_escape</span>() {
+    <span class="kw">let</span> tokens = <span class="fn">lex</span>(<span class="str">r#""\x48\x65\x6c\x6c\x6f""#</span>);
+    <span class="fn">assert_eq!</span>(tokens[0], <span class="ty">Token::StrLiteral</span>(<span class="str">"Hello"</span>.<span class="fn">into</span>()));
+}</code></pre>
+
+<p><strong>Error detection</strong> (the test helper <code>lex_with_errors</code> returns errors too):</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_unexpected_character</span>() {
+    <span class="kw">let</span> (_, errors) = <span class="fn">lex_with_errors</span>(<span class="str">"foo $ bar"</span>);
+    <span class="fn">assert!</span>(errors.<span class="fn">iter</span>().<span class="fn">any</span>(|e| e.message.<span class="fn">contains</span>(<span class="str">"unexpected character"</span>)));
+}</code></pre>
+
+<p>To run the lexer tests:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- lexer
+</code></pre>
+
+<p>This runs all tests in the <code>lexer</code> module (including integration tests that use the lexer via the parser).</p>
+
+<h3>Common Pitfalls &amp; Debugging Tips</h3>
+
+<ol>
+<li><strong>Position off by one</strong>: Always initialize <code>line: 1, col: 1</code> (not 0). Check your <code>advance()</code> method: newlines should increment <code>line</code> and reset <code>col</code> to 1.</li>
+<li><strong>Comments confused with division</strong>: The <code>skip_comment</code> save/restore pattern is critical. Without it, <code>/</code> would be consumed before <code>lex_token</code> could see it.</li>
+<li><strong>Unclosed strings</strong>: Always handle the case where EOF is reached while inside a string. Record an error, return the partial content, and continue.</li>
+<li><strong>Multi-byte characters</strong>: Use <code>CharIndices</code> rather than raw byte indexing to correctly handle UTF-8. Never assume one byte = one character.</li>
+<li><strong>Test error paths</strong>: It's easy to only test happy paths. Make sure to test invalid input, empty input, and edge cases like <code>"\x"</code> (incomplete hex escape).</li>
+</ol>
+
+<div class="callout tip">
+<strong>Debugging the lexer</strong>: Add a <code>println!</code> to <code>tokenize()</code> that dumps each token as it's produced:
+<pre style="margin:0.5rem 0 0;font-size:0.8rem;"><code>println!("token: {:?} at {}", tok, span);</code></pre>
+This is the single most useful debugging tool for the lexer. Run it on your test input and verify the token stream matches your expectations.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="03-tokens.html">&larr; Chapter 3</a> &ensp; Chapter 4: The Lexer &ensp; <a href="05-ast.html">Chapter 5 &rarr;</a></span>
+</div>
+
+</body>
+</html>

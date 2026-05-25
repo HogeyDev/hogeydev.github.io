@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Spark — Building a Compiler</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler</a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+</script>
+
+<h2>Chapter 00: The Spark</h2>
+
+<p>You write code. The computer runs it. How?</p>
+
+<p>It's such an ordinary thing that we barely think about it anymore. You open a file, type some text, save it, run a command, and a program executes. But the gap between what you write and what the computer does is enormous. A modern CPU understands nothing but numbers — opcodes, registers, memory addresses. You write:</p>
+
+<pre><code><span class="kw">int</span> <span class="fn">main</span>() {
+    <span class="kw">return</span> <span class="num">42</span>;
+}</code></pre>
+
+<p>But the computer needs something more like:</p>
+
+<pre><code><span class="num">55</span>                <span class="cm">; push rbp</span>
+<span class="num">48 89 e5</span>          <span class="cm">; mov rbp, rsp</span>
+<span class="num">b8 2a 00 00 00</span>    <span class="cm">; mov eax, 42</span>
+<span class="num">5d</span>                <span class="cm">; pop rbp</span>
+<span class="num">c3</span>                <span class="cm">; ret</span></code></pre>
+
+<p>These aren't even the same kind of thing. One is a statement of intent. The other is a sequence of mechanical instructions. One says <em>what</em> should happen; the other says <em>how</em> to make it happen, at the level of individual register moves and memory operations.</p>
+
+<p>Something has to bridge this gap. That something is a <strong>compiler</strong>.</p>
+
+<h3>What Is a Compiler, Really?</h3>
+
+<p>The word "compiler" sounds imposing. It conjures images of dark magic, of sprawling C++ codebases, of things that only PhDs in programming languages understand. But the core idea is simple:</p>
+
+<p>A compiler is a translator. It takes a program written in one language (the <em>source</em> language) and produces an equivalent program in another language (the <em>target</em> language).</p>
+
+<p>That's it. The source is your high-level code. The target is assembly or machine code. The compiler is the translator in between.</p>
+
+<p>Translation happens in stages because each stage solves a specific subproblem:</p>
+
+<ul>
+  <li><strong>Lexing:</strong> "What are the words?" — group characters into tokens like keywords, identifiers, numbers.</li>
+  <li><strong>Parsing:</strong> "What is the structure?" — arrange tokens into a tree that reflects the grammar of the language.</li>
+  <li><strong>Semantic analysis:</strong> "Does it make sense?" — check that names refer to real things, that types are consistent.</li>
+  <li><strong>IR generation:</strong> "How do we get closer to the machine?" — translate the high-level tree into a simpler, lower-level representation.</li>
+  <li><strong>Code generation:</strong> "What are the actual instructions?" — translate the IR into assembly language for a real CPU.</li>
+  <li><strong>Assembly and linking:</strong> "How do we make an executable?" — turn assembly into machine code and package it up.</li>
+</ul>
+
+<p>Each stage is simpler than the whole problem. That's the secret: a compiler is not one hard thing; it's several easy things chained together.</p>
+
+<h3>The Question Beneath the Question</h3>
+
+<p>When you ask "how does a computer run my code?", you're really asking a stack of questions, each nested inside the last:</p>
+
+<ul>
+  <li>How does text become meaning? (What does <code>return 42</code> even <em>mean</em>?)</li>
+  <li>How does meaning become instructions? (How do you turn "return the value 42" into <code>mov eax, 42; ret</code>?)</li>
+  <li>How do instructions become electrons? (But that's computer architecture, not compilers.)</li>
+</ul>
+
+<p>This book answers the first two questions. We will build two compilers — one in Rust and one in OCaml — that translate a small but real programming language all the way down to x86-64 assembly. By the time we're done, every transformation from source text to machine code will be something you can hold in your head.</p>
+
+<h3>The Pipeline at 30,000 Feet</h3>
+
+<p>Every compiler follows the same basic arc. It's worth seeing the whole thing before we dive into any one part:</p>
+
+<div class="diagram">
+Source Code (text)
+    │
+    ▼
+┌──────────────────────┐
+│  1. Lexing           │  ──  characters → tokens
+├──────────────────────┤
+│  2. Parsing          │  ──  flat tokens → tree (AST)
+├──────────────────────┤
+│  3. Semantic         │  ──  names → definitions, types
+│     Analysis         │
+├──────────────────────┤
+│  4. IR               │  ──  high-level tree → low-level
+│     Generation       │      instructions (IR)
+├──────────────────────┤
+│  5. Codegen          │  ──  IR → assembly
+├──────────────────────┤
+│  6. Assembly &amp;       │  ──  assembly → machine code
+│     Linking          │
+└──────────────────────┘
+    │
+    ▼
+Executable (binary)
+</div>
+
+<p>Each chapter of this book builds one stage of this pipeline. The output of each stage becomes the input of the next. By chapter 8, the pipeline is complete: we feed it source code and get back an executable file.</p>
+
+<p>Let's walk through what happens when you run our eventual compiler on that tiny C-like program above. This is a preview of everything we'll learn:</p>
+
+<div class="diagram">
+Source:  func main(i32) { return 42; }
+           │
+           ▼  Lexer
+Tokens:  [Func, Ident("main"), OpenParen, I32,
+           CloseParen, OpenBrace, Return,
+           NumLiteral(42), Semicolon, CloseBrace]
+           │
+           ▼  Parser
+AST:     Program
+           └── Function "main"
+                 ├── ReturnType: I32
+                 ├── Params: []
+                 └── Body: Block
+                       └── Return
+                             └── NumLiteral(42)
+           │
+           ▼  Semantic Analysis
+         (checks: main exists, 42 is i32, return matches type)
+           │
+           ▼  IR Generation
+IR:      function main():
+           mov eax, 42
+           ret
+           │
+           ▼  Codegen
+Assembly: .globl main
+          main:
+            push rbp
+            mov  rbp, rsp
+            mov  eax, 42
+            pop  rbp
+            ret
+           │
+           ▼  Assembler + Linker
+Executable:  a.out
+</div>
+
+<p>Every arrow in this diagram is something we will build from scratch. Every transformation is a piece of code we will write, understand, and debug. By the time we're done, this pipeline won't be a diagram — it will be a running program on your computer.</p>
+
+<h3>What Does a Compiler Look Like?</h3>
+
+<p>Let's step back and think about the big picture before we dive into code. A compiler is, at its heart, a function:</p>
+
+<pre><code><span class="cm">// Input:  source code as a string</span>
+<span class="cm">// Output: assembly code as a string (or an executable file)</span>
+<span class="kw">fn</span> <span class="fn">compile</span>(source: &amp;<span class="ty">str</span>) -> <span class="ty">String</span>;</code></pre>
+
+<p>Everything inside that function is what we're building. The pipeline transforms the data step by step:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">compile</span>(source: &amp;<span class="ty">str</span>) -> <span class="ty">Result</span>&lt;<span class="ty">String</span>, <span class="ty">Vec</span>&lt;<span class="ty">Error</span>&gt;&gt; {
+    <span class="kw">let</span> tokens = <span class="fn">lex</span>(source)?;
+    <span class="kw">let</span> ast = <span class="fn">parse</span>(tokens)?;
+    <span class="kw">let</span> checked_ast = <span class="fn">check</span>(ast)?;
+    <span class="kw">let</span> ir = <span class="fn">lower</span>(checked_ast);
+    <span class="kw">let</span> asm = <span class="fn">codegen</span>(ir);
+    <span class="fn">Ok</span>(asm)
+}</code></pre>
+
+<p>Each function call is a compiler phase. The <code>?</code> operator means "if this phase fails, stop and report the error." This is the entire architecture of our compiler expressed in nine lines. Each phase is a self-contained transformation, and the phases compose linearly. That's beautiful — it means we can build, test, and understand each phase independently.</p>
+
+<h3>The Language We'll Build</h3>
+
+<p>We need a language to compile. We could pick an existing one, but half the fun is designing our own. More importantly, building the language <em>as we go</em> means every feature is motivated by a concrete need. Nothing is arbitrary. The language doesn't descend from on high as a spec — it emerges naturally from the problems we're solving.</p>
+
+<p>Let's look at a complete program in the language we're going to create:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> <span class="num">42</span>;
+}</code></pre>
+
+<p>This is the simplest program that does something observable: it returns the number 42. Let's break down each piece:</p>
+
+<table class="file-table">
+  <tr><th>Piece</th><th>What it means</th></tr>
+  <tr><td><code>func</code></td><td>"I'm defining a function" — a named block of code you can call</td></tr>
+  <tr><td><code>main</code></td><td>The name of this function. Every program starts here.</td></tr>
+  <tr><td><code>(i32)</code></td><td>The function takes no parameters; <code>i32</code> is the return type (a 32-bit integer)</td></tr>
+  <tr><td><code>{ ... }</code></td><td>The body of the function — the instructions to execute</td></tr>
+  <tr><td><code>return 42;</code></td><td>Exit the function and give back the value 42</td></tr>
+</table>
+
+<p>Our language will grow as we need it to. When we need variables, we'll add <code>let</code>. When we need decisions, we'll add <code>if</code>. When we need repetition, we'll add <code>while</code>. Each addition teaches us something new about the compiler pipeline.</p>
+
+<p>Here's a sneak peek of what our language will look like by the middle of the book:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">add</span>(<span class="ty">i32</span>, a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) {
+    <span class="kw">return</span> a + b;
+}
+
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="num">42</span>;
+    <span class="kw">let</span> y: <span class="ty">i32</span> = <span class="fn">add</span>(x, <span class="num">10</span>);
+    <span class="kw">if</span> (y &gt; <span class="num">50</span>) {
+        <span class="kw">return</span> <span class="num">1</span>;
+    } <span class="kw">else</span> {
+        <span class="kw">return</span> <span class="num">0</span>;
+    }
+}</code></pre>
+
+<p>And later, when we need loops:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">sum_to_n</span>(<span class="ty">i32</span>, n: <span class="ty">i32</span>) {
+    <span class="kw">let</span> i: <span class="ty">i32</span> = <span class="num">0</span>;
+    <span class="kw">let</span> total: <span class="ty">i32</span> = <span class="num">0</span>;
+    <span class="kw">while</span> (i &lt; n) {
+        total = total + i;
+        i = i + <span class="num">1</span>;
+    }
+    <span class="kw">return</span> total;
+}</code></pre>
+
+<div class="callout">
+<strong>Naming the language</strong>
+Every compiler book needs a name for its language. We'll call ours <strong>Sparks</strong> — small, bright, self-contained pieces of computation that can combine into larger programs. The file extension will be <code>.spark</code>.
+</div>
+
+<h3>Why Two Compilers?</h3>
+
+<p>You might wonder: why build this in <em>two</em> languages instead of one? There are two reasons, and both are central to the philosophy of this book.</p>
+
+<p><strong>First</strong>, the concepts of compilation are language-independent. A lexer is a lexer whether you write it in Rust, OCaml, Haskell, or Python. By seeing the same ideas expressed in two very different languages, you'll recognize the ideas themselves rather than just memorizing syntax. If you know Rust, reading the OCaml side will teach you OCaml through the lens of something you already understand — and vice versa.</p>
+
+<p><strong>Second</strong>, Rust and OCaml represent two different philosophies of systems programming, and compilers sit at an interesting intersection of both. Rust gives you fine-grained control over memory and a powerful type system that enforces correctness at compile time. OCaml gives you a remarkably expressive type system with pattern matching and algebraic data types that make tree-shaped data (which compilers have <em>everywhere</em>) feel utterly natural. Each has something to teach.</p>
+
+<p>Here's a quick comparison to illustrate:</p>
+
+<table class="file-table">
+  <tr><th>Aspect</th><th>Rust</th><th>OCaml</th></tr>
+  <tr><td>Type system</td><td>Ownership, borrowing, lifetimes</td><td>Algebraic data types, parametric polymorphism</td></tr>
+  <tr><td>Pattern matching</td><td>Powerful, but limited by ownership</td><td>First-class, exhaustive, everywhere</td></tr>
+  <tr><td>Memory model</td><td>Explicit ownership and borrowing</td><td>Garbage collected</td></tr>
+  <tr><td>Mutability</td><td>Opt-in with <code>mut</code></td><td>Opt-in with <code>ref</code></td></tr>
+  <tr><td>Module system</td><td>Modules + crates</td><td>Modules + functors (advanced)</td></tr>
+  <tr><td>Expressiveness sweet spot</td><td>Systems programming with safety</td><td>Symbolic computation and DSLs</td></tr>
+</table>
+
+<p>Both compilers in this book are designed to be idiomatic in their respective languages while expressing the same concepts. Reading both sides will make you a better programmer regardless of which language you prefer.</p>
+
+<h3>The Two Compilers</h3>
+
+<p>Here's the structure of each compiler. They're laid out identically so you can always find the corresponding file:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>code/rust/ — directory structure</span></div>
+    <pre><code>rust-compiler/
+├── <span class="fn">Cargo.toml</span>
+└── <span class="fn">src/</span>
+    ├── <span class="fn">main.rs</span>          <span class="cm">// driver: reads files, runs pipeline</span>
+    ├── <span class="fn">span.rs</span>          <span class="cm">// text positions and source files</span>
+    ├── <span class="fn">token.rs</span>         <span class="cm">// token definitions</span>
+    ├── <span class="fn">lexer.rs</span>         <span class="cm">// character → token</span>
+    ├── <span class="fn">ast.rs</span>           <span class="cm">// abstract syntax tree types</span>
+    ├── <span class="fn">parser.rs</span>        <span class="cm">// token → AST</span>
+    ├── <span class="fn">symbol.rs</span>        <span class="cm">// symbol table for name resolution</span>
+    ├── <span class="fn">types.rs</span>         <span class="cm">// type representation and checking</span>
+    ├── <span class="fn">check.rs</span>         <span class="cm">// semantic analysis pass</span>
+    ├── <span class="fn">ir.rs</span>            <span class="cm">// intermediate representation</span>
+    ├── <span class="fn">codegen.rs</span>       <span class="cm">// IR → x86-64 assembly</span>
+    └── <span class="fn">emitter.rs</span>       <span class="cm">// assembly text output</span></code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>code/ocaml/ — directory structure</span></div>
+    <pre><code>ocaml-compiler/
+├── <span class="fn">Makefile</span>
+├── <span class="fn">dune-project</span>
+└── <span class="fn">bin/</span>
+    ├── <span class="fn">main.ml</span>          <span class="cm">// driver: reads files, runs pipeline</span>
+    ├── <span class="fn">span.ml</span>          <span class="cm">// text positions and source files</span>
+    ├── <span class="fn">token.ml</span>         <span class="cm">// token definitions</span>
+    ├── <span class="fn">lexer.ml</span>         <span class="cm">// character → token</span>
+    ├── <span class="fn">ast.ml</span>           <span class="cm">// abstract syntax tree types</span>
+    ├── <span class="fn">parser.ml</span>        <span class="cm">// token → AST</span>
+    ├── <span class="fn">symbol.ml</span>        <span class="cm">// symbol table for name resolution</span>
+    ├── <span class="fn">types.ml</span>         <span class="cm">// type representation and checking</span>
+    ├── <span class="fn">check.ml</span>         <span class="cm">// semantic analysis pass</span>
+    ├── <span class="fn">ir.ml</span>            <span class="cm">// intermediate representation</span>
+    ├── <span class="fn">codegen.ml</span>       <span class="cm">// IR → x86-64 assembly</span>
+    └── <span class="fn">emitter.ml</span>       <span class="cm">// assembly text output</span></code></pre>
+  </div>
+</div>
+
+<p>Every file in the Rust compiler has a corresponding file in the OCaml compiler. When we talk about <code>span.rs</code> in a chapter, you can open <code>span.ml</code> and see the same concepts expressed in OCaml. This one-to-one mapping is deliberate: it lets you focus on the ideas, not the language.</p>
+
+<p>The dependency order between modules also mirrors the pipeline. <code>span.rs</code> depends on nothing but the standard library. <code>token.rs</code> depends on <code>span.rs</code>. <code>lexer.rs</code> depends on both. <code>parser.rs</code> depends on the lexer and the token types. By the time we reach <code>codegen.rs</code>, it depends on everything before it. This layered design means you can read the files in order and never encounter a forward reference you don't understand.</p>
+
+<h3>Getting Started with the Companion Code</h3>
+
+<p>The companion code lives in two directories: <code>code/rust/</code> and <code>code/ocaml/</code>. Each is a complete, buildable project. Here's how to get started:</p>
+
+<p><strong>Rust:</strong></p>
+<pre><code><span class="fn">cd</span> code/rust
+<span class="fn">cargo build</span>           <span class="cm"># Build the compiler</span>
+<span class="fn">echo</span> <span class="str">'func main(i32) { return 42; }'</span> | <span class="fn">cargo run</span>  <span class="cm"># Compile a program</span></code></pre>
+
+<p><strong>OCaml:</strong></p>
+<pre><code><span class="fn">cd</span> code/ocaml
+<span class="fn">make</span>                  <span class="cm"># Build the compiler</span>
+<span class="fn">echo</span> <span class="str">'func main(i32) { return 42; }'</span> | <span class="fn">./spark</span>  <span class="cm"># Compile a program</span></code></pre>
+
+<p>Both compilers read source from stdin by default and write assembly to stdout. You can also pass a filename as an argument:</p>
+
+<pre><code><span class="fn">cargo run</span> -- <span class="fn">hello.spark</span>
+<span class="cm"># or</span>
+<span class="fn">./spark</span> <span class="fn">hello.spark</span></code></pre>
+
+<p>Throughout the book, you'll see code blocks with filenames like <code>src/span.rs</code> or <code>span.ml</code>. These correspond directly to files in the companion code. When you're reading about a piece of code, you can open the companion file and follow along — the code in the book is the code in the repository.</p>
+
+<p>Each chapter's exercises invite you to modify the compiler and see the effects. Don't be afraid to experiment. The compiler is your sandbox; the worst that can happen is it doesn't compile, and you learn something from fixing it.</p>
+
+<div class="callout info">
+<strong>A note on Rust editions and OCaml versions</strong>
+The Rust compiler targets the latest stable Rust (edition 2021 or later). The OCaml compiler targets OCaml 5.x with dune as the build system. If you're using an older version, the code should still work, but you may need to adjust the build configuration. Check the README in each directory for version-specific notes.
+</div>
+
+<h3>Why Build a Compiler?</h3>
+
+<p>This is a fair question. You could use someone else's compiler and never think about how it works. Why invest the time?</p>
+
+<p><strong>It changes how you read code.</strong> Once you've built a parser, you never look at a source file the same way again. You see the syntax tree. You recognize where the lexer had to disambiguate. You understand why some error messages are easy to generate and others are hard. Every language feature becomes something you think about in terms of "how would I implement this?"</p>
+
+<p><strong>It's not as hard as you think.</strong> A production compiler like LLVM or GHC is millions of lines of code, but the <em>core</em> of a compiler — the pipeline from source text to assembly — is something you can build in a weekend once you know how. The principles scale. A toy compiler isn't a toy version of a real compiler; it's the same thing, just smaller. The same techniques that compile our tiny Sparks language are the techniques that compile Rust, OCaml, and C.</p>
+
+<p><strong>It's the most satisfying kind of programming.</strong> There is an almost alchemical pleasure in watching text you wrote transform into instructions a machine follows. Each stage of the pipeline is a small miracle, and when you've built each stage yourself, the whole thing feels like magic that you're <em>allowed</em> to understand. There's a moment in every compiler project — usually around the time you first run a compiled program — where you realize: <em>I made this. These bytes on disk came from my code.</em></p>
+
+<div class="callout tip">
+<strong>A word on prerequisites</strong>
+We assume you know how to program — you've written loops, functions, and data structures. We assume basic familiarity with Rust or OCaml (or the willingness to learn as we go — both are well within reach for an experienced programmer). We do <em>not</em> assume you know anything about compilers, assembly, or computer architecture beyond the absolute basics (you know what a CPU, registers, and memory are). Everything else we'll build together.
+</div>
+
+<h3>Who This Book Is For</h3>
+
+<p>This book is for you if:</p>
+
+<ul>
+  <li>You've ever wondered what happens between "save the file" and "run the program"</li>
+  <li>You've used compilers for years and want to understand them from the inside out</li>
+  <li>You're a Rust programmer who wants to learn OCaml (or vice versa) through a shared project</li>
+  <li>You want to build something real that you can hold in your hands — a working compiler from scratch</li>
+  <li>You enjoy that moment when a bunch of disparate pieces click together into a unified whole</li>
+</ul>
+
+<p>This book is <em>not</em> for you if:</p>
+
+<ul>
+  <li>You want a deep theoretical treatment of formal language theory, automata, or denotational semantics</li>
+  <li>You want to build a production-grade compiler that optimizes better than LLVM</li>
+  <li>You want to skip straight to the "interesting" parts without building the foundation</li>
+</ul>
+
+<p>There are excellent books for those goals. This one is about the joy of building something real, from first principles, one piece at a time.</p>
+
+<h3>What We'll Build, Chapter by Chapter</h3>
+
+<p>Here's the road ahead. Each chapter solves one concrete problem and produces one piece of the compiler. The problems build on each other — the solution to chapter 1's problem is needed to solve chapter 2's problem, and so on:</p>
+
+<table class="file-table">
+  <tr><th>Chapter</th><th>Problem</th><th>What We Build</th></tr>
+  <tr>
+    <td><a href="01-text-and-spans.html">01 — Raw Materials</a></td>
+    <td>"Where in the source code did this error happen?"</td>
+    <td>Text positions, spans, source file abstraction</td>
+  </tr>
+  <tr>
+    <td><a href="02-lexing.html">02 — Finding the Words</a></td>
+    <td>"Raw text is just characters. How do we find the meaningful pieces?"</td>
+    <td>Lexer: character stream → token stream</td>
+  </tr>
+  <tr>
+    <td><a href="03-parsing.html">03 — Making Sense of Structure</a></td>
+    <td>"How do flat tokens become nested trees?"</td>
+    <td>Recursive descent parser; the abstract syntax tree</td>
+  </tr>
+  <tr>
+    <td><a href="04-ast.html">04 — The Shape of a Program</a></td>
+    <td>"What should the parser actually build?"</td>
+    <td>Full AST definitions; pretty-printing the tree</td>
+  </tr>
+  <tr>
+    <td><a href="05-semantics.html">05 — Does This Make Sense?</a></td>
+    <td>"Are we using names correctly? Are types consistent?"</td>
+    <td>Symbol table, type checker, semantic analysis pass</td>
+  </tr>
+  <tr>
+    <td><a href="06-ir.html">06 — Bridging the Gap</a></td>
+    <td>"How do we go from high-level trees to low-level instructions?"</td>
+    <td>Intermediate representation (IR); translation from AST</td>
+  </tr>
+  <tr>
+    <td><a href="07-codegen.html">07 — Speaking the Machine's Language</a></td>
+    <td>"How do we turn IR into actual assembly?"</td>
+    <td>x86-64 code generation; registers, stack frames, calling conventions</td>
+  </tr>
+  <tr>
+    <td><a href="08-assembly.html">08 — The Final Mile</a></td>
+    <td>"How do we go from assembly text to a running program?"</td>
+    <td>Driver pipeline, error reporting, assembling and linking</td>
+  </tr>
+</table>
+
+<p>By the end of chapter 8, we'll have a complete, working compiler. Chapter 9 looks at what comes next: optimizations, garbage collection, JIT compilation — the many directions you can go from here.</p>
+
+<p>Each chapter is designed to be read in an hour or two. The code for each chapter is short — typically 50–200 lines of new code. Compilers are deep, but they don't have to be long.</p>
+
+<h3>How to Read This Book</h3>
+
+<p>Each chapter has the same structure:</p>
+
+<ol>
+  <li><strong>A problem</strong> — something that the previous chapter's work makes necessary or possible. We always lead with a question, never with an answer.</li>
+  <li><strong>The core idea</strong> — the concept that solves the problem, explained intuitively with analogies and concrete examples.</li>
+  <li><strong>Implementation</strong> — the actual code, in both Rust and OCaml, with tabs to switch between them. Code comes with filenames so you can find it in the companion repository.</li>
+  <li><strong>Exercises</strong> — ways to extend what we've built, test your understanding, or explore further. Some are small (add a method), some are larger (add a language feature).</li>
+</ol>
+
+<p>You can read the Rust side, the OCaml side, or both. The tabs let you pick your language and stay in it, or switch back and forth to compare. Both compilers are fully functional — you can run the exercises and see your changes in action.</p>
+
+<p>The exercises are the heart of the book. Reading about compilers is one thing; <em>building</em> them is another. The exercises range from straightforward to challenging. At minimum, do the first exercise in each chapter — they build on each other and ensure you understand the core concepts before moving on.</p>
+
+<h3>A Note on Testing and Debugging</h3>
+
+<p>Compilers are unusual programs to debug. You can't just print out the answer and check if it's right — the "answer" is a compiled binary, and if it's wrong, you need to trace back through the pipeline to find the bug. Here's the approach we'll use throughout the book:</p>
+
+<ul>
+  <li><strong>Test each phase in isolation.</strong> The lexer should be tested on its own before you feed its output to the parser. The parser should be tested on its own before you feed its output to the semantic checker. Each phase has a well-defined input and output, so you can test them independently.</li>
+  <li><strong>Pretty-print everything.</strong> We'll write functions to display tokens, ASTs, and IR in a human-readable form. Seeing the actual output of each phase is the fastest way to find bugs.</li>
+  <li><strong>Start with the simplest possible program.</strong> Our first test program is <code>func main(i32) { return 42; }</code>. It has no variables, no control flow, no function calls. If this compiles correctly, we add one feature at a time.</li>
+  <li><strong>The golden path: single-stepping the pipeline.</strong> When something goes wrong, trace a single program through every phase. Lex it by hand. Parse it by hand. Check it by hand. Then compare with what your compiler actually produces. The bug will reveal itself.</li>
+</ul>
+
+<p>Throughout the book, we'll include test programs alongside each implementation. Running the tests after each chapter should give you confidence that everything works before you move on to the next piece.</p>
+
+<h3>What We Won't Cover</h3>
+
+<p>No book can cover everything. Here's what we deliberately leave out, along with pointers to where you can learn more:</p>
+
+<ul>
+  <li><strong>Optimization passes.</strong> Our compiler generates straightforward code without optimization. For that, study the LLVM optimization pipeline or the <em>Dragon Book</em>'s chapter on data-flow analysis.</li>
+  <li><strong>Garbage collection.</strong> Our language doesn't allocate heap memory (no strings, no arrays, no closures). For GC, read about the Cheney collector or generational GC in Jones's <em>Garbage Collection</em>.</li>
+  <li><strong>Formal semantics.</strong> We're not proving correctness. For that, study Benjamin Pierce's <em>Types and Programming Languages</em> or the <em>Software Foundations</em> series.</li>
+  <li><strong>Linkers and loaders.</strong> We use the system assembler and linker. For the deep story, read John Levine's <em>Linkers and Loaders</em>.</li>
+</ul>
+
+<p>Consider these the "advanced" modules of our compiler — the places where you can take what we've built and extend it in any direction.</p>
+
+<div class="callout">
+<strong>The companion code</strong>
+Every line of code in this book comes from two real, working compilers. You can find them in <code>code/rust/</code> and <code>code/ocaml/</code> alongside this book. Both compile the same language to x86-64 assembly. Both are well under 2000 lines. Both are designed to be read alongside this book — the files are named the same as the code headers in each chapter.
+</div>
+
+<h3>About This Third Edition</h3>
+
+<p>If you've read earlier versions of this book, you'll notice this is a complete rewrite. The first edition was a tour of an existing compiler codebase. The second was a concept-first reboot. This third edition builds <em>two</em> complete compilers from first principles, side by side, in Rust and OCaml.</p>
+
+<p>The biggest change is pedagogical: instead of showing you a finished compiler and explaining how it works, we're discovering the design together. Every language feature, every data structure, every design decision is motivated by a problem that arises naturally from what we've already built. The compiler doesn't exist as a blueprint we're following — it emerges from the journey.</p>
+
+<h3>Ready?</h3>
+
+<p>We have a lot to build. Let's start at the very beginning: with the raw material of all compilation — text, and the surprisingly deep problem of knowing where things are in it.</p>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <span></span>
+  <a href="01-text-and-spans.html" class="next">01 — Raw Materials</a>
+</div>
+
+</body>
+</html>

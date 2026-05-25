@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Final Mile — Building a Compiler (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">OCaml Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3ocaml-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3ocaml-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>8 · The Final Mile</h2>
+
+<p>
+  We can generate assembly text from source code. But assembly text isn't an
+  executable. It's a string — characters in a file. How do we cross that final
+  gap from <code>.asm</code> to a program that actually runs?
+</p>
+
+<p>
+  The answer involves two tools we don't build ourselves: an
+  <strong>assembler</strong> (NASM) and a <strong>linker</strong> (cc/ld).
+  Our job is to orchestrate them. We become the conductor of a pipeline that
+  starts with a <code>.spark</code> source file and ends with a binary that the
+  OS can load and execute.
+</p>
+
+<h3>The Driver Pipeline</h3>
+
+<p>
+  The driver is the top-level orchestrator. It connects every piece of the
+  compiler into a single coherent flow:
+</p>
+
+<div class="diagram">
+Source file (.spark)
+    │
+    ▼
+1. Read source into string
+    │
+    ▼
+2. Lex → token list
+    │
+    ▼
+3. Parse → AST
+    │
+    ▼
+4. Type check → annotated AST
+    │
+    ▼
+5. Build IR → ir_module
+    │
+    ▼
+6. Codegen → assembly string
+    │
+    ▼
+7. Write assembly to .asm file
+    │
+    ▼
+8. Invoke NASM: nasm -f elf64 file.asm -o file.o
+    │
+    ▼
+9. Invoke linker: cc -o file file.o -no-pie
+    │
+    ▼
+Executable (file)
+</div>
+
+<h3>Error Handling Strategy</h3>
+
+<p>
+  A good compiler doesn't stop at the first error. It collects as many errors
+  as possible, then presents them to the user all at once. Our OCaml compiler
+  uses a simple pattern: each phase collects errors in a mutable list, and the
+  driver checks the error count before proceeding to the next phase.
+</p>
+
+<div class="diagram">
+Read source → string
+    │
+    ▼
+Lex → tokens (collect errors)
+    │ succ         │ fail
+    ▼              ▼
+Parse → AST         Print errors & exit
+    │ succ         │ fail
+    ▼              ▼
+Type check → AST    Print errors & exit
+    │ succ         │ fail
+    ▼              ▼
+Build IR → module   Print errors & exit
+    │ succ
+    ▼
+Codegen → assembly string
+    │
+    ▼
+Write .asm, assemble, link
+</div>
+
+<div class="callout info">
+<strong>Error-aware types in OCaml</strong>
+  In OCaml, we use <code>('a, error list) Result.t</code> for operations that
+  can fail, or simply maintain a <code>mutable errors: error list</code> field
+  in each phase object. Multi-error accumulation is crucial: finding all bugs
+  in one compile pass is much faster than fixing one at a time.
+</div>
+
+<h3>The Driver in OCaml</h3>
+
+<p>
+  Here's the main function of the compiler, connecting every piece. OCaml's
+  <code>Unix</code> module provides process management, and
+  <code>Printf</code> / <code>eprintf</code> handle output:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>main.ml — complete driver</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">read_file</span> path =
+  <span class="kw">let</span> ch = <span class="fn">open_in</span> path <span class="kw">in</span>
+  <span class="kw">let</span> n = <span class="fn">in_channel_length</span> ch <span class="kw">in</span>
+  <span class="kw">let</span> s = <span class="fn">really_input_string</span> ch n <span class="kw">in</span>
+  <span class="fn">close_in</span> ch;
+  s
+
+<span class="kw">let</span> <span class="fn">report_errors</span> file errors =
+  <span class="ty">List</span>.<span class="fn">iter</span> (<span class="kw">fun</span> e ->
+    <span class="fn">Errors</span>.<span class="fn">report</span> file e.span e.msg
+  ) errors;
+  <span class="fn">exit</span> <span class="num">1</span>
+
+<span class="kw">let</span> () =
+  <span class="kw">let</span> args = <span class="ty">Sys</span>.<span class="fn">argv</span> <span class="kw">in</span>
+  <span class="kw">if</span> <span class="ty">Array</span>.<span class="fn">length</span> args &lt; <span class="num">2</span> <span class="kw">then</span> <span class="kw">begin</span>
+    <span class="fn">eprintf</span> <span class="str">"usage: %s &lt;file.spark&gt;\n"</span> args.(<span class="num">0</span>);
+    <span class="fn">exit</span> <span class="num">1</span>
+  <span class="kw">end</span>;
+
+  <span class="kw">let</span> path = args.(<span class="num">1</span>) <span class="kw">in</span>
+
+  <span class="cm">(* 1. Read source *)</span>
+  <span class="kw">let</span> source = <span class="fu">try</span> <span class="fn">read_file</span> path
+    <span class="kw">with</span> e -> <span class="fn">eprintf</span> <span class="str">"error reading %s: %s\n"</span> path
+                  (<span class="ty">Printexc</span>.<span class="fn">to_string</span> e); <span class="fn">exit</span> <span class="num">1</span>
+  <span class="kw">in</span>
+  <span class="kw">let</span> file = <span class="ty">Span</span>.<span class="fn">make_source_file</span> path source <span class="kw">in</span>
+
+  <span class="cm">(* 2. Lex *)</span>
+  <span class="kw">let</span> lexer = <span class="ty">Lexer</span>.<span class="fn">create</span> file <span class="kw">in</span>
+  <span class="kw">let</span> tokens = <span class="ty">Lexer</span>.<span class="fn">lex</span> lexer <span class="kw">in</span>
+  <span class="kw">if</span> lexer.errors &lt;&gt; [] <span class="kw">then</span>
+    <span class="fn">report_errors</span> file lexer.errors;
+
+  <span class="cm">(* 3. Parse *)</span>
+  <span class="kw">let</span> parser = <span class="ty">Parser</span>.<span class="fn">create</span> tokens file <span class="kw">in</span>
+  <span class="kw">let</span> ast = <span class="ty">Parser</span>.<span class="fn">parse</span> parser <span class="kw">in</span>
+  <span class="kw">if</span> parser.errors &lt;&gt; [] <span class="kw">then</span>
+    <span class="fn">report_errors</span> file parser.errors;
+
+  <span class="cm">(* 4. Symbol table + Type check *)</span>
+  <span class="kw">let</span> symbols = <span class="ty">Symbol</span>.<span class="fn">collect_decls</span> ast <span class="kw">in</span>
+  <span class="kw">let</span> checker = <span class="ty">Check</span>.<span class="fn">create</span> symbols <span class="kw">in</span>
+  <span class="kw">let</span> typed_ast = <span class="ty">Check</span>.<span class="fn">check_program</span> checker ast <span class="kw">in</span>
+  <span class="kw">if</span> checker.errors &lt;&gt; [] <span class="kw">then</span>
+    <span class="fn">report_errors</span> file checker.errors;
+
+  <span class="cm">(* 5. Build IR *)</span>
+  <span class="kw">let</span> ir_builder = <span class="ty">IrBuilder</span>.<span class="fn">create</span> () <span class="kw">in</span>
+  <span class="kw">let</span> ir_module = <span class="ty">IrBuilder</span>.<span class="fn">build_module</span> ir_builder typed_ast <span class="kw">in</span>
+  <span class="kw">if</span> ir_builder.errors &lt;&gt; [] <span class="kw">then</span>
+    <span class="fn">report_errors</span> file ir_builder.errors;
+
+  <span class="cm">(* 6. Codegen *)</span>
+  <span class="kw">let</span> emitter = <span class="ty">Emitter</span>.<span class="fn">create</span> () <span class="kw">in</span>
+  <span class="ty">Codegen</span>.<span class="fn">codegen_module</span> emitter ir_module;
+
+  <span class="cm">(* 7. Write assembly *)</span>
+  <span class="kw">let</span> asm_path = <span class="fn">Filename</span>.<span class="fn">chop_extension</span> path ^ <span class="str">".asm"</span> <span class="kw">in</span>
+  <span class="ty">Emitter</span>.<span class="fn">write_to_file</span> emitter asm_path;
+  <span class="fn">printf</span> <span class="str">"wrote %s\n"</span> asm_path;
+
+  <span class="cm">(* 8. Assemble with NASM *)</span>
+  <span class="kw">let</span> obj_path = <span class="fn">Filename</span>.<span class="fn">chop_extension</span> path ^ <span class="str">".o"</span> <span class="kw">in</span>
+  <span class="kw">let</span> nasm_status = <span class="ty">Sys</span>.<span class="fn">command</span>
+    (<span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"nasm -f elf64 %s -o %s"</span> asm_path obj_path)
+  <span class="kw">in</span>
+  <span class="kw">if</span> nasm_status &lt;&gt; <span class="num">0</span> <span class="kw">then</span> <span class="fn">exit</span> <span class="num">1</span>;
+
+  <span class="cm">(* 9. Link with cc *)</span>
+  <span class="kw">let</span> bin_path = <span class="fn">Filename</span>.<span class="fn">chop_extension</span> path <span class="kw">in</span>
+  <span class="kw">let</span> link_status = <span class="ty">Sys</span>.<span class="fn">command</span>
+    (<span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"cc -o %s %s -no-pie"</span> bin_path obj_path)
+  <span class="kw">in</span>
+  <span class="kw">if</span> link_status &lt;&gt; <span class="num">0</span> <span class="kw">then</span> <span class="fn">exit</span> <span class="num">1</span>;
+
+  <span class="fn">printf</span> <span class="str">"built %s\n"</span> bin_path</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/main.rs — complete driver</span></div>
+    <pre><code><span class="kw">use</span> std::env;
+<span class="kw">use</span> std::fs;
+<span class="kw">use</span> std::process;
+
+<span class="kw">mod</span> span;
+<span class="kw">mod</span> token;
+<span class="kw">mod</span> lexer;
+<span class="kw">mod</span> ast;
+<span class="kw">mod</span> parser;
+<span class="kw">mod</span> symbol;
+<span class="kw">mod</span> types;
+<span class="kw">mod</span> check;
+<span class="kw">mod</span> ir;
+<span class="kw">mod</span> codegen;
+<span class="kw">mod</span> emitter;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+  <span class="kw">let</span> args: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = env::<span class="fn">args</span>().<span class="fn">collect</span>();
+  <span class="kw">if</span> args.<span class="fn">len</span>() &lt; <span class="num">2</span> {
+    <span class="fn">eprintln!</span>(<span class="str">"usage: {} &lt;file.spark&gt;"</span>, args[<span class="num">0</span>]);
+    process::<span class="fn">exit</span>(<span class="num">1</span>);
+  }
+
+  <span class="kw">let</span> path = &args[<span class="num">1</span>];
+  <span class="kw">let</span> source = fs::<span class="fn">read_to_string</span>(path)
+    .<span class="fn">unwrap_or_else</span>(|e| { <span class="fn">eprintln!</span>(<span class="str">"error: {}"</span>, e); process::<span class="fn">exit</span>(<span class="num">1</span>); });
+
+  <span class="kw">let</span> file = <span class="ty">span</span>::<span class="ty">SourceFile</span>::<span class="fn">new</span>(path, &source);
+  <span class="kw">let mut</span> errors: <span class="ty">Vec</span>&lt;<span class="ty">span</span>::<span class="ty">Error</span>&gt; = <span class="fn">vec!</span>[];
+
+  <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">lexer</span>::<span class="ty">Lexer</span>::<span class="fn">new</span>(&file);
+  <span class="kw">let</span> tokens = lexer.<span class="fn">lex</span>();
+  <span class="kw">if</span> !lexer.errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &lexer.errors); }
+
+  <span class="kw">let mut</span> parser = <span class="ty">parser</span>::<span class="ty">Parser</span>::<span class="fn">new</span>(&tokens, &file);
+  <span class="kw">let</span> ast = parser.<span class="fn">parse</span>();
+  <span class="kw">if</span> !parser.errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &parser.errors); }
+
+  <span class="kw">let</span> symbols = <span class="ty">symbol</span>::<span class="fn">build</span>(&ast);
+  <span class="kw">let mut</span> checker = <span class="ty">check</span>::<span class="ty">Checker</span>::<span class="fn">new</span>(symbols);
+  <span class="kw">let</span> ast = checker.<span class="fn">check</span>(ast);
+  <span class="kw">if</span> !checker.errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &checker.errors); }
+
+  <span class="kw">let mut</span> ir_builder = <span class="ty">ir</span>::<span class="ty">Builder</span>::<span class="fn">new</span>();
+  <span class="kw">let</span> ir_module = ir_builder.<span class="fn">build</span>(&ast);
+  <span class="kw">if</span> !ir_builder.errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &ir_builder.errors); }
+
+  <span class="kw">let mut</span> emitter = <span class="ty">emitter</span>::<span class="ty">Emitter</span>::<span class="fn">new</span>();
+  <span class="ty">codegen</span>::<span class="fn">codegen_module</span>(&ir_module, &<span class="kw">mut</span> emitter);
+
+  <span class="kw">let</span> asm_path = path.<span class="fn">replace</span>(<span class="str">".spark"</span>, <span class="str">".asm"</span>);
+  emitter.<span class="fn">write</span>(&asm_path).<span class="fn">unwrap</span>();
+  <span class="fn">println!</span>(<span class="str">"wrote {}"</span>, asm_path);
+
+  <span class="kw">let</span> obj_path = path.<span class="fn">replace</span>(<span class="str">".spark"</span>, <span class="str">".o"</span>);
+  <span class="kw">let</span> status = process::<span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+    .<span class="fn">args</span>(&[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, &asm_path, <span class="str">"-o"</span>, &obj_path])
+    .<span class="fn">status</span>().<span class="fn">expect</span>(<span class="str">"nasm not found"</span>);
+  <span class="kw">if</span> !status.<span class="fn">success</span>() { process::<span class="fn">exit</span>(<span class="num">1</span>); }
+
+  <span class="kw">let</span> bin = path.<span class="fn">replace</span>(<span class="str">".spark"</span>, <span class="str">""</span>);
+  <span class="kw">let</span> status = process::<span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+    .<span class="fn">args</span>(&[<span class="str">"-o"</span>, &bin, &obj_path, <span class="str">"-no-pie"</span>])
+    .<span class="fn">status</span>().<span class="fn">expect</span>(<span class="str">"cc not found"</span>);
+  <span class="kw">if</span> !status.<span class="fn">success</span>() { process::<span class="fn">exit</span>(<span class="num">1</span>); }
+
+  <span class="fn">println!</span>(<span class="str">"built {}"</span>, bin);
+}</code></pre>
+  </div>
+</div>
+
+<h3>The Emitter Module</h3>
+
+<p>
+  The emitter accumulates assembly lines and writes the result. In OCaml, this
+  is a record with a mutable string list buffer:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>emitter.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">t</span> = {
+  mutable lines: <span class="kw">string</span> <span class="kw">list</span>;
+}
+
+<span class="kw">let</span> <span class="fn">create</span> () = { lines = [] }
+
+<span class="kw">let</span> <span class="fn">emit</span> e s = e.lines <- s :: e.lines
+
+<span class="kw">let</span> <span class="fn">emit_line</span> e s = e.lines <- (s ^ <span class="str">"\n"</span>) :: e.lines
+
+<span class="kw">let</span> <span class="fn">to_string</span> e =
+  <span class="ty">String</span>.<span class="fn">concat</span> <span class="str">""</span> (<span class="ty">List</span>.<span class="fn">rev</span> e.lines)
+
+<span class="kw">let</span> <span class="fn">write_to_file</span> e path =
+  <span class="kw">let</span> oc = <span class="fn">open_out</span> path <span class="kw">in</span>
+  <span class="fn">output_string</span> oc (<span class="fn">to_string</span> e);
+  <span class="fn">close_out</span> oc</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/emitter.rs</span></div>
+    <pre><code><span class="kw">use</span> std::fs;
+
+<span class="kw">pub struct</span> <span class="ty">Emitter</span> {
+  buf: <span class="ty">String</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Emitter</span> {
+  <span class="kw">pub fn</span> <span class="fn">new</span>() -> <span class="ty">Self</span> {
+    <span class="ty">Emitter</span> { buf: <span class="ty">String</span>::<span class="fn">new</span>() }
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">emit</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, s: &amp;<span class="kw">str</span>) {
+    <span class="kw">self</span>.buf.<span class="fn">push_str</span>(s);
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">emit_line</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, s: &amp;<span class="kw">str</span>) {
+    <span class="kw">self</span>.buf.<span class="fn">push_str</span>(s);
+    <span class="kw">self</span>.buf.<span class="fn">push</span>(<span class="str">'\n'</span>);
+  }
+
+  <span class="kw">pub fn</span> <span class="fn">write</span>(&amp;<span class="kw">self</span>, path: &amp;<span class="kw">str</span>) -> <span class="ty">Result</span>&lt;()&gt; {
+    fs::<span class="fn">write</span>(path, &amp;<span class="kw">self</span>.buf)?;
+    <span class="cn">Ok</span>(())
+  }
+}</code></pre>
+  </div>
+</div>
+
+<h3>Running the Compiler</h3>
+
+<p>
+  With the driver complete, we can compile entire programs:
+</p>
+
+<pre><code><span class="fn">$</span> cat hello.spark
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+  <span class="kw">return</span> <span class="num">42</span>;
+}
+
+<span class="fn">$</span> dune exec -- ./spark hello.spark
+wrote hello.asm
+built hello
+
+<span class="fn">$</span> ./hello
+<span class="fn">$</span> echo $?
+<span class="num">42</span></code></pre>
+
+<p>
+  The exit code is 42. Our compiler works. From source code to running binary,
+  through every phase we built together.
+</p>
+
+<h3>Testing the Compiler</h3>
+
+<p>
+  A compiler needs tests at every level. Here's our testing strategy:
+</p>
+
+<ul>
+  <li><strong>Unit tests</strong> for each phase: lex individual tokens, parse individual constructs, type-check individual expressions.</li>
+  <li><strong>Integration tests</strong> that compile entire programs and check the exit code.</li>
+  <li><strong>Snapshot tests</strong> that compare generated assembly against expected output.</li>
+</ul>
+
+<p>
+  In OCaml, we use <code>dune runtest</code> with inline tests or separate test
+  files. Here's a simple test runner in OCaml:
+</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>test_runner.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">test_compile</span> name source expected_exit =
+  <span class="kw">let</span> file = <span class="fn">Filename</span>.<span class="fn">temp_file</span> name <span class="str">".spark"</span> <span class="kw">in</span>
+  <span class="kw">let</span> oc = <span class="fn">open_out</span> file <span class="kw">in</span>
+  <span class="fn">output_string</span> oc source;
+  <span class="fn">close_out</span> oc;
+
+  <span class="kw">let</span> asm = <span class="fn">Filename</span>.<span class="fn">chop_extension</span> file ^ <span class="str">".asm"</span> <span class="kw">in</span>
+  <span class="kw">let</span> obj = <span class="fn">Filename</span>.<span class="fn">chop_extension</span> file ^ <span class="str">".o"</span> <span class="kw">in</span>
+  <span class="kw">let</span> bin = <span class="fn">Filename</span>.<span class="fn">chop_extension</span> file <span class="kw">in</span>
+
+  <span class="cm">(* Run the compiler *)</span>
+  <span class="kw">let</span> status = <span class="ty">Sys</span>.<span class="fn">command</span>
+    (<span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"./spark %s &gt;/dev/null 2&gt;&amp;1"</span> file) <span class="kw">in</span>
+
+  <span class="kw">if</span> status &lt;&gt; <span class="num">0</span> <span class="kw">then</span>
+    <span class="fn">failwith</span> (<span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"compiler failed for %s"</span> name);
+
+  <span class="cm">(* Run the binary *)</span>
+  <span class="kw">let</span> exit_code = <span class="ty">Sys</span>.<span class="fn">command</span> (<span class="fn">Printf</span>.<span class="fn">sprintf</span> <span class="str">"%s"</span> bin) <span class="kw">in</span>
+  <span class="kw">if</span> exit_code &lt;&gt; expected_exit <span class="kw">then</span>
+    <span class="fn">failwith</span> (<span class="fn">Printf</span>.<span class="fn">sprintf</span>
+      <span class="str">"%s: expected exit %d, got %d"</span> name expected_exit exit_code);
+
+  <span class="cm">(* Cleanup *)</span>
+  <span class="fn">Sys</span>.<span class="fn">remove</span> file;
+  <span class="fn">Sys</span>.<span class="fn">remove</span> asm;
+  <span class="fn">Sys</span>.<span class="fn">remove</span> obj;
+  <span class="fn">Sys</span>.<span class="fn">remove</span> bin
+
+<span class="kw">let</span> () =
+  <span class="fn">test_compile</span> <span class="str">"simple_return"</span>
+    <span class="str">"func main(i32) { return 42; }\n"</span> <span class="num">42</span>;
+
+  <span class="fn">test_compile</span> <span class="str">"add"</span>
+    <span class="str">"func main(i32) { return 2 + 3; }\n"</span> <span class="num">5</span>;
+
+  <span class="fn">printf</span> <span class="str">"All tests passed!\n"</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>tests/integration.rs</span></div>
+    <pre><code><span class="kw">use</span> std::process::Command;
+
+<span class="kw">fn</span> <span class="fn">test_compile</span>(name: &amp;<span class="kw">str</span>, source: &amp;<span class="kw">str</span>, expected: <span class="ty">i32</span>) {
+  <span class="kw">let</span> dir = <span class="fn">format!</span>(<span class="str">"/tmp/{}"</span>, name);
+  std::fs::<span class="fn">create_dir_all</span>(&amp;dir).<span class="fn">unwrap</span>();
+  <span class="kw">let</span> spark = <span class="fn">format!</span>(<span class="str">"{}/test.spark"</span>, dir);
+  std::fs::<span class="fn">write</span>(&amp;spark, source).<span class="fn">unwrap</span>();
+
+  <span class="kw">let</span> status = <span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cargo"</span>)
+    .<span class="fn">args</span>(&[<span class="str">"run"</span>, <span class="str">"--"</span>, &amp;spark])
+    .<span class="fn">status</span>().<span class="fn">unwrap</span>();
+  <span class="kw">assert!</span>(status.<span class="fn">success</span>(), <span class="str">"{}: compiler failed"</span>, name);
+
+  <span class="kw">let</span> bin = <span class="fn">format!</span>(<span class="str">"{}/test"</span>, dir);
+  <span class="kw">let</span> out = <span class="ty">Command</span>::<span class="fn">new</span>(&amp;bin)
+    .<span class="fn">output</span>().<span class="fn">unwrap</span>();
+  <span class="kw">assert!</span>(out.status.<span class="fn">code</span>() == <span class="cn">Some</span>(expected),
+    <span class="str">"{}: expected {}, got {:?}"</span>, name, expected, out.status.<span class="fn">code</span>());
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+  <span class="fn">test_compile</span>(<span class="str">"simple_return"</span>, <span class="str">"func main(i32) { return 42; }\n"</span>, <span class="num">42</span>);
+  <span class="fn">test_compile</span>(<span class="str">"addition"</span>, <span class="str">"func main(i32) { return 2 + 3; }\n"</span>, <span class="num">5</span>);
+  <span class="fn">println!</span>(<span class="str">"All tests passed!"</span>);
+}</code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>Dune configuration</strong>
+  Our OCaml compiler uses dune as the build system. The <code>dune-project</code>
+  and <code>dune</code> files are minimal:
+  <pre><code><span class="cm">; dune-project</span>
+(lang dune <span class="num">3.0</span>)
+(name spark)
+
+<span class="cm">; bin/dune</span>
+(executable
+ (name main)
+ (public_name spark))</code></pre>
+</div>
+
+<h3>The "Aha" Moment</h3>
+
+<p>
+  Here's what we've accomplished: a complete, working compiler from source code
+  to executable. Every phase is connected, every error is caught, every
+  transformation is correct. The pipeline that was a diagram in Chapter 0 is
+  now a running program on your computer.
+</p>
+
+<p>
+  In OCaml, the driver is refreshingly straightforward. Each phase is a module
+  with a clean interface. The <code>Sys.command</code> call for NASM and cc
+  is pragmatic — we don't need to reimplement assemblers and linkers. The
+  combination of OCaml's module system and the Unix process model gives us a
+  clean, composable pipeline.
+</p>
+
+<p>
+  From here, the compiler is an infinitely extensible platform. Add new types.
+  Add new optimizations. Add a new backend. The foundation is solid.
+</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Add a <code>--emit-ir</code> flag</strong>
+  <p>Add a command-line flag that dumps the IR instead of generating assembly.
+  This is invaluable for debugging: <code>./spark --emit-ir test.spark</code>
+  prints the IR without running NASM or cc.</p>
+</div>
+
+<div class="exercise">
+<strong>2. Multiple source files</strong>
+  <p>Extend the driver to accept multiple <code>.spark</code> files and compile
+  them together. Each file is lexed and parsed independently, but they share a
+  single symbol table and IR module. What changes to the pipeline does this
+  require?</p>
+</div>
+
+<div class="exercise">
+<strong>3. Error message improvements</strong>
+  <p>Add colored output to error messages. Use ANSI escape codes to highlight
+  the error location in red. Make the <code>~</code> underline point exactly
+  at the problematic token.</p>
+</div>
+
+<div class="exercise">
+<strong>4. Inline assembly</strong>
+  <p>Add an <code>asm("...")</code> expression that passes its string directly
+  to the assembly output. This is useful for low-level operations that the
+  compiler doesn't support natively. How does this interact with the register
+  allocator?</p>
+</div>
+
+<div class="exercise">
+<strong>5. Caching compilation results</strong>
+  <p>Implement a simple cache that skips recompilation if the source file hasn't
+  changed. Store a hash of the source alongside the compiled binary.
+  Skip the pipeline if the hash matches.</p>
+</div>
+
+<h3>What's Next</h3>
+
+<p>
+  The compiler is complete. We've built every phase from source text to
+  executable. But this is not the end — it's the beginning. The next and final
+  chapter looks at what comes next: optimizations, new backends, language
+  features, and resources for going deeper.
+</p>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="07-codegen.html" class="prev">Speaking the Machine's Language</a>
+  <a href="09-whats-next.html" class="next">Where Next?</a>
+</div>
+
+</body>
+</html>

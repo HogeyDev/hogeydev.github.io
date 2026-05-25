@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Final Mile — Building a Compiler</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler</a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+</script>
+
+<h2>Chapter 08: The Final Mile</h2>
+
+<p>We can generate assembly text from source code. But assembly text isn't an executable. It's a string — characters in a file. How do we cross that final gap from <code>.asm</code> to a program that actually runs?</p>
+
+<p>The answer involves two tools we don't build ourselves: an <strong>assembler</strong> (NASM) and a <strong>linker</strong> (cc/ld). Our job is to orchestrate them. We become the conductor of a pipeline that starts with a <code>.is</code> source file and ends with a binary that the OS can load and execute.</p>
+
+<h3>The Driver Pipeline</h3>
+
+<p>The driver is the top-level orchestrator. It connects every piece of the compiler into a single coherent flow:</p>
+
+<div class="diagram">
+Source file (.is)
+    │
+    ▼
+1. Read source into string
+    │
+    ▼
+2. Lex → tokens
+    │
+    ▼
+3. Parse → AST
+    │
+    ▼
+4. Type check → annotated AST
+    │
+    ▼
+5. Build IR → IrModule
+    │
+    ▼
+6. Codegen → assembly string
+    │
+    ▼
+7. Write assembly to .asm file
+    │
+    ▼
+8. Invoke NASM: nasm -f elf64 file.asm -o file.o
+    │
+    ▼
+9. Invoke linker: cc -o file file.o -no-pie
+    │
+    ▼
+Executable (file)
+</div>
+
+<p>Steps 1-6 are the compiler itself — everything we've built in chapters 1-7. Steps 8-9 delegate to external tools. Step 7 is the bridge between them.</p>
+
+<h3>Error Handling Strategy</h3>
+
+<p>A good compiler doesn't stop at the first error. It collects as many errors as possible, then presents them to the user all at once. Our pipeline reflects this: each phase collects errors rather than panicking.</p>
+
+<p>The pattern is simple: every phase returns a result that can be either a valid output or a list of errors. Errors flow downward; if any phase fails, we skip codegen and assembly and just print the errors.</p>
+
+<div class="diagram">
+Read source → string
+    │
+    ▼
+Lex → Result&lt;Tokens, Errors&gt;
+    │ successes       │ failures
+    ▼                 ▼
+Parse → Result&lt;AST, Errors&gt;    Print errors &amp; exit
+    │ successes       │ failures
+    ▼                 ▼
+Type check → Result&lt;AST, Errors&gt;   Print errors &amp; exit
+    │ successes       │ failures
+    ▼                 ▼
+Build IR → Result&lt;IrModule, Errors&gt;  Print errors &amp; exit
+    │ successes
+    ▼
+Codegen → assembly string
+    │
+    ▼
+Write .asm, assemble, link
+</div>
+
+<div class="callout info">
+<strong>Error-aware types</strong>
+In Rust, we use <code>Result&lt;T, Vec&lt;Error&gt;&gt;</code>. In OCaml, we use <code>(T, Error list) Result.t</code>. Multi-error accumulation is crucial: finding all bugs in one compile pass is much faster than fixing one at a time.
+</div>
+
+<h3>The Driver</h3>
+
+<p>Here's the main function of the compiler, connecting every piece:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>src/main.rs</span></div>
+    <pre><code><span class="kw">use</span> std::env;
+<span class="kw">use</span> std::fs;
+<span class="kw">use</span> std::process;
+
+<span class="kw">mod</span> span;
+<span class="kw">mod</span> token;
+<span class="kw">mod</span> lexer;
+<span class="kw">mod</span> ast;
+<span class="kw">mod</span> parser;
+<span class="kw">mod</span> symbol;
+<span class="kw">mod</span> types;
+<span class="kw">mod</span> check;
+<span class="kw">mod</span> ir;
+<span class="kw">mod</span> codegen;
+<span class="kw">mod</span> emitter;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> args: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = env::<span class="fn">args</span>().<span class="fn">collect</span>();
+    <span class="kw">if</span> args.<span class="fn">len</span>() &lt; <span class="num">2</span> {
+        <span class="fn">eprintln!</span>(<span class="str">"usage: {} &lt;file.is&gt;"</span>, args[<span class="num">0</span>]);
+        process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="kw">let</span> path = &args[<span class="num">1</span>];
+
+    <span class="cm">// 1. Read source</span>
+    <span class="kw">let</span> source = <span class="kw">match</span> fs::<span class="fn">read_to_string</span>(path) {
+        <span class="ty">Ok</span>(s) => s,
+        <span class="ty">Err</span>(e) => {
+            <span class="fn">eprintln!</span>(<span class="str">"error reading {}: {}"</span>, path, e);
+            process::<span class="fn">exit</span>(<span class="num">1</span>);
+        }
+    };
+
+    <span class="kw">let</span> file = <span class="ty">span</span>::<span class="ty">SourceFile</span>::<span class="fn">new</span>(path, &source);
+    <span class="kw">let</span> <span class="kw">mut</span> errors: <span class="ty">Vec</span>&lt;<span class="ty">span</span>::<span class="ty">Error</span>&gt; = <span class="ty">Vec</span>::<span class="fn">new</span>();
+
+    <span class="cm">// 2. Lex</span>
+    <span class="kw">let</span> <span class="kw">mut</span> lexer = <span class="ty">lexer</span>::<span class="ty">Lexer</span>::<span class="fn">new</span>(&file);
+    <span class="kw">let</span> tokens = lexer.<span class="fn">lex</span>();
+    errors.<span class="fn">extend</span>(lexer.errors);
+    <span class="kw">if</span> !errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &errors); }
+
+    <span class="cm">// 3. Parse</span>
+    <span class="kw">let</span> <span class="kw">mut</span> parser = <span class="ty">parser</span>::<span class="ty">Parser</span>::<span class="fn">new</span>(&tokens, &file);
+    <span class="kw">let</span> ast = parser.<span class="fn">parse</span>();
+    errors.<span class="fn">extend</span>(parser.errors);
+    <span class="kw">if</span> !errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &errors); }
+
+    <span class="cm">// 4. Type check</span>
+    <span class="kw">let</span> <span class="kw">mut</span> checker = <span class="ty">check</span>::<span class="ty">Checker</span>::<span class="fn">new</span>(&file);
+    <span class="kw">let</span> ast = checker.<span class="fn">check</span>(ast);
+    errors.<span class="fn">extend</span>(checker.errors);
+    <span class="kw">if</span> !errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &errors); }
+
+    <span class="cm">// 5. Build IR</span>
+    <span class="kw">let</span> <span class="kw">mut</span> ir_builder = <span class="ty">ir</span>::<span class="ty">Builder</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> ir_module = ir_builder.<span class="fn">build</span>(&ast);
+    errors.<span class="fn">extend</span>(ir_builder.errors);
+    <span class="kw">if</span> !errors.<span class="fn">is_empty</span>() { <span class="fn">report_and_exit</span>(&file, &errors); }
+
+    <span class="cm">// 6. Codegen</span>
+    <span class="kw">let</span> <span class="kw">mut</span> emitter = <span class="ty">emitter</span>::<span class="ty">Emitter</span>::<span class="fn">new</span>();
+    <span class="ty">codegen</span>::<span class="fn">codegen_module</span>(&ir_module, &<span class="kw">mut</span> emitter);
+
+    <span class="cm">// 7. Write assembly</span>
+    <span class="kw">let</span> asm_path = path.<span class="fn">replace</span>(<span class="str">".is"</span>, <span class="str">".asm"</span>);
+    emitter.<span class="fn">write</span>(&asm_path).<span class="fn">unwrap</span>();
+    <span class="fn">println!</span>(<span class="str">"wrote {}"</span>, asm_path);
+
+    <span class="cm">// 8. Assemble with NASM</span>
+    <span class="kw">let</span> obj_path = path.<span class="fn">replace</span>(<span class="str">".is"</span>, <span class="str">".o"</span>);
+    <span class="kw">let</span> nasm_status = process::<span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+        .<span class="fn">args</span>(&[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, &asm_path, <span class="str">"-o"</span>, &obj_path])
+        .<span class="fn">status</span>()
+        .<span class="fn">expect</span>(<span class="str">"failed to run nasm (is it installed?)"</span>);
+    <span class="kw">if</span> !nasm_status.<span class="fn">success</span>() {
+        process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="cm">// 9. Link with cc</span>
+    <span class="kw">let</span> bin_path = path.<span class="fn">replace</span>(<span class="str">".is"</span>, <span class="str">""</span>);
+    <span class="kw">let</span> link_status = process::<span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+        .<span class="fn">args</span>(&[<span class="str">"-o"</span>, &bin_path, &obj_path, <span class="str">"-no-pie"</span>])
+        .<span class="fn">status</span>()
+        .<span class="fn">expect</span>(<span class="str">"failed to run cc (is a C compiler installed?)"</span>);
+    <span class="kw">if</span> !link_status.<span class="fn">success</span>() {
+        process::<span class="fn">exit</span>(<span class="num">1</span>);
+    }
+
+    <span class="fn">println!</span>(<span class="str">"built {}"</span>, bin_path);
+}
+
+<span class="kw">fn</span> <span class="fn">report_and_exit</span>(file: &<span class="ty">span</span>::<span class="ty">SourceFile</span>, errors: &[<span class="ty">span</span>::<span class="ty">Error</span>]) {
+    <span class="kw">for</span> error <span class="kw">in</span> errors {
+        <span class="fn">eprintln!</span>(<span class="str">"{}"</span>, error.<span class="fn">display</span>(file));
+    }
+    process::<span class="fn">exit</span>(<span class="num">1</span>);
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>bin/main.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">report_and_exit</span> file errors =
+  <span class="ty">List</span>.<span class="fn">iter</span> (<span class="kw">fun</span> e -> <span class="fn">eprintf</span> <span class="str">"%s\n"</span> (<span class="ty">Span</span>.<span class="fn">display_error</span> file e)) errors;
+  <span class="fn">exit</span> <span class="num">1</span>
+
+<span class="kw">let</span> () =
+  <span class="kw">let</span> args = <span class="ty">Sys</span>.<span class="fn">get_argv</span> () <span class="kw">in</span>
+  <span class="kw">if</span> <span class="ty">Array</span>.<span class="fn">length</span> args &lt; <span class="num">2</span> <span class="kw">then</span> (
+    <span class="fn">eprintf</span> <span class="str">"usage: %s &lt;file.is&gt;\n"</span> args.(<span class="num">0</span>);
+    <span class="fn">exit</span> <span class="num">1</span>
+  );
+  <span class="kw">let</span> path = args.(<span class="num">1</span>) <span class="kw">in</span>
+
+  <span class="cm">(* 1. Read source *)</span>
+  <span class="kw">let</span> source = <span class="kw">match</span> <span class="ty">In_channel</span>.<span class="fn">read_all</span> path <span class="kw">with</span>
+    | s -> s
+    | <span class="kw">exception</span> e -> <span class="fn">eprintf</span> <span class="str">"error reading %s: %s\n"</span> path (<span class="ty">Printexc</span>.<span class="fn">to_string</span> e); <span class="fn">exit</span> <span class="num">1</span>
+  <span class="kw">in</span>
+
+  <span class="kw">let</span> file = <span class="ty">Span</span>.<span class="fn">make_source_file</span> path source <span class="kw">in</span>
+  <span class="kw">let</span> errors = <span class="kw">ref</span> [] <span class="kw">in</span>
+  <span class="kw">let</span> <span class="fn">add_errors</span> es = errors := !errors @ es <span class="kw">in</span>
+
+  <span class="cm">(* 2. Lex *)</span>
+  <span class="kw">let</span> tokens, lex_errors = <span class="ty">Lexer</span>.<span class="fn">lex</span> file <span class="kw">in</span>
+  <span class="fn">add_errors</span> lex_errors;
+  <span class="kw">if</span> !errors &lt;&gt; [] <span class="kw">then</span> <span class="fn">report_and_exit</span> file !errors;
+
+  <span class="cm">(* 3. Parse *)</span>
+  <span class="kw">let</span> ast, parse_errors = <span class="ty">Parser</span>.<span class="fn">parse</span> tokens file <span class="kw">in</span>
+  <span class="fn">add_errors</span> parse_errors;
+  <span class="kw">if</span> !errors &lt;&gt; [] <span class="kw">then</span> <span class="fn">report_and_exit</span> file !errors;
+
+  <span class="cm">(* 4. Type check *)</span>
+  <span class="kw">let</span> ast, check_errors = <span class="ty">Checker</span>.<span class="fn">check</span> file ast <span class="kw">in</span>
+  <span class="fn">add_errors</span> check_errors;
+  <span class="kw">if</span> !errors &lt;&gt; [] <span class="kw">then</span> <span class="fn">report_and_exit</span> file !errors;
+
+  <span class="cm">(* 5. Build IR *)</span>
+  <span class="kw">let</span> ir_module, ir_errors = <span class="ty">Ir</span>.<span class="fn">build</span> ast <span class="kw">in</span>
+  <span class="fn">add_errors</span> ir_errors;
+  <span class="kw">if</span> !errors &lt;&gt; [] <span class="kw">then</span> <span class="fn">report_and_exit</span> file !errors;
+
+  <span class="cm">(* 6. Codegen *)</span>
+  <span class="kw">let</span> emitter = <span class="ty">Emitter</span>.<span class="fn">create</span> () <span class="kw">in</span>
+  <span class="ty">Codegen</span>.<span class="fn">codegen_module</span> emitter ir_module;
+
+  <span class="cm">(* 7. Write assembly *)</span>
+  <span class="kw">let</span> asm_path = <span class="ty">Filename</span>.<span class="fn">with_extension</span> path <span class="str">"asm"</span> <span class="kw">in</span>
+  <span class="ty">Emitter</span>.<span class="fn">write</span> emitter asm_path;
+  <span class="fn">printf</span> <span class="str">"wrote %s\n"</span> asm_path;
+
+  <span class="cm">(* 8. Assemble with NASM *)</span>
+  <span class="kw">let</span> obj_path = <span class="ty">Filename</span>.<span class="fn">with_extension</span> path <span class="str">"o"</span> <span class="kw">in</span>
+  <span class="kw">let</span> nasm_rc = <span class="ty">Sys</span>.<span class="fn">command</span> (<span class="kw">Printf</span>.<span class="fn">sprintf</span>
+    <span class="str">"nasm -f elf64 %s -o %s"</span> asm_path obj_path)
+  <span class="kw">in</span>
+  <span class="kw">if</span> nasm_rc &lt;&gt; <span class="num">0</span> <span class="kw">then</span> <span class="fn">exit</span> <span class="num">1</span>;
+
+  <span class="cm">(* 9. Link with cc *)</span>
+  <span class="kw">let</span> bin_path = <span class="ty">Filename</span>.<span class="fn">remove_extension</span> path <span class="kw">in</span>
+  <span class="kw">let</span> link_rc = <span class="ty">Sys</span>.<span class="fn">command</span> (<span class="kw">Printf</span>.<span class="fn">sprintf</span>
+    <span class="str">"cc -o %s %s -no-pie"</span> bin_path obj_path)
+  <span class="kw">in</span>
+  <span class="kw">if</span> link_rc &lt;&gt; <span class="num">0</span> <span class="kw">then</span> <span class="fn">exit</span> <span class="num">1</span>;
+
+  <span class="fn">printf</span> <span class="str">"built %s\n"</span> bin_path</code></pre>
+  </div>
+</div>
+
+<p>That's it. Every piece of the compiler, connected end-to-end, in about 80 lines of code. The pipeline is linear — each stage feeds the next — and the error handling is a simple gate: any error stops the pipeline and prints diagnostics.</p>
+
+<h3>Testing the Pipeline</h3>
+
+<p>With the driver in place, we can write tests at every level of the compiler. The key question at each level is: "what's the smallest unit we can test independently?"</p>
+
+<table class="file-table">
+  <tr><th>Level</th><th>Test</th><th>Example</th></tr>
+  <tr>
+    <td>Lexer</td>
+    <td>Tokenize a string, check tokens</td>
+    <td><code>"func" → [Func]</code></td>
+  </tr>
+  <tr>
+    <td>Parser</td>
+    <td>Parse tokens, check AST</td>
+    <td><code>"func main(i32){}" → Func(...)</code></td>
+  </tr>
+  <tr>
+    <td>Checker</td>
+    <td>Check a typed program, expect or reject</td>
+    <td><code>"let x: i32 = "hello"" → type error</code></td>
+  </tr>
+  <tr>
+    <td>IR</td>
+    <td>Build IR from AST, check instructions</td>
+    <td><code>return 42</code> → <code>[Const %0, 42; Ret %0]</code></td>
+  </tr>
+  <tr>
+    <td>Codegen</td>
+    <td>Generate assembly, check for key patterns</td>
+    <td>Output contains <code>push rbp</code></td>
+  </tr>
+  <tr>
+    <td>Integration</td>
+    <td>Compile a program, run it, check exit code</td>
+    <td><code>main() { return 42; }</code> → exits with 42</td>
+  </tr>
+</table>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>tests/integration.rs</span></div>
+    <pre><code><span class="cm">// Integration test: compile and run a program</span>
+<span class="kw">fn</span> <span class="fn">compile_and_run</span>(source: &<span class="kw">str</span>) -> <span class="ty">i32</span> {
+    <span class="kw">let</span> dir = <span class="ty">tempfile</span>::<span class="ty">TempDir</span>::<span class="fn">new</span>().<span class="fn">unwrap</span>();
+    <span class="kw">let</span> src_path = dir.<span class="fn">path</span>().<span class="fn">join</span>(<span class="str">"test.is"</span>);
+    <span class="kw">let</span> asm_path = dir.<span class="fn">path</span>().<span class="fn">join</span>(<span class="str">"test.asm"</span>);
+    <span class="kw">let</span> obj_path = dir.<span class="fn">path</span>().<span class="fn">join</span>(<span class="str">"test.o"</span>);
+    <span class="kw">let</span> bin_path = dir.<span class="fn">path</span>().<span class="fn">join</span>(<span class="str">"test"</span>);
+
+    fs::<span class="fn">write</span>(&src_path, source).<span class="fn">unwrap</span>();
+
+    <span class="cm">// Run the compiler (simulate pipeline)</span>
+    <span class="cm">// ... (lex, parse, check, ir, codegen)</span>
+
+    <span class="cm">// Assemble and link</span>
+    process::<span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"nasm"</span>)
+        .<span class="fn">args</span>(&[<span class="str">"-f"</span>, <span class="str">"elf64"</span>, asm_path.<span class="fn">to_str</span>().<span class="fn">unwrap</span>(),
+                   <span class="str">"-o"</span>, obj_path.<span class="fn">to_str</span>().<span class="fn">unwrap</span>()])
+        .<span class="fn">status</span>().<span class="fn">unwrap</span>();
+
+    process::<span class="ty">Command</span>::<span class="fn">new</span>(<span class="str">"cc"</span>)
+        .<span class="fn">args</span>(&[<span class="str">"-o"</span>, bin_path.<span class="fn">to_str</span>().<span class="fn">unwrap</span>(),
+                   obj_path.<span class="fn">to_str</span>().<span class="fn">unwrap</span>(), <span class="str">"-no-pie"</span>])
+        .<span class="fn">status</span>().<span class="fn">unwrap</span>();
+
+    <span class="kw">let</span> output = process::<span class="ty">Command</span>::<span class="fn">new</span>(bin_path.<span class="fn">to_str</span>().<span class="fn">unwrap</span>())
+        .<span class="fn">output</span>().<span class="fn">unwrap</span>();
+    output.status.<span class="fn">code</span>().<span class="fn">unwrap_or</span>(<span class="num">1</span>)
+}
+
+<span class="kw">fn</span> <span class="fn">test_return_42</span>() {
+    <span class="kw">let</span> code = <span class="fn">compile_and_run</span>(<span class="str">"func main(i32) { return 42; }"</span>);
+    <span class="fn">assert_eq!</span>(code, <span class="num">42</span>);
+}
+
+<span class="kw">fn</span> <span class="fn">test_add</span>() {
+    <span class="kw">let</span> code = <span class="fn">compile_and_run</span>(
+        <span class="str">"func main(i32) { return 12 + 30; }"</span>
+    );
+    <span class="fn">assert_eq!</span>(code, <span class="num">42</span>);
+}
+
+<span class="kw">fn</span> <span class="fn">test_if_else</span>() {
+    <span class="kw">let</span> code = <span class="fn">compile_and_run</span>(
+        <span class="str">"func main(i32) { \
+            if (1) { return 10; } \
+            else { return 20; } \
+        }"</span>
+    );
+    <span class="fn">assert_eq!</span>(code, <span class="num">10</span>);
+}
+
+<span class="kw">fn</span> <span class="fn">test_type_error_rejected</span>() {
+    <span class="cm">// Should fail before codegen — no binary produced</span>
+    <span class="cm">// Test that the compiler reports the error and exits non-zero</span>
+}</code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>test/test_integration.ml</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">compile_and_run</span> source =
+  <span class="kw">let</span> dir = <span class="ty">Filename</span>.<span class="fn">temp_dir</span> <span class="str">"compiler_test"</span> <span class="str">""</span> <span class="kw">in</span>
+  <span class="kw">let</span> src_path = <span class="ty">Filename</span>.<span class="fn">concat</span> dir <span class="str">"test.is"</span> <span class="kw">in</span>
+  <span class="kw">let</span> asm_path = <span class="ty">Filename</span>.<span class="fn">concat</span> dir <span class="str">"test.asm"</span> <span class="kw">in</span>
+  <span class="kw">let</span> obj_path = <span class="ty">Filename</span>.<span class="fn">concat</span> dir <span class="str">"test.o"</span> <span class="kw">in</span>
+  <span class="kw">let</span> bin_path = <span class="ty">Filename</span>.<span class="fn">concat</span> dir <span class="str">"test"</span> <span class="kw">in</span>
+
+  <span class="ty">Out_channel</span>.<span class="fn">write_all</span> src_path ~data:source;
+
+  <span class="cm">(* Run compiler (lex → parse → check → ir → codegen) *)</span>
+  <span class="cm">(* ... pipeline calls ... *)</span>
+
+  <span class="cm">(* Assemble and link *)</span>
+  <span class="kw">let</span> _ = <span class="ty">Sys</span>.<span class="fn">command</span> (<span class="kw">Printf</span>.<span class="fn">sprintf</span>
+    <span class="str">"nasm -f elf64 %s -o %s"</span> asm_path obj_path) <span class="kw">in</span>
+  <span class="kw">let</span> _ = <span class="ty">Sys</span>.<span class="fn">command</span> (<span class="kw">Printf</span>.<span class="fn">sprintf</span>
+    <span class="str">"cc -o %s %s -no-pie"</span> bin_path obj_path) <span class="kw">in</span>
+
+  <span class="kw">let</span> ic = <span class="ty">Unix</span>.<span class="fn">open_process_in</span> bin_path <span class="kw">in</span>
+  <span class="kw">let</span> () = <span class="ty">In_channel</span>.<span class="fn">close</span> ic <span class="kw">in</span>
+  <span class="ty">Unix</span>.<span class="fn">close_process_in</span> ic
+  <span class="cm">(* In a real test, capture and check exit code *)</span>
+
+<span class="kw">let</span> () =
+  <span class="fn">assert</span> (<span class="fn">compile_and_run</span> <span class="str">"func main(i32) { return 42; }"</span> = <span class="num">0</span>);
+  <span class="fn">print_endline</span> <span class="str">"All integration tests passed!"</span></code></pre>
+  </div>
+</div>
+
+<h3>Build Systems</h3>
+
+<p>How do you build the compiler itself? The answer depends on which language you're using:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'rust')">Rust</button>
+    <button class="tab-btn" onclick="switchTab(this,'ocaml')">OCaml</button>
+  </div>
+  <div class="tab-content rust active">
+    <div class="code-header"><span>Cargo.toml</span></div>
+    <pre><code>[package]
+name = <span class="str">"our-compiler"</span>
+version = <span class="str">"0.1.0"</span>
+edition = <span class="str">"2021"</span>
+
+[[bin]]
+name = <span class="str">"isc"</span>
+path = <span class="str">"src/main.rs"</span>
+
+[dev-dependencies]
+tempfile = <span class="str">"3"</span></code></pre>
+  </div>
+  <div class="tab-content ocaml">
+    <div class="code-header"><span>dune-project &amp; dune files</span></div>
+    <pre><code><span class="cm">; dune-project</span>
+(lang dune <span class="num">3.0</span>)
+(name compiler)
+
+<span class="cm">; bin/dune</span>
+(executable
+ (name main)
+ (public_name isc)
+ (libraries unix))</code></pre>
+  </div>
+</div>
+
+<p>With the build system in place, building the compiler is a single command: <code>cargo build</code> or <code>dune build</code>. The output is a binary called <code>isc</code> (our "IS compiler") that you can invoke on any source file.</p>
+
+<h3>A Complete Compilation Session</h3>
+
+<p>Let's see the whole thing in action — from source file to running executable:</p>
+
+<pre><code>$ <span class="fn">cat</span> > test.is
+<span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">return</span> <span class="num">42</span>;
+}
+$ <span class="fn">cargo run</span> -- test.is
+<span class="cm">   Compiling our-compiler v0.1.0</span>
+<span class="cm">    Finished dev [unoptimized + debuginfo] target(s) in 0.32s</span>
+<span class="cm">     Running `target/debug/isc test.is`</span>
+wrote test.asm
+$ <span class="fn">nasm</span> -f elf64 test.asm -o test.o
+$ <span class="fn">cc</span> -o test test.o -no-pie
+$ ./<span class="fn">test</span>; <span class="fn">echo</span> $?
+42</code></pre>
+
+<p>That <code>42</code> at the end is the exit code of our compiled program. It was written in our language, compiled by our compiler, assembled by NASM, linked by cc, and executed by the OS. Every piece of that chain is something we understand.</p>
+
+<div class="callout">
+<strong>What the compiler produced</strong>
+The file <code>test.asm</code> contains the x86-64 assembly we generated in chapter 7. NASM turns that text into machine code (a .o file). The linker (cc) resolves any external references and produces the final ELF binary. The OS loads that binary and starts executing at <code>main</code>.
+</div>
+
+<h3>Debugging and Diagnostics</h3>
+
+<p>When something goes wrong, you need visibility into each pipeline stage. Here are the debugging techniques that save the most time:</p>
+
+<h4>Dump the IR</h4>
+
+<p>Print the IR module before codegen to verify that the IR builder produced what you expect. A <code>--dump-ir</code> flag is invaluable:</p>
+
+<pre><code>$ ./isc --dump-ir test.is
+<span class="lb">@.main</span>:
+  <span class="lb">@entry</span>:
+    <span class="op">const</span> %0, <span class="num">42</span>
+    <span class="op">ret</span> %0</code></pre>
+
+<h4>Dump the Assembly</h4>
+
+<p>Print the generated assembly to stdout instead of writing to a file. A <code>--dump-asm</code> flag lets you inspect what the codegen produced without creating files.</p>
+
+<h4>Single-Step Through Small Programs</h4>
+
+<p>Write the smallest possible test case for the feature you're debugging. Start with <code>return 42</code> and work up. If arithmetic is broken, test <code>return 1 + 1</code>. If control flow is broken, test a simple <code>if (1) { return 10; } else { return 20; }</code>.</p>
+
+<div class="callout tip">
+<strong>Use GDB for the hard cases</strong>
+If the assembly looks right but the program produces wrong results, run the binary under GDB: <code>gdb ./test</code>. Set a breakpoint at <code>main</code>, step through instruction by instruction with <code>stepi</code>, and inspect registers with <code>info registers</code>. You'll see exactly where the computation diverges from your expectations.
+</div>
+
+<h3>What We Built</h3>
+
+<p>Take a moment to look at the full file listing of the compiler:</p>
+
+<pre><code>src/
+├── <span class="fn">main.rs</span>          <span class="cm">// driver: 80 lines</span>
+├── <span class="fn">span.rs</span>          <span class="cm">// source positions: 60 lines</span>
+├── <span class="fn">token.rs</span>         <span class="cm">// token types: 40 lines</span>
+├── <span class="fn">lexer.rs</span>         <span class="cm">// lexer: 120 lines</span>
+├── <span class="fn">ast.rs</span>           <span class="cm">// AST types: 80 lines</span>
+├── <span class="fn">parser.rs</span>        <span class="cm">// recursive descent parser: 250 lines</span>
+├── <span class="fn">symbol.rs</span>        <span class="cm">// symbol table: 50 lines</span>
+├── <span class="fn">types.rs</span>         <span class="cm">// type representation: 60 lines</span>
+├── <span class="fn">check.rs</span>         <span class="cm">// type checker: 180 lines</span>
+├── <span class="fn">ir.rs</span>            <span class="cm">// IR builder: 200 lines</span>
+├── <span class="fn">codegen.rs</span>       <span class="cm">// code generator: 250 lines</span>
+└── <span class="fn">emitter.rs</span>       <span class="cm">// assembly output: 30 lines</span>
+<span class="cm">                  —————————</span>
+                  ~1400 lines total</code></pre>
+
+<p>Under 1500 lines. That's it. That's a complete compiler for a real programming language, targeting a real architecture, producing executables that run on real hardware.</p>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>1. Add a --dump-ir flag</strong>
+Add a command-line flag that prints the IR to stderr before codegen. This is the single most useful debugging tool you can add. Implement it by checking <code>env::args()</code> for <code>--dump-ir</code> and calling a <code>display_ir</code> function after the IR builder runs.
+</div>
+
+<div class="exercise">
+<strong>2. Add a --dump-ast flag</strong>
+Similarly, add <code>--dump-ast</code> to print the pretty-printed AST after parsing and type checking. This helps debug parser and type-checker issues independently from later pipeline stages.
+</div>
+
+<div class="exercise">
+<strong>3. Add a REPL</strong>
+Implement a read-eval-print loop that takes expressions interactively, compiles them on the fly, and runs them. This requires dynamic code generation: write assembly to a temp file, assemble, link into a shared library with <code>cc -shared</code>, load it with <code>dlopen</code>/<code>dlsym</code>, and call the function. This is a taste of JIT compilation.
+</div>
+
+<div class="exercise">
+<strong>4. Parallel compilation</strong>
+If the source file contains multiple independent functions, compile them in parallel using threads (Rust's <code>std::thread</code> or OCaml's <code>Thread</code> module). Measure the speedup. This is what production compilers do, and it's surprisingly easy to add.
+</div>
+
+<div class="exercise">
+<strong>5. Error recovery in the parser</strong>
+Our parser stops at the first syntax error. Implement error recovery: when a parse error occurs, skip tokens until you find a synchronization point (like <code>func</code> or <code>}</code>) and continue parsing. This lets the compiler find multiple errors in one pass, which is much more user-friendly.
+</div>
+
+<script>
+function switchTab(btn, lang) {
+  var tabs = btn.parentElement.parentElement;
+  tabs.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  tabs.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+  btn.classList.add('active');
+  tabs.querySelector('.tab-content.'+lang).classList.add('active');
+}
+</script>
+
+<div class="chapter-nav">
+  <a href="07-codegen.html" class="prev">Speaking the Machine's Language</a>
+  <a href="09-whats-next.html" class="next">Where Next?</a>
+</div>
+
+</body>
+</html>

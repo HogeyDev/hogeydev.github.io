@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lexing — Building a Compiler (OCaml Edition)</title>
+<link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+
+<div class="book-header">
+  <h1><a href="index.html">Building a Compiler <span style="color:var(--fg3);font-weight:400;">OCaml Edition</span></a></h1>
+  <div class="theme-selector">
+    <label for="theme">Theme</label>
+    <select id="theme" onchange="document.documentElement.setAttribute('data-theme',this.value);localStorage.setItem('v3ocaml-theme',this.value)">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="sepia">Sepia</option>
+      <option value="hc">High Contrast</option>
+      <option value="pastel">Pastel</option>
+      <option value="github">GitHub</option>
+      <option value="pastel-dark">Pastel Dark</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){var t=localStorage.getItem('v3ocaml-theme');if(t){document.documentElement.setAttribute('data-theme',t);var s=document.getElementById('theme');if(s)s.value=t;}})();
+function switchTab(btn,lang){var p=btn.parentElement.parentElement;p.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});p.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});btn.classList.add('active');p.querySelector('.tab-content.'+lang).classList.add('active');}
+</script>
+
+<h2>2 · Lexing</h2>
+
+<h3>The Problem</h3>
+
+<p>Raw text is a string of characters. But a compiler does not think in characters — it thinks in <em>tokens</em>: keywords like <span class="kw">func</span> and <span class="kw">let</span>, numbers like <code>42</code>, operators like <code>+</code> and <code>-</code>, punctuation like <code>(</code> and <code>}</code>. The lexer (also called the tokenizer or scanner) is the phase that converts a string of characters into a stream of tokens, ready for the parser.</p>
+
+<div class="diagram">Source: "let x: i32 = 42;"
+Tokens: [Let, Ident("x"), Colon, TyI32, Eq, Int(42), Semicol]</div>
+
+<p>The lexer is where we first encounter the power of OCaml variant types. A token is the textbook example of a discriminated union — each token kind is a constructor, and some carry data (an identifier's name, an integer's value).</p>
+
+<h3>The Token Type</h3>
+
+<p>Every token in our language is represented by a single variant type. This is the heart of the lexer's output:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>token.ml</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">t</span> =
+  | <span class="fn">Int</span>      <span class="kw">of</span> <span class="ty">int</span>      <span class="cm">(* integer literal *)</span>
+  | <span class="fn">Float</span>    <span class="kw">of</span> <span class="ty">float</span>    <span class="cm">(* float literal *)</span>
+  | <span class="fn">Ident</span>    <span class="kw">of</span> <span class="ty">string</span>   <span class="cm">(* identifier *)</span>
+  | <span class="fn">Str</span>      <span class="kw">of</span> <span class="ty">string</span>   <span class="cm">(* string literal *)</span>
+  | <span class="fn">Let</span>                   <span class="cm">(* let *)</span>
+  | <span class="fn">Func</span>                  <span class="cm">(* func *)</span>
+  | <span class="fn">If</span>                    <span class="cm">(* if *)</span>
+  | <span class="fn">Else</span>                  <span class="cm">(* else *)</span>
+  | <span class="fn">While</span>                 <span class="cm">(* while *)</span>
+  | <span class="fn">Return</span>                <span class="cm">(* return *)</span>
+  | <span class="fn">True</span>                  <span class="cm">(* true *)</span>
+  | <span class="fn">False</span>                 <span class="cm">(* false *)</span>
+  | <span class="fn">Void</span>                  <span class="cm">(* void *)</span>
+  | <span class="fn">Bool</span>                  <span class="cm">(* bool *)</span>
+  | <span class="fn">Cast</span>                  <span class="cm">(* cast *)</span>
+  | <span class="fn">TyI32</span>  | <span class="fn">TyI64</span>  | <span class="fn">TyU32</span>  | <span class="fn">TyU64</span>
+  | <span class="fn">TyI8</span>   | <span class="fn">TyU8</span>                 <span class="cm">(* type keywords *)</span>
+  | <span class="fn">Arrow</span>                 <span class="cm">(* -&gt; *)</span>
+  | <span class="fn">Eq</span>                    <span class="cm">(* = *)</span>
+  | <span class="fn">EqEq</span>                  <span class="cm">(* == *)</span>
+  | <span class="fn">Bang</span>                  <span class="cm">(* ! *)</span>
+  | <span class="fn">Neq</span>                   <span class="cm">(* != *)</span>
+  | <span class="fn">Lt</span>    | <span class="fn">Gt</span>
+  | <span class="fn">Leq</span>   | <span class="fn">Geq</span>
+  | <span class="fn">Plus</span>  | <span class="fn">Minus</span>
+  | <span class="fn">Star</span>  | <span class="fn">Slash</span>
+  | <span class="fn">LParen</span> | <span class="fn">RParen</span>
+  | <span class="fn">LBrace</span> | <span class="fn">RBrace</span>
+  | <span class="fn">LBrack</span> | <span class="fn">RBrack</span>
+  | <span class="fn">Colon</span>  | <span class="fn">Semicol</span>
+  | <span class="fn">Comma</span>  | <span class="fn">Dot</span>
+  | <span class="fn">At</span>                    <span class="cm">(* @ *)</span>
+  | <span class="fn">Eof</span>                   <span class="cm">(* end of file *)</span>
+
+<span class="kw">let</span> <span class="fn">to_string</span> = <span class="kw">function</span>
+  | <span class="fn">Int</span> n      <span class="op">-&gt;</span> <span class="fn">Printf.sprintf</span> <span class="str">"Int(%d)"</span> n
+  | <span class="fn">Float</span> f    <span class="op">-&gt;</span> <span class="fn">Printf.sprintf</span> <span class="str">"Float(%g)"</span> f
+  | <span class="fn">Ident</span> s    <span class="op">-&gt;</span> <span class="fn">Printf.sprintf</span> <span class="str">"Ident(%S)"</span> s
+  | <span class="fn">Str</span> s      <span class="op">-&gt;</span> <span class="fn">Printf.sprintf</span> <span class="str">"Str(%S)"</span> s
+  | <span class="fn">Let</span>        <span class="op">-&gt;</span> <span class="str">"let"</span>
+  | <span class="fn">Func</span>       <span class="op">-&gt;</span> <span class="str">"func"</span>
+  | <span class="fn">If</span>         <span class="op">-&gt;</span> <span class="str">"if"</span>
+  | <span class="fn">Else</span>       <span class="op">-&gt;</span> <span class="str">"else"</span>
+  | <span class="fn">While</span>      <span class="op">-&gt;</span> <span class="str">"while"</span>
+  | <span class="fn">Return</span>     <span class="op">-&gt;</span> <span class="str">"return"</span>
+  | <span class="fn">True</span>       <span class="op">-&gt;</span> <span class="str">"true"</span>
+  | <span class="fn">False</span>      <span class="op">-&gt;</span> <span class="str">"false"</span>
+  | <span class="fn">Void</span>       <span class="op">-&gt;</span> <span class="str">"void"</span>
+  | <span class="fn">Bool</span>       <span class="op">-&gt;</span> <span class="str">"bool"</span>
+  | <span class="fn">Cast</span>       <span class="op">-&gt;</span> <span class="str">"cast"</span>
+  | <span class="fn">TyI32</span>      <span class="op">-&gt;</span> <span class="str">"i32"</span>
+  | <span class="fn">TyI64</span>      <span class="op">-&gt;</span> <span class="str">"i64"</span>
+  | <span class="fn">TyU32</span>      <span class="op">-&gt;</span> <span class="str">"u32"</span>
+  | <span class="fn">TyU64</span>      <span class="op">-&gt;</span> <span class="str">"u64"</span>
+  | <span class="fn">TyI8</span>       <span class="op">-&gt;</span> <span class="str">"i8"</span>
+  | <span class="fn">TyU8</span>       <span class="op">-&gt;</span> <span class="str">"u8"</span>
+  | <span class="fn">Arrow</span>      <span class="op">-&gt;</span> <span class="str">"-&gt;"</span>
+  | <span class="fn">Eq</span>         <span class="op">-&gt;</span> <span class="str">"="</span>
+  | <span class="fn">EqEq</span>       <span class="op">-&gt;</span> <span class="str">"=="</span>
+  | <span class="fn">Bang</span>       <span class="op">-&gt;</span> <span class="str">"!"</span>
+  | <span class="fn">Neq</span>        <span class="op">-&gt;</span> <span class="str">"!="</span>
+  | <span class="fn">Lt</span>         <span class="op">-&gt;</span> <span class="str">"&lt;"</span>
+  | <span class="fn">Gt</span>         <span class="op">-&gt;</span> <span class="str">"&gt;"</span>
+  | <span class="fn">Leq</span>        <span class="op">-&gt;</span> <span class="str">"&lt;="</span>
+  | <span class="fn">Geq</span>        <span class="op">-&gt;</span> <span class="str">"&gt;="</span>
+  | <span class="fn">Plus</span>       <span class="op">-&gt;</span> <span class="str">"+"</span>
+  | <span class="fn">Minus</span>      <span class="op">-&gt;</span> <span class="str">"-"</span>
+  | <span class="fn">Star</span>       <span class="op">-&gt;</span> <span class="str">"*"</span>
+  | <span class="fn">Slash</span>      <span class="op">-&gt;</span> <span class="str">"/"</span>
+  | <span class="fn">LParen</span>     <span class="op">-&gt;</span> <span class="str">"("</span>
+  | <span class="fn">RParen</span>     <span class="op">-&gt;</span> <span class="str">")"</span>
+  | <span class="fn">LBrace</span>     <span class="op">-&gt;</span> <span class="str">"{"</span>
+  | <span class="fn">RBrace</span>     <span class="op">-&gt;</span> <span class="str">"}"</span>
+  | <span class="fn">LBrack</span>     <span class="op">-&gt;</span> <span class="str">"["</span>
+  | <span class="fn">RBrack</span>     <span class="op">-&gt;</span> <span class="str">"]"</span>
+  | <span class="fn">Colon</span>      <span class="op">-&gt;</span> <span class="str">":"</span>
+  | <span class="fn">Semicol</span>    <span class="op">-&gt;</span> <span class="str">";"</span>
+  | <span class="fn">Comma</span>      <span class="op">-&gt;</span> <span class="str">","</span>
+  | <span class="fn">Dot</span>        <span class="op">-&gt;</span> <span class="str">"."</span>
+  | <span class="fn">At</span>         <span class="op">-&gt;</span> <span class="str">"@"</span>
+  | <span class="fn">Eof</span>        <span class="op">-&gt;</span> <span class="str">"EOF"</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/token.rs</span></div>
+    <pre><code><span class="kw">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="kw">pub enum</span> <span class="ty">Token</span> {
+    <span class="fn">Int</span>(<span class="ty">i64</span>),
+    <span class="fn">Float</span>(<span class="ty">f64</span>),
+    <span class="fn">Ident</span>(<span class="ty">String</span>),
+    <span class="fn">Str</span>(<span class="ty">String</span>),
+    <span class="fn">Let</span>, <span class="fn">Func</span>, <span class="fn">If</span>, <span class="fn">Else</span>, <span class="fn">While</span>, <span class="fn">Return</span>,
+    <span class="fn">True</span>, <span class="fn">False</span>, <span class="fn">Void</span>, <span class="fn">Bool</span>, <span class="fn">Cast</span>,
+    <span class="fn">TyI32</span>, <span class="fn">TyI64</span>, <span class="fn">TyU32</span>, <span class="fn">TyU64</span>, <span class="fn">TyI8</span>, <span class="fn">TyU8</span>,
+    <span class="fn">Arrow</span>,
+    <span class="fn">Eq</span>, <span class="fn">EqEq</span>, <span class="fn">Bang</span>, <span class="fn">Neq</span>,
+    <span class="fn">Lt</span>, <span class="fn">Gt</span>, <span class="fn">Leq</span>, <span class="fn">Geq</span>,
+    <span class="fn">Plus</span>, <span class="fn">Minus</span>, <span class="fn">Star</span>, <span class="fn">Slash</span>,
+    <span class="fn">LParen</span>, <span class="fn">RParen</span>, <span class="fn">LBrace</span>, <span class="fn">RBrace</span>,
+    <span class="fn">LBrack</span>, <span class="fn">RBrack</span>,
+    <span class="fn">Colon</span>, <span class="fn">Semicol</span>, <span class="fn">Comma</span>, <span class="fn">Dot</span>, <span class="fn">At</span>,
+    <span class="fn">Eof</span>,
+}</code></pre>
+  </div>
+</div>
+
+<p>This is the entire vocabulary of our language expressed as a single OCaml type. Reading the type definition is equivalent to reading the language's token-level specification. Each constructor corresponds to a token kind. Data-carrying constructors like <code>Int of int</code> and <code>Ident of string</code> attach the lexeme's value directly to the token. Pattern matching is exhaustive — if we later add a <code>Loop</code> token, every <code>match</code> on tokens will remind us where we need to handle it.</p>
+
+<h3>Mapping Keywords to Tokens</h3>
+
+<p>Identifiers and keywords share the same character class (letters and digits, starting with a letter). The lexer reads an identifier, then checks whether it is actually a keyword. This is the <code>keyword_token</code> function:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>lexer.ml — keyword dispatch</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">keyword_token</span> s =
+  <span class="kw">match</span> s <span class="kw">with</span>
+  | <span class="str">"let"</span>    <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">Let</span>
+  | <span class="str">"func"</span>   <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">Func</span>
+  | <span class="str">"if"</span>     <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">If</span>
+  | <span class="str">"else"</span>   <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">Else</span>
+  | <span class="str">"while"</span>  <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">While</span>
+  | <span class="str">"return"</span> <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">Return</span>
+  | <span class="str">"true"</span>   <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">True</span>
+  | <span class="str">"false"</span>  <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">False</span>
+  | <span class="str">"void"</span>   <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">Void</span>
+  | <span class="str">"bool"</span>   <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">Bool</span>
+  | <span class="str">"cast"</span>   <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">Cast</span>
+  | <span class="str">"i32"</span>    <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">TyI32</span>
+  | <span class="str">"i64"</span>    <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">TyI64</span>
+  | <span class="str">"u32"</span>    <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">TyU32</span>
+  | <span class="str">"u64"</span>    <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">TyU64</span>
+  | <span class="str">"i8"</span>     <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">TyI8</span>
+  | <span class="str">"u8"</span>     <span class="op">-&gt;</span> <span class="fn">Some</span> <span class="fn">TyU8</span>
+  | <span class="op">_</span>        <span class="op">-&gt;</span> <span class="fn">None</span></code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/lexer.rs — keyword dispatch</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">keyword_token</span>(s: &amp;<span class="ty">str</span>) <span class="op">-&gt;</span> <span class="ty">Option</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">match</span> s {
+        <span class="str">"let"</span>    <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::Let</span>),
+        <span class="str">"func"</span>   <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::Func</span>),
+        <span class="str">"if"</span>     <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::If</span>),
+        <span class="str">"else"</span>   <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::Else</span>),
+        <span class="str">"while"</span>  <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::While</span>),
+        <span class="str">"return"</span> <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::Return</span>),
+        <span class="str">"true"</span>   <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::True</span>),
+        <span class="str">"false"</span>  <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::False</span>),
+        <span class="str">"void"</span>   <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::Void</span>),
+        <span class="str">"bool"</span>   <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::Bool</span>),
+        <span class="str">"cast"</span>   <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::Cast</span>),
+        <span class="str">"i32"</span>    <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::TyI32</span>),
+        <span class="str">"i64"</span>    <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::TyI64</span>),
+        <span class="str">"u32"</span>    <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::TyU32</span>),
+        <span class="str">"u64"</span>    <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::TyU64</span>),
+        <span class="str">"i8"</span>     <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::TyI8</span>),
+        <span class="str">"u8"</span>     <span class="op">=&gt;</span> <span class="prelude">Some</span>(<span class="fn">Token::TyU8</span>),
+        <span class="op">_</span>        <span class="op">=&gt;</span> <span class="prelude">None</span>,
+    }
+}</code></pre>
+  </div>
+</div>
+
+<p>The pattern is simple: match a string, return a token option. <code>None</code> means the identifier is a regular name, not a keyword. The use of <code>option</code> here is classic OCaml — the type system forces the caller to handle both cases. OCaml's <code>match</code> with its concise <code>| pattern -> expr</code> syntax makes the mapping read like a table.</p>
+
+<div class="callout info">
+<strong>Pattern matching elegance</strong>
+<p>This is one of those moments where OCaml's design shines. In C, this function would be a chain of <code>strcmp</code> calls or a giant <code>if-else</code> ladder. In Python, it would be a dictionary lookup or another <code>if-elif</code> chain. In OCaml, it is the most natural thing in the world — a pattern match on strings. The compiler even checks for exhaustiveness: if you add a keyword to the language but forget to add it to <code>keyword_token</code>, OCaml won't warn you here (since strings are not a closed type), but the parser will fail to compile when it tries to produce a token that does not exist.</p>
+</div>
+
+<h3>The Lexer Module</h3>
+
+<p>The lexer itself is a module that wraps a position, the source text, and produces tokens on demand. We structure it as a function that takes the source text and returns a list of tokens (each annotated with its span):</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>lexer.ml — the full lexer</span></div>
+    <pre><code><span class="kw">type</span> <span class="ty">spanned</span> = <span class="ty">Token.t</span> * <span class="ty">Span.t</span>
+
+<span class="kw">type</span> <span class="ty">state</span> = {
+  source: <span class="ty">string</span>;
+  pos:    <span class="ty">int ref</span>;
+}
+
+<span class="kw">let</span> <span class="fn">make</span> source = { source; pos = <span class="fn">ref</span> <span class="num">0</span> }
+
+<span class="kw">let</span> <span class="fn">peek</span> s =
+  <span class="kw">if</span> !(s.pos) &gt;= <span class="fn">String.length</span> s.source <span class="kw">then</span> <span class="fn">None</span>
+  <span class="kw">else</span> <span class="fn">Some</span> s.source.[!(s.pos)]
+
+<span class="kw">let</span> <span class="fn">advance</span> s =
+  <span class="kw">let</span> c = s.source.[!(s.pos)] <span class="kw">in</span>
+  s.pos := !(s.pos) + <span class="num">1</span>;
+  c
+
+<span class="kw">let</span> <span class="fn">skip_whitespace</span> s =
+  <span class="kw">while</span> <span class="fn">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+        | <span class="fn">Some</span> (<span class="str">' '</span> | <span class="str">'\t'</span> | <span class="str">'\n'</span> | <span class="str">'\r'</span>) <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="kw">true</span>
+        | <span class="op">_</span> <span class="op">-&gt;</span> <span class="kw">false</span>
+  <span class="kw">do done</span>
+
+<span class="kw">let</span> <span class="fn">lex_number</span> s start =
+  <span class="kw">while</span> <span class="fn">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+        | <span class="fn">Some</span> (<span class="str">'0'</span>..<span class="str">'9'</span> | <span class="str">'.'</span>) <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="kw">true</span>
+        | <span class="op">_</span> <span class="op">-&gt;</span> <span class="kw">false</span>
+  <span class="kw">do done</span>;
+  <span class="kw">let</span> text = <span class="fn">String.sub</span> s.source start (!(s.pos) - start) <span class="kw">in</span>
+  <span class="kw">if</span> <span class="fn">String.contains</span> text <span class="str">'.'</span> <span class="kw">then</span>
+    <span class="fn">Float</span> (<span class="fn">float_of_string</span> text)
+  <span class="kw">else</span>
+    <span class="fn">Int</span> (<span class="fn">int_of_string</span> text)
+
+<span class="kw">let</span> <span class="fn">lex_ident</span> s start =
+  <span class="kw">while</span> <span class="fn">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+        | <span class="fn">Some</span> (<span class="str">'a'</span>..<span class="str">'z'</span> | <span class="str">'A'</span>..<span class="str">'Z'</span> | <span class="str">'0'</span>..<span class="str">'9'</span> | <span class="str">'_'</span>) <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="kw">true</span>
+        | <span class="op">_</span> <span class="op">-&gt;</span> <span class="kw">false</span>
+  <span class="kw">do done</span>;
+  <span class="kw">let</span> text = <span class="fn">String.sub</span> s.source start (!(s.pos) - start) <span class="kw">in</span>
+  <span class="kw">match</span> <span class="fn">keyword_token</span> text <span class="kw">with</span>
+  | <span class="fn">Some</span> tok <span class="op">-&gt;</span> tok
+  | <span class="fn">None</span>    <span class="op">-&gt;</span> <span class="fn">Ident</span> text
+
+<span class="kw">let</span> <span class="fn">lex_string</span> s =
+  <span class="kw">let</span> buf = <span class="fn">Buffer.create</span> <span class="num">16</span> <span class="kw">in</span>
+  <span class="kw">while</span> <span class="fn">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+        | <span class="fn">Some</span> <span class="str">'"'</span> <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="kw">false</span>
+        | <span class="fn">Some</span> c     <span class="op">-&gt;</span> <span class="fn">Buffer.add_char</span> buf c; <span class="fn">advance</span> s; <span class="kw">true</span>
+        | <span class="fn">None</span>       <span class="op">-&gt;</span> <span class="fn">failwith</span> <span class="str">"unterminated string"</span>
+  <span class="kw">do done</span>;
+  <span class="fn">Str</span> (<span class="fn">Buffer.contents</span> buf)
+
+<span class="kw">let</span> <span class="fn">next</span> s =
+  <span class="fn">skip_whitespace</span> s;
+  <span class="kw">let</span> start = !(s.pos) <span class="kw">in</span>
+  <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+  | <span class="fn">None</span> <span class="op">-&gt;</span> (<span class="fn">Eof</span>, <span class="fn">Span.make</span> start start)
+  | <span class="fn">Some</span> c <span class="op">-&gt;</span>
+    <span class="kw">let</span> tok =
+      <span class="kw">match</span> c <span class="kw">with</span>
+      | <span class="str">'0'</span>..<span class="str">'9'</span>       <span class="op">-&gt;</span> <span class="fn">lex_number</span> s start
+      | <span class="str">'a'</span>..<span class="str">'z'</span> | <span class="str">'A'</span>..<span class="str">'Z'</span> | <span class="str">'_'</span> <span class="op">-&gt;</span> <span class="fn">lex_ident</span> s start
+      | <span class="str">'"'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">lex_string</span> s
+      | <span class="str">'+'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">Plus</span>
+      | <span class="str">'-'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s;
+          <span class="kw">if</span> <span class="fn">peek</span> s = <span class="fn">Some</span> <span class="str">'>'</span> <span class="kw">then</span> (<span class="fn">advance</span> s; <span class="fn">Arrow</span>)
+          <span class="kw">else</span> <span class="fn">Minus</span>
+      | <span class="str">'*'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">Star</span>
+      | <span class="str">'/'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">Slash</span>
+      | <span class="str">'('</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">LParen</span>
+      | <span class="str">')'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">RParen</span>
+      | <span class="str">'{'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">LBrace</span>
+      | <span class="str">'}'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">RBrace</span>
+      | <span class="str">'['</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">LBrack</span>
+      | <span class="str">']'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">RBrack</span>
+      | <span class="str">':'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">Colon</span>
+      | <span class="str">';'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">Semicol</span>
+      | <span class="str">','</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">Comma</span>
+      | <span class="str">'.'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">Dot</span>
+      | <span class="str">'@'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="fn">At</span>
+      | <span class="str">'='</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s;
+          <span class="kw">if</span> <span class="fn">peek</span> s = <span class="fn">Some</span> <span class="str">'='</span> <span class="kw">then</span> (<span class="fn">advance</span> s; <span class="fn">EqEq</span>)
+          <span class="kw">else</span> <span class="fn">Eq</span>
+      | <span class="str">'!'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s;
+          <span class="kw">if</span> <span class="fn">peek</span> s = <span class="fn">Some</span> <span class="str">'='</span> <span class="kw">then</span> (<span class="fn">advance</span> s; <span class="fn">Neq</span>)
+          <span class="kw">else</span> <span class="fn">Bang</span>
+      | <span class="str">'&lt;'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s;
+          <span class="kw">if</span> <span class="fn">peek</span> s = <span class="fn">Some</span> <span class="str">'='</span> <span class="kw">then</span> (<span class="fn">advance</span> s; <span class="fn">Leq</span>)
+          <span class="kw">else</span> <span class="fn">Lt</span>
+      | <span class="str">'&gt;'</span>             <span class="op">-&gt;</span> <span class="fn">advance</span> s;
+          <span class="kw">if</span> <span class="fn">peek</span> s = <span class="fn">Some</span> <span class="str">'='</span> <span class="kw">then</span> (<span class="fn">advance</span> s; <span class="fn">Geq</span>)
+          <span class="kw">else</span> <span class="fn">Gt</span>
+      | <span class="op">_</span>               <span class="op">-&gt;</span> <span class="fn">failwith</span> (<span class="fn">Printf.sprintf</span> <span class="str">"unexpected char: %c"</span> c)
+    <span class="kw">in</span>
+    (tok, <span class="fn">Span.make</span> start !(s.pos))
+
+<span class="kw">let</span> <span class="fn">tokenize</span> source =
+  <span class="kw">let</span> s = <span class="fn">make</span> source <span class="kw">in</span>
+  <span class="kw">let</span> <span class="kw">rec</span> <span class="fn">loop</span> acc =
+    <span class="kw">let</span> tok, span = <span class="fn">next</span> s <span class="kw">in</span>
+    <span class="kw">match</span> tok <span class="kw">with</span>
+    | <span class="fn">Eof</span> <span class="op">-&gt;</span> <span class="fn">List.rev</span> ((tok, span) :: acc)
+    | <span class="op">_</span>   <span class="op">-&gt;</span> <span class="fn">loop</span> ((tok, span) :: acc)
+  <span class="kw">in</span>
+  <span class="fn">loop</span> []</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/lexer.rs — the full lexer</span></div>
+    <pre><code><span class="kw">pub struct</span> <span class="ty">Lexer</span> {
+    source: <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt;,
+    pos: <span class="ty">usize</span>,
+}
+
+<span class="kw">pub type</span> <span class="ty">Spanned</span> = (<span class="ty">Token</span>, <span class="ty">Span</span>);
+
+<span class="kw">impl</span> <span class="ty">Lexer</span> {
+    <span class="kw">pub fn</span> <span class="fn">new</span>(source: &amp;<span class="ty">str</span>) <span class="op">-&gt;</span> <span class="self">Self</span> {
+        <span class="self">Self</span> { source: source.<span class="fn">bytes</span>().<span class="fn">collect</span>(), pos: <span class="num">0</span> }
+    }
+
+    <span class="kw">fn</span> <span class="fn">peek</span>(&amp;self) <span class="op">-&gt;</span> <span class="ty">Option</span>&lt;<span class="ty">u8</span>&gt; {
+        <span class="kw">if</span> self.pos &gt;= self.source.<span class="fn">len</span>() { <span class="prelude">None</span> }
+        <span class="kw">else</span> { <span class="prelude">Some</span>(self.source[self.pos]) }
+    }
+
+    <span class="kw">fn</span> <span class="fn">advance</span>(&amp;mut self) <span class="op">-&gt;</span> <span class="ty">u8</span> {
+        <span class="kw">let</span> c = self.source[self.pos];
+        self.pos += <span class="num">1</span>;
+        c
+    }
+
+    <span class="kw">fn</span> <span class="fn">skip_whitespace</span>(&amp;mut self) {
+        <span class="kw">while let</span> <span class="prelude">Some</span>(b) = self.<span class="fn">peek</span>() {
+            <span class="kw">if</span> b.<span class="fn">is_ascii_whitespace</span>() { self.<span class="fn">advance</span>(); }
+            <span class="kw">else</span> { <span class="kw">break</span>; }
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">lex_number</span>(&amp;mut self, start: <span class="ty">usize</span>) <span class="op">-&gt;</span> <span class="ty">Token</span> {
+        <span class="kw">while let</span> <span class="prelude">Some</span>(b) = self.<span class="fn">peek</span>() {
+            <span class="kw">if</span> b.<span class="fn">is_ascii_digit</span>() || b == <span class="str">b'.'</span> { self.<span class="fn">advance</span>(); }
+            <span class="kw">else</span> { <span class="kw">break</span>; }
+        }
+        <span class="kw">let</span> text = std::str::<span class="fn">from_utf8</span>(&amp;self.source[start..self.pos]).<span class="fn">unwrap</span>();
+        <span class="kw">if</span> text.<span class="fn">contains</span>(<span class="str">'.'</span>) {
+            <span class="fn">Token::Float</span>(text.<span class="fn">parse</span>().<span class="fn">unwrap</span>())
+        } <span class="kw">else</span> {
+            <span class="fn">Token::Int</span>(text.<span class="fn">parse</span>().<span class="fn">unwrap</span>())
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">lex_ident</span>(&amp;mut self, start: <span class="ty">usize</span>) <span class="op">-&gt;</span> <span class="ty">Token</span> {
+        <span class="kw">while let</span> <span class="prelude">Some</span>(b) = self.<span class="fn">peek</span>() {
+            <span class="kw">if</span> b.<span class="fn">is_ascii_alphanumeric</span>() || b == <span class="str">b'_'</span> { self.<span class="fn">advance</span>(); }
+            <span class="kw">else</span> { <span class="kw">break</span>; }
+        }
+        <span class="kw">let</span> text = std::str::<span class="fn">from_utf8</span>(&amp;self.source[start..self.pos]).<span class="fn">unwrap</span>();
+        <span class="fn">keyword_token</span>(text).<span class="fn">unwrap_or_else</span>(|| <span class="fn">Token::Ident</span>(text.<span class="fn">to_string</span>()))
+    }
+
+    <span class="kw">fn</span> <span class="fn">next</span>(&amp;mut self) <span class="op">-&gt;</span> <span class="ty">Spanned</span> {
+        self.<span class="fn">skip_whitespace</span>();
+        <span class="kw">let</span> start = self.pos;
+        <span class="kw">let</span> tok = <span class="kw">match</span> self.<span class="fn">peek</span>() {
+            <span class="prelude">None</span> <span class="op">=&gt;</span> <span class="fn">Token::Eof</span>,
+            <span class="prelude">Some</span>(c) <span class="op">=&gt;</span> <span class="kw">match</span> c {
+                <span class="str">b'0'</span>..=<span class="str">b'9'</span>          <span class="op">=&gt;</span> self.<span class="fn">lex_number</span>(start),
+                <span class="str">b'a'</span>..=<span class="str">b'z'</span> | <span class="str">b'A'</span>..=<span class="str">b'Z'</span> | <span class="str">b'_'</span> <span class="op">=&gt;</span> self.<span class="fn">lex_ident</span>(start),
+                <span class="str">b'"'</span> <span class="op">=&gt;</span> { self.<span class="fn">advance</span>(); self.<span class="fn">lex_string</span>() }
+                <span class="str">b'+'</span> <span class="op">=&gt;</span> { self.<span class="fn">advance</span>(); <span class="fn">Token::Plus</span> }
+                <span class="str">b'-'</span> <span class="op">=&gt;</span> { self.<span class="fn">advance</span>();
+                    <span class="kw">if</span> self.<span class="fn">peek</span>() == <span class="prelude">Some</span>(<span class="str">b'&gt;'</span>) { self.<span class="fn">advance</span>(); <span class="fn">Token::Arrow</span> }
+                    <span class="kw">else</span> { <span class="fn">Token::Minus</span> } }
+                <span class="str">b'='</span> <span class="op">=&gt;</span> { self.<span class="fn">advance</span>();
+                    <span class="kw">if</span> self.<span class="fn">peek</span>() == <span class="prelude">Some</span>(<span class="str">b'='</span>) { self.<span class="fn">advance</span>(); <span class="fn">Token::EqEq</span> }
+                    <span class="kw">else</span> { <span class="fn">Token::Eq</span> } }
+                <span class="str">b'!'</span> <span class="op">=&gt;</span> { self.<span class="fn">advance</span>();
+                    <span class="kw">if</span> self.<span class="fn">peek</span>() == <span class="prelude">Some</span>(<span class="str">b'='</span>) { self.<span class="fn">advance</span>(); <span class="fn">Token::Neq</span> }
+                    <span class="kw">else</span> { <span class="fn">Token::Bang</span> } }
+                <span class="cm">// ... remaining single- and multi-char tokens</span>
+                <span class="op">_</span> <span class="op">=&gt;</span> <span class="macro">panic!</span>(<span class="str">"unexpected char: {}"</span>, c <span class="kw">as</span> <span class="ty">char</span>),
+            },
+        };
+        (tok, <span class="ty">Span</span>::<span class="fn">new</span>(start, self.pos))
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">tokenize</span>(&amp;mut self) <span class="op">-&gt;</span> <span class="ty">Vec</span>&lt;<span class="ty">Spanned</span>&gt; {
+        <span class="kw">let mut</span> tokens = <span class="fn">Vec::new</span>();
+        <span class="kw">loop</span> {
+            <span class="kw">let</span> (tok, span) = self.<span class="fn">next</span>();
+            tokens.<span class="fn">push</span>((tok.<span class="fn">clone</span>(), span));
+            <span class="kw">if</span> tok == <span class="fn">Token::Eof</span> { <span class="kw">break</span>; }
+        }
+        tokens
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>State as a record with a ref</strong>
+<p>Notice that the OCaml lexer state uses a <code>record</code> with a <code>pos ref</code> rather than a mutable field. OCaml records are immutable by default, so we use a <code>ref</code> for the single mutable cell. This is a deliberate choice — it makes the state explicit and avoids hidden mutation. Rust uses <code>&amp;mut self</code> everywhere, which is equally explicit but differently structured.</p>
+</div>
+
+<h3>How the Lexer Works</h3>
+
+<p>The lexer is a character-at-a-time state machine. The core loop:</p>
+
+<ol>
+  <li><strong>Skip whitespace</strong> — advance past spaces, tabs, newlines, carriage returns.</li>
+  <li><strong>Peek at the next character</strong> — if none, emit <code>Eof</code>.</li>
+  <li><strong>Dispatch on the character class</strong>:
+    <ul>
+      <li>Digits → call <code>lex_number</code>, which reads a sequence of digits and an optional decimal point.</li>
+      <li>Letters or underscore → call <code>lex_ident</code>, which reads an identifier, then checks via <code>keyword_token</code> whether it is a keyword.</li>
+      <li>Quote → call <code>lex_string</code> to read a string literal.</li>
+      <li>Operators and punctuation → match the specific character, with lookahead for two-character operators like <code>==</code> and <code>-&gt;</code>.</li>
+      <li>Anything else → error: unexpected character.</li>
+    </ul>
+  </li>
+  <li><strong>Return the token with its span</strong> — the start position was recorded before reading, the end position is the current position after reading.</li>
+</ol>
+
+<p>The <code>tokenize</code> function wraps this in a loop that accumulates tokens until <code>Eof</code> is reached. Note the accumulator pattern: we prepend each token to a list (O(1)), then reverse at the end. This is idiomatic OCaml — building lists forward requires appending, which is O(n). Building backward and reversing is O(n) total.</p>
+
+<h3>Testing the Lexer</h3>
+
+<p>A quick test in utop or via a test file:</p>
+
+<pre><code><span class="cm">(* test_lexer.ml *)</span>
+<span class="kw">let</span> source = <span class="str">"let x: i32 = 42;"</span> <span class="kw">in</span>
+<span class="kw">let</span> tokens = <span class="fn">Lexer.tokenize</span> source <span class="kw">in</span>
+<span class="fn">List.iter</span> (<span class="kw">fun</span> (tok, span) <span class="op">-&gt;</span>
+  <span class="fn">Printf.printf</span> <span class="str">"%s @ %d-%d\n"</span> (<span class="fn">Token.to_string</span> tok) span.start span.stop
+) tokens</code></pre>
+
+<p>Running this produces:</p>
+
+<pre><code>let @ 0-3
+Ident("x") @ 4-5
+: @ 5-6
+i32 @ 7-10
+= @ 11-12
+Int(42) @ 13-15
+; @ 15-16
+EOF @ 16-16</code></pre>
+
+<p>Every token knows exactly where it came from. If the parser later finds a syntax error, it can report the precise span of the offending token.</p>
+
+<h3>Extending the Lexer: Hex, Octal, and Binary Literals</h3>
+
+<p>A practical lexer must handle more than decimal integers. Let us extend <code>lex_number</code> to support hexadecimal (<code>0xFF</code>), octal (<code>0o77</code>), and binary (<code>0b1010</code>) literals. The key insight is to look for the prefix before falling into the digit-reading loop:</p>
+
+<div class="code-tabs">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab(this,'ocaml')">OCaml</button>
+    <button class="tab-btn" onclick="switchTab(this,'rust')">Rust</button>
+  </div>
+  <div class="tab-content ocaml active">
+    <div class="code-header"><span>lexer.ml — extended lex_number</span></div>
+    <pre><code><span class="kw">let</span> <span class="fn">lex_number</span> s start =
+  <span class="kw">let</span> base, is_float =
+    <span class="kw">if</span> <span class="fn">peek</span> s = <span class="fn">Some</span> <span class="str">'0'</span> <span class="kw">then</span>
+      <span class="fn">advance</span> s;
+      <span class="kw">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+      | <span class="fn">Some</span> (<span class="str">'x'</span> | <span class="str">'X'</span>) <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="num">16</span>, <span class="kw">false</span>
+      | <span class="fn">Some</span> (<span class="str">'o'</span> | <span class="str">'O'</span>) <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="num">8</span>,  <span class="kw">false</span>
+      | <span class="fn">Some</span> (<span class="str">'b'</span> | <span class="str">'B'</span>) <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="num">2</span>,  <span class="kw">false</span>
+      | <span class="op">_</span> <span class="op">-&gt;</span> <span class="num">10</span>, <span class="kw">true</span>
+    <span class="kw">else</span>
+      <span class="num">10</span>, <span class="kw">true</span>
+  <span class="kw">in</span>
+  <span class="kw">while</span> <span class="fn">match</span> <span class="fn">peek</span> s <span class="kw">with</span>
+        | <span class="fn">Some</span> (<span class="str">'0'</span>..<span class="str">'9'</span> | <span class="str">'a'</span>..<span class="str">'f'</span> | <span class="str">'A'</span>..<span class="str">'F'</span>) <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="kw">true</span>
+        | <span class="fn">Some</span> <span class="str">'.'</span> <span class="kw">when</span> is_float <span class="op">-&gt;</span> <span class="fn">advance</span> s; <span class="kw">true</span>
+        | <span class="op">_</span> <span class="op">-&gt;</span> <span class="kw">false</span>
+  <span class="kw">do done</span>;
+  <span class="kw">let</span> text = <span class="fn">String.sub</span> s.source start (!(s.pos) - start) <span class="kw">in</span>
+  <span class="kw">if</span> base &lt;&gt; <span class="num">10</span> <span class="kw">then</span>
+    <span class="fn">Int</span> (<span class="fn">int_of_string</span> text)
+  <span class="kw">else</span> <span class="kw">if</span> <span class="fn">String.contains</span> text <span class="str">'.'</span> <span class="kw">then</span>
+    <span class="fn">Float</span> (<span class="fn">float_of_string</span> text)
+  <span class="kw">else</span>
+    <span class="fn">Int</span> (<span class="fn">int_of_string</span> text)</code></pre>
+  </div>
+  <div class="tab-content rust">
+    <div class="code-header"><span>src/lexer.rs — extended lex_number</span></div>
+    <pre><code><span class="kw">fn</span> <span class="fn">lex_number</span>(&amp;mut self, start: <span class="ty">usize</span>) <span class="op">-&gt;</span> <span class="ty">Token</span> {
+    <span class="kw">let</span> (base, is_float) =
+        <span class="kw">if</span> self.<span class="fn">peek</span>() == <span class="prelude">Some</span>(<span class="str">b'0'</span>) {
+            self.<span class="fn">advance</span>();
+            <span class="kw">match</span> self.<span class="fn">peek</span>() {
+                <span class="prelude">Some</span>(<span class="str">b'x'</span> | <span class="str">b'X'</span>) <span class="op">=&gt;</span> { self.<span class="fn">advance</span>(); (<span class="num">16</span>, <span class="kw">false</span>) }
+                <span class="prelude">Some</span>(<span class="str">b'o'</span> | <span class="str">b'O'</span>) <span class="op">=&gt;</span> { self.<span class="fn">advance</span>(); (<span class="num">8</span>,  <span class="kw">false</span>) }
+                <span class="prelude">Some</span>(<span class="str">b'b'</span> | <span class="str">b'B'</span>) <span class="op">=&gt;</span> { self.<span class="fn">advance</span>(); (<span class="num">2</span>,  <span class="kw">false</span>) }
+                <span class="op">_</span> <span class="op">=&gt;</span> (<span class="num">10</span>, <span class="kw">true</span>),
+            }
+        } <span class="kw">else</span> {
+            (<span class="num">10</span>, <span class="kw">true</span>)
+        };
+    <span class="kw">while let</span> <span class="prelude">Some</span>(b) = self.<span class="fn">peek</span>() {
+        <span class="kw">let</span> ok = b.<span class="fn">is_ascii_digit</span>()
+             || (base == <span class="num">16</span> &amp;&amp; (b <span class="op">==</span> <span class="str">b'a'</span>..=<span class="str">b'f'</span> || b == <span class="str">b'A'</span>..=<span class="str">b'F'</span>))
+             || (is_float &amp;&amp; b == <span class="str">b'.'</span>);
+        <span class="kw">if</span> ok { self.<span class="fn">advance</span>(); } <span class="kw">else</span> { <span class="kw">break</span>; }
+    }
+    <span class="kw">let</span> text = std::str::<span class="fn">from_utf8</span>(&amp;self.source[start..self.pos]).<span class="fn">unwrap</span>();
+    <span class="kw">if</span> base != <span class="num">10</span> || !text.<span class="fn">contains</span>(<span class="str">'.'</span>) {
+        <span class="fn">Token::Int</span>(<span class="ty">i64</span>::<span class="fn">from_str_radix</span>(&amp;text[<span class="num">2</span>..], base).<span class="fn">unwrap</span>())
+    } <span class="kw">else</span> {
+        <span class="fn">Token::Float</span>(text.<span class="fn">parse</span>().<span class="fn">unwrap</span>())
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="callout tip">
+<strong>Pattern matching with when guards</strong>
+<p>The OCaml version uses a <code>when</code> guard: <code>Some '.' when is_float</code>. This is an OCaml pattern guard — a boolean condition that must be true for the pattern to match. Guards let you express conditions that cannot be captured by patterns alone. Here, we only treat <code>.</code> as a float character when we are in decimal mode (after <code>0</code> we temporarily set <code>is_float</code> to <code>false</code> because <code>0xDEAD.BEEF</code> is not valid).</p>
+</div>
+
+<h3>Lexer Design Decisions</h3>
+
+<p>Several design decisions in this lexer are worth discussing explicitly:</p>
+
+<p><strong>No separate token list type.</strong> We use <code>(Token.t * Span.t) list</code> directly. OCaml's type system makes this readable — there is no need for a wrapper type. The tuple expresses everything: a token and where it came from.</p>
+
+<p><strong>No lexer generator.</strong> We are writing the lexer by hand rather than using <code>ocamllex</code> (OCaml's lexer generator). Why? Because for a small language, a hand-written lexer is simpler, more transparent, and easier to debug. The regular expressions that power lexer generators are powerful, but the character-at-a-time approach gives us complete control. When our language grows, we can switch to <code>ocamllex</code> — the token type and the interface do not change.</p>
+
+<p><strong>Error handling via exceptions.</strong> The lexer uses <code>failwith</code> for unrecoverable errors (unterminated strings, unexpected characters). This is a pragmatic choice for a pedagogical compiler. A production compiler would use proper error types, but for now, exceptions are sufficient. We will improve error handling in later chapters.</p>
+
+<div class="callout warn">
+<strong>failwith is not the end</strong>
+<p>Using <code>failwith</code> means the lexer crashes on invalid input. For a real compiler, you would want recovery — skip the bad character and continue to find more errors. We leave this as an exercise. The lexer is the first place where the compiler interacts with imperfect human input, and it is worth spending time on robust error recovery.</p>
+</div>
+
+<h3>Exercises</h3>
+
+<div class="exercise">
+<strong>Exercise 2.1 — Add a keyword</strong>
+<p>Add a <code>loop</code> keyword to the language. Add the constructor to <code>Token.t</code>, add the mapping to <code>keyword_token</code>, and add the printing case to <code>to_string</code>. Verify that the lexer produces <code>Loop</code> tokens for <code>loop</code> in source code.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.2 — Line comments</strong>
+<p>Add support for line comments (<code>// ...</code>). The lexer should skip from <code>//</code> to the end of the line. Hint: this belongs in <code>skip_whitespace</code> or as a separate <code>skip_comment</code> call.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.3 — Block comments</strong>
+<p>Add support for block comments (<code>/* ... */</code>). This is harder than line comments because they can nest (and should they?). Decide whether your block comments nest and implement accordingly.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.4 — Error recovery</strong>
+<p>Modify the lexer so that when it encounters an unexpected character, it records the error but continues lexing (by skipping the bad character). The <code>tokenize</code> function should return both a token list and an error list. This is the first step toward a resilient compiler.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.5 — Character classes with pattern matching</strong>
+<p>The OCaml lexer uses <code>'0'..'9'</code> range patterns. Read about OCaml's pattern-matching features: range patterns, or-patterns (already used here), and pattern guards. Write a short summary of which pattern features the lexer uses and where each one appears. This deepens your understanding of how OCaml's pattern matching directly expresses the lexer's decision logic.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.6 — Benchmark against ocamllex</strong>
+<p>Implement the same lexer using <code>ocamllex</code> (the OCaml lexer generator). Compare the line count, readability, and performance of the two approaches. This exercise teaches you both the power and the limitations of regex-based lexing.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.7 — Unicode identifiers</strong>
+<p>Modify the lexer to accept Unicode letters in identifiers (not just ASCII). OCaml's <code>String</code> module operates on bytes, so you will need to handle UTF-8 multi-byte sequences. Use the <code>Uutf</code> library or implement a simple UTF-8 decoder. This exercise reveals why many compilers restrict themselves to ASCII identifiers — the complexity is real.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.8 — Raw string literals</strong>
+<p>Add raw string literals similar to Rust's <code>r#"..."#</code> or Python's <code>"""..."""</code>. In raw strings, escape sequences like <code>\n</code> are not processed — the string content is taken literally. Design the delimiter syntax carefully to avoid ambiguity with content that contains the delimiter itself.</p>
+</div>
+
+<div class="exercise">
+<strong>Exercise 2.9 — Lexer module signature</strong>
+<p>Create an <code>lexer.mli</code> file that exposes only <code>spanned</code>, <code>make</code>, and <code>tokenize</code>. Hide the internal <code>state</code> type, <code>peek</code>, <code>advance</code>, and the helper functions. This exercise demonstrates OCaml's module abstraction — the implementation becomes a black box that callers cannot depend on, letting you refactor freely.</p>
+</div>
+
+<div class="chapter-nav">
+  <a href="01-text-and-spans.html" class="prev">1 · Text and Spans</a>
+  <a href="03-parsing.html" class="next">3 · Parsing</a>
+</div>
+
+</body>
+</html>

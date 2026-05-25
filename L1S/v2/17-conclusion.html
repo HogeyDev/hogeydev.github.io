@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 17: Conclusion &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="16-diag.html">&larr; Chapter 16</a> &ensp; Chapter 17: Conclusion</span>
+</div>
+
+<h2 id="conclusion">17 &ensp; Conclusion</h2>
+
+<h3>What a Compiler Does</h3>
+
+<p>Throughout this book, we have traced the path from raw source text to a running executable. Every compiler, from the simplest to the most advanced, follows the same essential stages:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<pre style="text-align:left;background:var(--bg3);border:none;padding:0.75rem;margin:0;">
+<span style="color:var(--orange)">Source Code</span>
+  │
+  ▼ <span style="color:var(--blue)">Lexical Analysis</span>    Characters → Tokens (meaningful lexical units)
+  │
+  ▼ <span style="color:var(--blue)">Syntactic Analysis</span>    Tokens → Abstract Syntax Tree (grammatical structure)
+  │
+  ▼ <span style="color:var(--blue)">Semantic Analysis</span>    AST → Typed AST (type checking, name resolution)
+  │
+  ▼ <span style="color:var(--blue)">IR Construction</span>      AST → Intermediate Representation (machine-independent)
+  │
+  ▼ <span style="color:var(--blue)">Optimization</span>         IR → Optimized IR (dead code elimination, constant folding)
+  │
+  ▼ <span style="color:var(--blue)">Register Allocation</span>  Map virtual registers to stack slots or physical registers
+  │
+  ▼ <span style="color:var(--blue)">Code Generation</span>     IR → Assembly (target-specific machine instructions)
+  │
+  ▼ <span style="color:var(--blue)">Assembly &amp; Linking</span>  Assembly → Object file → Executable binary</pre>
+</div>
+
+<p>Each stage has its own design space with competing tradeoffs. The lexer could be hand-written or generated from regular expressions. The parser could be recursive-descent or LALR. The type checker could use simple annotation checking or full Hindley-Milner inference. The code generator could hand-emit assembly or delegate to LLVM. Ignis makes deliberate, pedagogical choices at every stage: simplicity over performance, clarity over cleverness.</p>
+
+<p>What makes Ignis's approach distinctive:</p>
+<ul>
+<li><strong>Simplicity-first design</strong>: The spill-everything register allocator, the hand-written lexer with save/restore for comments, the straightforward recursive-descent parser — every module prioritizes readability over optimization.</li>
+<li><strong>Error resilience</strong>: Both the lexer and parser recover from errors and continue, maximizing the number of issues found per compilation. The diagnostics system produces rustc-style output with source snippets and caret underlines.</li>
+<li><strong>Real output</strong>: Ignis generates NASM-syntax x86-64 assembly that is assembled and linked into a real ELF64 executable. This is not a toy VM or bytecode interpreter — the generated code runs directly on the CPU.</li>
+<li><strong>Self-contained</strong>: The entire compiler is roughly 2,500 lines of Rust with zero dependencies beyond the standard library, NASM, and the system C compiler.</li>
+</ul>
+
+<h3>The Ignis Source Files</h3>
+
+<table class="file-table">
+<tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+<tr><td><code>main.rs</code></td><td>110</td><td>Compiler driver: orchestrates pipeline, parses CLI, invokes nasm &amp; cc</td></tr>
+<tr><td><code>span.rs</code></td><td>95</td><td>Source location: byte offsets, line/column tracking, span merging</td></tr>
+<tr><td><code>token.rs</code></td><td>&mdash;</td><td>Token enum with all variants and keyword dispatch</td></tr>
+<tr><td><code>lexer.rs</code></td><td>&mdash;</td><td>Char-based lexer with error recovery and full literal support</td></tr>
+<tr><td><code>ast.rs</code></td><td>&mdash;</td><td>AST node definitions: Program, FuncDef, Stmt, Expr, Type, Pattern</td></tr>
+<tr><td><code>parser.rs</code></td><td>&mdash;</td><td>Recursive-descent Pratt parser with error recovery</td></tr>
+<tr><td><code>diag.rs</code></td><td>261</td><td>Diagnostics: Severity, Diagnostic (builder), Diagnostics (collector), formatting</td></tr>
+<tr><td><code>types.rs</code></td><td>418</td><td>TypeArena: interned type system, structural equality, size/alignment</td></tr>
+<tr><td><code>symbol.rs</code></td><td>&mdash;</td><td>Symbol table: scope chains, name resolution, declarations</td></tr>
+<tr><td><code>typeck.rs</code></td><td>&mdash;</td><td>Type checker: bidirectional inference, unification, annotations</td></tr>
+<tr><td><code>ir.rs</code></td><td>326</td><td>IR data structures: VReg, IrBlock, IrInstr, IrTerminator, IrModule</td></tr>
+<tr><td><code>ir_build.rs</code></td><td>&mdash;</td><td>IR builder: lowers AST to basic blocks with virtual registers</td></tr>
+<tr><td><code>ir_opt.rs</code></td><td>&mdash;</td><td>Optimizer: dead code elimination, constant folding, block merging</td></tr>
+<tr><td><code>abi.rs</code></td><td>32</td><td>ABI helpers: type queries and stack alignment computation</td></tr>
+<tr><td><code>regalloc.rs</code></td><td>92</td><td>StackAllocator: assigns stack slots, computes frame size</td></tr>
+<tr><td><code>codegen.rs</code></td><td>330</td><td>NASM codegen: .text/.rodata/.data sections, SysV calling convention</td></tr>
+</table>
+
+<h3>Future Directions</h3>
+
+<p>Ignis is a teaching compiler, but it could grow in many directions:</p>
+
+<ul>
+<li><strong>Register allocation</strong>: Replace the spill-everything <code>StackAllocator</code> with a graph-coloring allocator (Chaitin's algorithm) to keep values in registers, dramatically reducing memory traffic.</li>
+<li><strong>Optimization passes</strong>: Add constant propagation, common subexpression elimination, loop invariant code motion, and tail call optimization to the <code>ir_opt</code> module.</li>
+<li><strong>Type inference</strong>: Extend the type checker with Hindley-Milner inference and let-polymorphism, reducing the need for explicit type annotations.</li>
+<li><strong>Standard library</strong>: Build a minimal stdlib with I/O, memory allocation, and data structures, leveraging the <code>extern</code> mechanism to call libc functions.</li>
+<li><strong>Self-hosting</strong>: The ultimate milestone — write an L1S compiler in L1S itself. This requires enough language features to implement the compiler's own source code.</li>
+<li><strong>Additional targets</strong>: The IR is largely architecture-neutral. Adding backends for ARM64, RISC-V, or WebAssembly would demonstrate how compilers support multiple platforms.</li>
+<li><strong>Incremental compilation</strong>: A module system with separate compilation and caching would make iteration faster for larger projects.</li>
+</ul>
+
+<h3>Final Thoughts</h3>
+
+<p>Building a compiler is one of the most rewarding projects in software engineering. It touches every corner of computer science: formal languages, data structures, algorithms, computer architecture, and systems programming. The Ignis compiler gives you a complete, working system that you can study, modify, and extend.</p>
+
+<p>The journey from <code>func main(i32) { return 42; }</code> to a running executable involves lexing, parsing, type checking, IR construction, optimization, register allocation, code generation, assembly, and linking. Ignis does all of this in roughly 2,500 lines of Rust. If you have followed along through all 17 chapters, you now understand how a high-level programming language is translated into machine code &mdash; one of the deepest and most satisfying topics in computer science.</p>
+
+<p>What will you build next?</p>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="16-diag.html">&larr; Chapter 16</a> &ensp; Chapter 17: Conclusion</span>
+</div>
+
+</body>
+</html>

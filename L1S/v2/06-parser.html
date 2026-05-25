@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 6: The Parser &mdash; The L1S Book</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="05-ast.html">&larr; Chapter 5</a> &ensp; Chapter 6: The Parser &ensp; <a href="07-types.html">Chapter 7 &rarr;</a></span>
+</div>
+
+<h2 id="parser">6 &ensp; The Parser</h2>
+
+<h3>What is Parsing?</h3>
+
+<p>Parsing is the process of converting a flat stream of tokens into a structured tree that represents the grammatical structure of the program. Where the lexer grouped characters into tokens, the parser groups tokens into larger constructs: declarations, statements, and expressions.</p>
+
+<p>There are two main families of parsing algorithms: <strong>top-down</strong> (recursive descent) and <strong>bottom-up</strong> (LR, LALR). Recursive descent is the most popular for hand-written compilers because it maps directly to the grammar, gives great error messages, and is straightforward to debug. Bottom-up parsers (like Yacc/Bison) are typically generated from a grammar specification and can handle a wider class of grammars, but produce opaque error messages and are harder to extend.</p>
+
+<p>Within recursive descent, expression parsing has its own sub-problem: handling operator precedence without encoding it in a cascade of functions. Two approaches dominate: <strong>Pratt parsing</strong> (top-down operator precedence) and <strong>precedence climbing</strong>. Both use numeric binding powers to decide which operator binds tighter. Pratt is more general &mdash; it handles prefix, postfix, and infix operators uniformly &mdash; while precedence climbing is simpler but typically only handles infix.</p>
+
+<h3>Tradeoffs &amp; Design Space</h3>
+
+<p><strong>Recursive descent vs generated parsers:</strong></p>
+<ul>
+  <li><strong>Recursive descent</strong>: Each grammar rule becomes a function. Easy to debug (step through in a debugger), easy to extend, trivial to add error recovery. Downside: left-recursive grammar rules cause infinite recursion (must be rewritten as right-recursive loops).</li>
+  <li><strong>Generated (Yacc/Bison, ANTLR)</strong>: Grammar is declarative; parser is generated. Can handle LR(1) grammars including left recursion. Downside: poor error messages, hard to debug, generated code is opaque, adding error recovery requires grammar-level hacks.</li>
+</ul>
+<p>For a pedagogical compiler like L1S, recursive descent is the obvious choice. The grammar is small enough that hand-writing a parser is straightforward, and the error recovery patterns are educational.</p>
+
+<p><strong>Pratt vs precedence climbing for expressions:</strong></p>
+<ul>
+  <li><strong>Pratt</strong>: A single loop reads a prefix, then repeatedly checks for infix operators. Each operator has a binding power. Prefix and infix handling are unified. Adding a new operator means adding an entry to the binding power table and a match arm.</li>
+  <li><strong>Precedence climbing</strong>: Similar but typically only handles infix operators. Prefix/postfix must be handled separately.</li>
+  <li><strong>Function cascade</strong>: The traditional approach where each precedence level is a separate function (<code>parse_add_expr</code> calls <code>parse_mul_expr</code>, etc.). Easy to understand but verbose: adding a new precedence level requires inserting a new function in the chain.</li>
+</ul>
+<p>L1S uses a Pratt parser for expressions, combined with recursive descent for declarations and statements. This hybrid is common in production compilers (rustc, GCC, Clang all use variants of this approach).</p>
+
+<h3>Ignis Implementation</h3>
+
+<p>Ignis uses a hand-written recursive descent parser with a Pratt expression parser. The <code>Parser</code> struct wraps the token stream and a diagnostics accumulator, providing cursor operations that every parse method builds on:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; Parser struct</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Parser</span> {
+    tokens: <span class="ty">Vec</span>&lt;<span class="ty">SpannedToken</span>&gt;,
+    pos: <span class="ty">usize</span>,
+    diag: <span class="ty">Diagnostics</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Parser</span> {
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">new</span>(tokens: <span class="ty">Vec</span>&lt;<span class="ty">SpannedToken</span>&gt;, diag: <span class="ty">Diagnostics</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Parser</span> { tokens, pos: 0, diag }
+    }
+
+    <span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">into_diagnostics</span>(<span class="kw">self</span>) -&gt; <span class="ty">Diagnostics</span> {
+        <span class="kw">self</span>.diag
+    }
+}</code></pre>
+
+<p>The three fields are all a recursive descent parser needs: an owned token list, a cursor into it, and a place to record errors.</p>
+
+<h4>Cursor Operations: The Parser's Vocabulary</h4>
+
+<p>Every recursive descent parser is built from a handful of primitives for looking at and consuming tokens. These are the building blocks that higher-level parse methods compose:</p>
+
+<div class="code-header"><span>src/parser.rs &mdash; cursor operations</span></div>
+<pre><code><span class="kw">fn</span> <span class="fn">is_at_end</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">self</span>.<span class="fn">peek_token</span>() == <span class="ty">Token::Eof</span>
+}
+
+<span class="kw">fn</span> <span class="fn">peek</span>(&amp;<span class="kw">self</span>) -&gt; &amp;<span class="ty">SpannedToken</span> {
+    &amp;<span class="kw">self</span>.tokens[<span class="kw">self</span>.pos]
+}
+
+<span class="kw">fn</span> <span class="fn">peek_token</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">if</span> <span class="kw">self</span>.pos &gt;= <span class="kw">self</span>.tokens.<span class="fn">len</span>() { <span class="kw">return</span> <span class="ty">Token::Eof</span>; }
+    <span class="kw">self</span>.tokens[<span class="kw">self</span>.pos].token.<span class="fn">clone</span>()
+}
+
+<span class="kw">fn</span> <span class="fn">peek_nth</span>(&amp;<span class="kw">self</span>, n: <span class="ty">usize</span>) -&gt; <span class="ty">Token</span> {
+    <span class="kw">let</span> idx = <span class="kw">self</span>.pos + n;
+    <span class="kw">if</span> idx &gt;= <span class="kw">self</span>.tokens.<span class="fn">len</span>() { <span class="kw">return</span> <span class="ty">Token::Eof</span>; }
+    <span class="kw">self</span>.tokens[idx].token.<span class="fn">clone</span>()
+}
+
+<span class="kw">fn</span> <span class="fn">advance</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; &amp;<span class="ty">SpannedToken</span> {
+    <span class="kw">let</span> t = &amp;<span class="kw">self</span>.tokens[<span class="kw">self</span>.pos];
+    <span class="kw">self</span>.pos += 1;
+    t
+}</code></pre>
+
+<p>The three consumption patterns &mdash; <code>check</code>, <code>match_token</code>, and <code>expect</code> &mdash; form a taxonomy of lookahead strategies:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">check</span>(&amp;<span class="kw">self</span>, tok: &amp;<span class="ty">Token</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">self</span>.<span class="fn">peek_token</span>() == *tok         <span class="cm">// pure predicate, cursor unchanged</span>
+}
+
+<span class="kw">fn</span> <span class="fn">match_token</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, tok: &amp;<span class="ty">Token</span>) -&gt; <span class="ty">bool</span> {
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">check</span>(tok) { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="kw">true</span> }       <span class="cm">// consume if matches</span>
+    <span class="kw">else</span> { <span class="kw">false</span> }
+}
+
+<span class="kw">fn</span> <span class="fn">expect</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, tok: &amp;<span class="ty">Token</span>) -&gt; <span class="ty">Result</span>&lt;<span class="ty">Span</span>, <span class="ty">Span</span>&gt; {
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">check</span>(tok) { ... <span class="ty">Ok</span>(span) }           <span class="cm">// consume or signal error</span>
+    <span class="kw">else</span> { <span class="ty">Err</span>(<span class="kw">self</span>.<span class="fn">current_span</span>()) }
+}</code></pre>
+
+<p><code>check</code> is a pure predicate &mdash; look but don't touch. <code>match_token</code> is for optional syntax (like commas between parameters): consume if present, no error if absent. <code>expect</code> is for required syntax: consume on success, return an error span on failure so the caller can synthesize a placeholder.</p>
+
+<div class="callout info">
+<strong>Why return Result for expect?</strong> The caller uses <code>unwrap_or_else</code> to supply a synthetic value (a dummy span, an empty name, etc.). The error is <em>already recorded</em> in the diagnostics by the caller's choice. This keeps <code>expect</code> pure &mdash; it reports the failure; the caller decides how to recover.
+</div>
+
+<h4>Error Recovery Pattern</h4>
+
+<p>The most important design principle in the Ignis parser: <strong>never stop after one error</strong>. Every parse method can fail gracefully by inserting a synthetic value and continuing. Consider <code>parse_func_decl</code>:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_func_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, pub_: <span class="ty">bool</span>) -&gt; <span class="ty">AstFuncDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Func</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenParen</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> return_type = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+    <span class="kw">let</span> params = <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Comma</span>) { <span class="kw">self</span>.<span class="fn">parse_params</span>() }
+                 <span class="kw">else</span> { <span class="ty">Vec</span>::<span class="fn">new</span>() };
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseParen</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> body = <span class="kw">self</span>.<span class="fn">parse_block</span>();
+    <span class="ty">AstFuncDecl</span> { span, pub_, name, return_type, params, body }
+}</code></pre>
+
+<p>If the function name is missing, the parser inserts <code>"_"</code> as a synthetic name and continues. If a closing paren is missing, it gets a dummy span. The error is already recorded in <code>self.diag</code>, but parsing proceeds to find more errors. This maximizes the number of issues reported in a single compilation.</p>
+
+<p>Every loop also has an <strong>infinite loop guard</strong>. If a bug causes the parser to loop without advancing (e.g., a malformed declaration returns <code>None</code> every iteration), a panic fires after 10,000 iterations:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_program</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstProgram</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> decls = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">let</span> <span class="kw">mut</span> guard = 0u32;
+    <span class="kw">while</span> !<span class="kw">self</span>.<span class="fn">is_at_end</span>() {
+        guard += 1;
+        <span class="kw">if</span> guard &gt; 10000 { <span class="fn">panic!</span>(<span class="str">"INFINITE LOOP"</span>); }
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(decl) = <span class="kw">self</span>.<span class="fn">parse_declaration</span>() {
+            decls.<span class="fn">push</span>(decl);
+        } <span class="kw">else</span> {
+            <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="cm">// force progress on parse failure</span>
+        }
+    }
+    <span class="ty">AstProgram</span> { decls }
+}</code></pre>
+
+<p>The guard paired with <code>self.advance()</code> on failure is the double lock. Even if <code>parse_declaration</code> returns <code>None</code> without consuming anything, the force-advance guarantees the loop makes progress.</p>
+
+<h4>Declaration Parsing</h4>
+
+<p>Declarations are the top-level constructs of a program: functions, structs, enums, specs, impls, typedefs, imports, and static variables. The dispatch is a single match on the current token, with <code>pub</code> handled as an optional prefix modifier:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_declaration</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">AstDecl</span>&gt; {
+    <span class="kw">let</span> is_pub = <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Pub</span>);
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::Struct</span>   =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Struct</span>(<span class="kw">self</span>.<span class="fn">parse_struct_decl</span>(is_pub))),
+        <span class="ty">Token::Enum</span>     =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Enum</span>(<span class="kw">self</span>.<span class="fn">parse_enum_decl</span>(is_pub))),
+        <span class="ty">Token::Spec</span>     =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Spec</span>(<span class="kw">self</span>.<span class="fn">parse_spec_decl</span>(is_pub))),
+        <span class="ty">Token::Impl</span>     =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Impl</span>(<span class="kw">self</span>.<span class="fn">parse_impl_decl</span>())),
+        <span class="ty">Token::Func</span>     =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Func</span>(<span class="kw">self</span>.<span class="fn">parse_func_decl</span>(is_pub))),
+        <span class="ty">Token::Typedef</span>  =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Typedef</span>(<span class="kw">self</span>.<span class="fn">parse_typedef_decl</span>(is_pub))),
+        <span class="ty">Token::Import</span>   =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::Import</span>(<span class="kw">self</span>.<span class="fn">parse_import</span>())),
+        <span class="ty">Token::Static</span>   =&gt; <span class="ty">Some</span>(<span class="ty">AstDecl::StaticVar</span>(<span class="kw">self</span>.<span class="fn">parse_static_var_decl</span>())),
+        _ =&gt; { <span class="kw">if</span> is_pub { <span class="kw">self</span>.<span class="fn">error</span>(<span class="str">"expected declaration after 'pub'"</span>, ...); } <span class="ty">None</span> }
+    }
+}</code></pre>
+
+<p>The <code>pub</code> keyword is consumed greedily by <code>match_token</code>, then passed to the sub-parser. Declarations like <code>impl</code> and <code>import</code> reject it by emitting an error. This pattern keeps the dispatch clean and avoids duplicating the pub-handling logic in each sub-parser.</p>
+
+<p>Each declaration follows the same template: consume a keyword, parse a name, parse delimiters and body, return the AST node. For example, a struct declaration:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_struct_decl</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, pub_: <span class="ty">bool</span>) -&gt; <span class="ty">AstStructDecl</span> {
+    <span class="kw">let</span> span = <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Struct</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> name = <span class="kw">self</span>.<span class="fn">expect_ident</span>().<span class="fn">unwrap_or_else</span>(|_| <span class="str">"_"</span>.<span class="fn">into</span>());
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::OpenBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="kw">let</span> fields = <span class="kw">self</span>.<span class="fn">parse_fields</span>();
+    <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBrace</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+    <span class="ty">AstStructDecl</span> { span, pub_, name, fields }
+}</code></pre>
+
+<p>Ignis uses a non-standard function declaration syntax: <code>func main(i32, argc: i32, argv: @char) { ... }</code>. The return type appears <em>first</em> inside the parentheses, followed by optional named parameters after a comma. This means <code>func main(i32) { }</code> declares a function taking no parameters returning <code>i32</code>, while <code>func main(i32, x: i32, y: i32) { }</code> adds named parameters.</p>
+
+<div class="callout tip">
+<strong>Why return type first?</strong> In most C-like languages, a bare type with no name (like <code>i32</code>) would be illegal. Ignis uses this to distinguish between "zero parameters" (just a return type) and "named parameters" (comma, then name:type pairs). It's unusual but keeps the grammar compact.
+</div>
+
+<h4>Statement Parsing</h4>
+
+<p>Statements are the executable units inside function bodies. Each statement type starts with a distinct keyword, making dispatch a simple match:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_statement</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">AstStmt</span>&gt; {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::Return</span>    =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Return</span>(<span class="kw">self</span>.<span class="fn">parse_return</span>())),
+        <span class="ty">Token::Let</span>       =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::VarDecl</span>(<span class="kw">self</span>.<span class="fn">parse_var_decl</span>())),
+        <span class="ty">Token::If</span>        =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::If</span>(<span class="kw">self</span>.<span class="fn">parse_if</span>())),
+        <span class="ty">Token::While</span>     =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::While</span>(<span class="kw">self</span>.<span class="fn">parse_while</span>())),
+        <span class="ty">Token::For</span>       =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::For</span>(<span class="kw">self</span>.<span class="fn">parse_for</span>())),
+        <span class="ty">Token::Asm</span>       =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Asm</span>(<span class="kw">self</span>.<span class="fn">parse_asm</span>())),
+        <span class="ty">Token::OpenBrace</span> =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Block</span>(<span class="kw">self</span>.<span class="fn">parse_block</span>())),
+        <span class="ty">Token::Import</span>    =&gt; <span class="ty">Some</span>(<span class="ty">AstStmt::Import</span>(<span class="kw">self</span>.<span class="fn">parse_import</span>())),
+        _ =&gt; { <span class="cm">// expression statement: any expression followed by semicolon</span>
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">is_at_end</span>() { <span class="kw">return</span> <span class="ty">None</span>; }
+            <span class="kw">let</span> expr = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+            <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::Semicolon</span>).<span class="fn">unwrap_or_else</span>(|_| <span class="ty">Span::dummy</span>());
+            <span class="ty">Some</span>(<span class="ty">AstStmt::Expr</span>(expr))
+        }
+    }
+}</code></pre>
+
+<p>The fallthrough case handles <strong>expression statements</strong> &mdash; any expression followed by a semicolon. This is how <code>foo();</code> (function call as a statement) and <code>x = 42;</code> (assignment as a statement) work. The <code>if</code>/<code>while</code>/<code>let</code> keywords are reserved, so there's no ambiguity: an identifier starting a statement can only be an expression statement.</p>
+
+<p>The <code>else if</code> chain is handled recursively in <code>parse_if</code>:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_if</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstIf</span> {
+    <span class="cm">// ... parse condition and then_block ...</span>
+    <span class="kw">let</span> else_branch = <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Else</span>) {
+        <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+            <span class="ty">Token::If</span> =&gt; <span class="ty">Some</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">AstStmt::If</span>(<span class="kw">self</span>.<span class="fn">parse_if</span>()))),
+            _ =&gt; <span class="ty">Some</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">AstStmt::Block</span>(<span class="kw">self</span>.<span class="fn">parse_block</span>()))),
+        }
+    } <span class="kw">else</span> { <span class="ty">None</span> };
+    <span class="ty">AstIf</span> { span, cond, then_block, else_branch }
+}</code></pre>
+
+<p>When <code>else</code> is followed by <code>if</code>, the parser recursively calls <code>parse_if</code>, creating a nested chain. The statement <code>if (a) {} else if (b) {} else {}</code> becomes <code>If(cond=a, else=Some(If(cond=b, else=Some(Block))))</code>.</p>
+
+<h4>Pratt Expression Parsing</h4>
+
+<p>Expressions are the most elegant part of the parser. Instead of encoding precedence in a cascade of functions, Pratt parsing uses <strong>binding powers</strong> &mdash; numeric values assigned to each operator that determine how tightly it binds its operands:</p>
+
+<div class="diagram" style="text-align:left;font-size:0.85rem;">
+<strong>Operator binding powers (lower = looser, higher = tighter):</strong><br><br>
+<code>  =   (assignment) ........... 10<br>
+  ||  (logical or) .......... 20<br>
+  &amp;&amp;  (logical and) ......... 30<br>
+  == != (equality) ........... 40<br>
+  &lt; &gt; &lt;= &gt;= (comparison) ..... 50<br>
+  |   (bitwise or) .......... 60<br>
+  ^   (bitwise xor) ......... 70<br>
+  &amp;   (bitwise and) ......... 80<br>
+  &lt;&lt; &gt;&gt; (shift) .............. 90<br>
+  + -  (addition) ........... 100<br>
+  * / % (multiplication) .... 110<br>
+  ( [ { . -&gt; (postfix) ...... 130</code>
+</div>
+
+<p>The core algorithm is just two functions, <code>parse_expr_bp</code> and the binding power table <code>infix_bp</code>:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_expr</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(0)       <span class="cm">// start with minimum binding power 0</span>
+}
+
+<span class="kw">fn</span> <span class="fn">parse_expr_bp</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, min_bp: <span class="ty">u8</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> lhs = <span class="kw">self</span>.<span class="fn">parse_prefix</span>();       <span class="cm">// literal, ident, unary, parens</span>
+    <span class="kw">loop</span> {
+        <span class="kw">let</span> bp = <span class="kw">self</span>.<span class="fn">infix_bp</span>();             <span class="cm">// peek at next operator's power</span>
+        <span class="kw">if</span> bp == 0 || bp &lt; min_bp { <span class="kw">break</span>; } <span class="cm">// stop if looser than minimum</span>
+        lhs = <span class="kw">self</span>.<span class="fn">parse_infix</span>(lhs, bp);       <span class="cm">// consume operator and RHS</span>
+    }
+    lhs
+}
+
+<span class="kw">fn</span> <span class="fn">infix_bp</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">u8</span> {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::Eq</span> =&gt; 10,
+        <span class="ty">Token::PipePipe</span> =&gt; 20,
+        <span class="ty">Token::AmpAmp</span> =&gt; 30,
+        <span class="ty">Token::EqEq</span> | <span class="ty">Token::BangEq</span> =&gt; 40,
+        <span class="ty">Token::Lt</span> | <span class="ty">Token::Gt</span> | <span class="ty">Token::LtEq</span> | <span class="ty">Token::GtEq</span> =&gt; 50,
+        <span class="ty">Token::Pipe</span> =&gt; 60,
+        <span class="ty">Token::Caret</span> =&gt; 70,
+        <span class="ty">Token::Amp</span> =&gt; 80,
+        <span class="ty">Token::LtLt</span> | <span class="ty">Token::GtGt</span> =&gt; 90,
+        <span class="ty">Token::Plus</span> | <span class="ty">Token::Minus</span> =&gt; 100,
+        <span class="ty">Token::Star</span> | <span class="ty">Token::Slash</span> | <span class="ty">Token::Percent</span> =&gt; 110,
+        <span class="ty">Token::OpenParen</span> | <span class="ty">Token::OpenBracket</span> | <span class="ty">Token::OpenBrace</span>
+            | <span class="ty">Token::Dot</span> | <span class="ty">Token::Arrow</span> =&gt; 130,
+        _ =&gt; 0,  <span class="cm">// not an infix operator: stop</span>
+    }
+}</code></pre>
+
+<p>The algorithm works in a tight loop:</p>
+<ol>
+  <li>Parse a <strong>prefix</strong> expression (integer literal, string, identifier, parenthesized expression, unary operator like <code>-</code>, <code>!</code>, <code>@</code>).</li>
+  <li><strong>Peek at the next token</strong>. Look up its binding power. Zero means "not an infix operator" &mdash; stop here.</li>
+  <li><strong>Compare</strong> the operator's binding power with the current minimum. If the operator binds tighter (<code>bp &gt;= min_bp</code>), parse it as an infix (which recursively calls <code>parse_expr_bp</code> with a higher minimum for the right-hand side).</li>
+  <li>If the operator binds looser, stop and return the current <code>lhs</code>.</li>
+</ol>
+
+<p><strong>Left vs right associativity</strong> is controlled by the <code>bp</code> value passed to the recursive call:</p>
+
+<ul>
+  <li><strong>Left-associative</strong> operators (<code>+</code>, <code>*</code>, <code>==</code>): the RHS is parsed with <code>bp + 1</code>, meaning <code>1 + 2 + 3</code> becomes <code>((1 + 2) + 3)</code>.</li>
+  <li><strong>Right-associative</strong> operators (<code>=</code>): the RHS is parsed with <code>bp</code> (not <code>bp + 1</code>), so <code>x = y = 0</code> becomes <code>x = (y = 0)</code>.</li>
+</ul>
+
+<p>Unary operators (<code>-</code>, <code>!</code>, <code>~</code>, <code>&amp;</code>, <code>@</code>) all use binding power 120 for their operand &mdash; higher than all binary operators. This means <code>-x * y</code> parses as <code>(-x) * y</code>, not <code>-(x * y)</code>.</p>
+
+<p>The <code>parse_infix</code> method handles both binary operators and postfix syntax (function calls, array indexing, field access, struct initialization) by matching on the current token:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_infix</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, lhs: <span class="ty">AstExpr</span>, bp: <span class="ty">u8</span>) -&gt; <span class="ty">AstExpr</span> {
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="cm">// Postfix operators (binding power 130)</span>
+        <span class="ty">Token::OpenParen</span>   =&gt; { <span class="cm">/* function call: foo(args) */</span> }
+        <span class="ty">Token::OpenBracket</span> =&gt; { <span class="cm">/* array index: a[i] */</span> }
+        <span class="ty">Token::OpenBrace</span>   =&gt; { <span class="cm">/* struct init: Point { x: 1 } */</span> }
+        <span class="ty">Token::Dot</span>         =&gt; { <span class="cm">/* field access: p.x */</span> }
+        <span class="ty">Token::Arrow</span>       =&gt; { <span class="cm">/* pointer field: p-&gt;x */</span> }
+
+        <span class="cm">// Binary operators follow the same pattern:</span>
+        <span class="ty">Token::Plus</span>  =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>();
+                         <span class="kw">let</span> rhs = <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(bp + 1);
+                         <span class="ty">AstExpr::Binary</span>(<span class="ty">BinaryOp::Add</span>, <span class="ty">Box</span>::<span class="fn">new</span>(lhs), <span class="ty">Box</span>::<span class="fn">new</span>(rhs), op_span) }
+        <span class="cm">// ... Star, Slash, Percent, Minus, Amp, Pipe, Caret, EqEq, BangEq, ...</span>
+
+        <span class="cm">// Assignment is right-associative: use bp, not bp + 1</span>
+        <span class="ty">Token::Eq</span>   =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>();
+                         <span class="kw">let</span> rhs = <span class="kw">self</span>.<span class="fn">parse_expr_bp</span>(bp); <span class="cm">// no +1</span>
+                         <span class="ty">AstExpr::Assign</span>(<span class="ty">Box</span>::<span class="fn">new</span>(lhs), <span class="ty">Box</span>::<span class="fn">new</span>(rhs), op_span) }
+        _ =&gt; lhs,
+    }
+}</code></pre>
+
+<p>Postfix operators like <code>(</code>, <code>[</code>, <code>.</code> have the highest binding power (130), so they always bind tighter than any binary operator. The expression <code>a[i] + 1</code> correctly parses as <code>(a[i]) + 1</code> rather than <code>a[(i) + 1]</code>.</p>
+
+<h4>Type Parsing</h4>
+
+<p>Types form their own mini-language that is parsed by a single recursive method. This is possible because Ignis types use prefix syntax consistently:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">parse_type</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">AstType</span> {
+    <span class="cm">// [expr] type  &rarr; array type (prefix syntax)</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::OpenBracket</span>) {
+        <span class="kw">let</span> size = <span class="kw">self</span>.<span class="fn">parse_expr</span>();
+        <span class="kw">self</span>.<span class="fn">expect</span>(&amp;<span class="ty">Token::CloseBracket</span>);
+        <span class="kw">let</span> inner = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+        <span class="kw">return</span> <span class="ty">AstType::Array</span>(<span class="ty">Box</span>::<span class="fn">new</span>(size), <span class="ty">Box</span>::<span class="fn">new</span>(inner), span);
+    }
+    <span class="cm">// @type  &rarr; pointer type (prefix syntax)</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::At</span>) {
+        <span class="kw">let</span> inner = <span class="kw">self</span>.<span class="fn">parse_type</span>();
+        <span class="kw">return</span> <span class="ty">AstType::Ptr</span>(<span class="ty">Box</span>::<span class="fn">new</span>(inner), span);
+    }
+    <span class="cm">// Func&lt;ret, args...&gt;  &rarr; function type</span>
+    <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">match_token</span>(&amp;<span class="ty">Token::Func</span>) {
+        <span class="cm">// parse Func&lt;ret_type, arg1_type, arg2_type, ...&gt;</span>
+    }
+    <span class="cm">// Primitive or named type (base case)</span>
+    <span class="kw">match</span> <span class="kw">self</span>.<span class="fn">peek_token</span>() {
+        <span class="ty">Token::I32</span>  =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::I32</span>, span) }
+        <span class="ty">Token::Bool</span> =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::Bool</span>, span) }
+        <span class="cm">// ... all primitives ...</span>
+        <span class="ty">Token::Ident</span>(ref name) =&gt; { <span class="kw">self</span>.<span class="fn">advance</span>(); <span class="ty">AstType::Named</span>(name.<span class="fn">clone</span>(), span) }
+        _ =&gt; { <span class="kw">self</span>.<span class="fn">error</span>(<span class="str">"expected type"</span>, span); <span class="ty">AstType::Prim</span>(<span class="ty">PrimType::Void</span>, span) }
+    }
+}</code></pre>
+
+<p>The recursive calls handle nesting naturally: <code>@[10]@i32</code> is a pointer to an array of ten pointers to <code>i32</code>. Each prefix operator (<code>@</code>, <code>[n]</code>, <code>Func&lt;...&gt;</code>) recursively calls <code>parse_type</code> for the element type. Named types and primitives are the base cases that terminate the recursion.</p>
+
+<h3>Traced Example: Parsing <code>1 + 2 * 3</code></h3>
+
+<p>Let's trace the Pratt parser on <code>1 + 2 * 3</code>. The token stream: <code>NumLiteral("1"), Plus, NumLiteral("2"), Star, NumLiteral("3")</code>.</p>
+
+<p>The key question is: does the parser produce <code>(1 + 2) * 3</code> or <code>1 + (2 * 3)</code>? The answer depends on the binding powers of <code>+</code> (100) and <code>*</code> (110). Since <code>*</code> has a higher binding power, it grabs the <code>2</code> before <code>+</code> can:</p>
+
+<table class="file-table">
+<tr><th>Step</th><th>Call</th><th><code>min_bp</code></th><th>Current <code>lhs</code></th><th>Next Token</th><th><code>infix_bp</code></th><th>Action</th></tr>
+<tr><td>1</td><td><code>parse_expr()</code></td><td>&mdash;</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td>Call <code>parse_expr_bp(0)</code></td></tr>
+<tr><td>2</td><td><code>parse_expr_bp(0)</code></td><td>0</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td>Parse prefix: <code>Int("1")</code></td></tr>
+<tr><td>3</td><td>loop iteration</td><td>0</td><td><code>Int("1")</code></td><td><code>Plus</code></td><td>100</td><td>100 &ge; 0 &rarr; call <code>parse_infix</code></td></tr>
+<tr><td>4</td><td><code>parse_infix(+, 100)</code></td><td>0</td><td><code>Int("1")</code></td><td><code>Plus</code></td><td>100</td><td>Advance <code>+</code>, call <code>parse_expr_bp(101)</code></td></tr>
+<tr><td>5</td><td><code>parse_expr_bp(101)</code></td><td>101</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td>Parse prefix: <code>Int("2")</code></td></tr>
+<tr><td>6</td><td>loop iteration</td><td>101</td><td><code>Int("2")</code></td><td><code>Star</code></td><td>110</td><td>110 &ge; 101 &rarr; call <code>parse_infix</code></td></tr>
+<tr><td>7</td><td><code>parse_infix(*, 110)</code></td><td>101</td><td><code>Int("2")</code></td><td><code>Star</code></td><td>110</td><td>Advance <code>*</code>, call <code>parse_expr_bp(111)</code></td></tr>
+<tr><td>8</td><td><code>parse_expr_bp(111)</code></td><td>111</td><td>&mdash;</td><td><code>Num</code></td><td>&mdash;</td><td>Parse prefix: <code>Int("3")</code></td></tr>
+<tr><td>9</td><td>loop iteration</td><td>111</td><td><code>Int("3")</code></td><td>EOF</td><td>0</td><td>0 &lt; 111 &rarr; break, return <code>Int("3")</code></td></tr>
+<tr><td>10</td><td><code>parse_infix</code> returns</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Returns <code>Binary(Mul, Int("2"), Int("3"))</code></td></tr>
+<tr><td>11</td><td>loop iteration</td><td>101</td><td><code>Mul(2,3)</code></td><td>EOF</td><td>0</td><td>0 &lt; 101 &rarr; break, return <code>Mul(...)</code></td></tr>
+<tr><td>12</td><td><code>parse_infix</code> returns</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Returns <code>Binary(Add, Int("1"), Binary(Mul, Int("2"), Int("3")))</code></td></tr>
+</table>
+
+<p>Result: <code>1 + (2 * 3)</code> &mdash; correct! The <code>*</code> operator's higher binding power (110 vs 100) causes it to bind <code>2</code> more tightly than <code>+</code> does.</p>
+
+<h3>Traced Example: Parsing a Function Declaration</h3>
+
+<p>Given <code>func main(i32, argc: i32, argv: @char) { return argc; }</code>:</p>
+
+<ol>
+  <li><strong><code>parse_program</code></strong> loops, calls <code>parse_declaration</code>.</li>
+  <li><strong><code>parse_declaration</code></strong> sees no <code>pub</code>, matches <code>Token::Func</code>.</li>
+  <li><strong><code>parse_func_decl</code></strong>: consumes <code>func</code> keyword, reads <code>Ident("main")</code>.</li>
+  <li>Consumes <code>OpenParen</code>, calls <code>parse_type()</code> &rarr; <code>AstType::Prim(I32)</code>.</li>
+  <li>Sees <code>Comma</code> &rarr; calls <code>parse_params</code> which reads <code>argc: i32, argv: @char</code> (two params).</li>
+  <li>Consumes <code>CloseParen</code>, calls <code>parse_block</code> which parses <code>{ return argc; }</code>.</li>
+  <li>Returns <code>AstFuncDecl { name: "main", return_type: I32, params: [...], body: Block(...) }</code>.</li>
+</ol>
+
+<p>The parser produces a structured tree from the flat token stream:</p>
+
+<pre style="font-size:0.8rem;">
+<span class="ty">AstProgram</span> {
+    decls: [
+        <span class="ty">AstFuncDecl</span> {
+            name: <span class="str">"main"</span>,
+            return_type: <span class="ty">I32</span>,
+            params: [
+                <span class="ty">AstParam</span> { name: <span class="str">"argc"</span>, type_: <span class="ty">I32</span> },
+                <span class="ty">AstParam</span> { name: <span class="str">"argv"</span>, type_: <span class="ty">Ptr</span>(<span class="ty">Char</span>) },
+            ],
+            body: <span class="ty">AstBlock</span> {
+                stmts: [
+                    <span class="ty">AstStmt::Return</span>(<span class="ty">AstExpr::Ident</span>(<span class="str">"argc"</span>))
+                ]
+            }
+        }
+    ]
+}
+</pre>
+
+<h3>Traced Example: <code>else if</code> Chaining</h3>
+
+<p>Given <code>if (a) { f1(); } else if (b) { f2(); } else { f3(); }</code>:</p>
+
+<ol>
+  <li><code>parse_if</code> consumes <code>if</code>, parses condition <code>a</code>, parses <code>then_block</code>.</li>
+  <li>Sees <code>else</code>, peeks at next token. It's <code>if</code> (not <code>{</code>), so it <strong>recursively</strong> calls <code>parse_if</code>.</li>
+  <li>The recursive call parses <code>if (b) { f2(); } else { f3(); }</code> as a nested <code>AstIf</code>.</li>
+</ol>
+
+<p>The resulting tree: <code>If(cond=a, then=Block(f1), else=If(cond=b, then=Block(f2), else=Block(f3)))</code>. This recursive representation is elegant and matches how the parser naturally handles <code>else if</code> without special-casing.</p>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+  <li><strong>Infinite loops</strong>: Every <code>while</code> loop must guarantee progress. Always pair a guard counter with force-advance on failure. Test with using <code>cargo test</code> to ensure the guards don't fire.</li>
+  <li><strong>Forgetting to advance</strong>: <code>check</code> doesn't consume. <code>match_token</code> does. Mixing them up is the most common bug. Use <code>match_token</code> for optional syntax, <code>check</code> for lookahead decisions, <code>expect</code> for required syntax.</li>
+  <li><strong>Pratt off-by-one</strong>: Left-associative operators use <code>bp + 1</code> for the RHS. Right-associative operators use <code>bp</code>. Getting this wrong silently produces wrong parse trees. Always test with <code>1 + 2 + 3</code> (left-associate) and <code>x = y = 0</code> (right-associate).</li>
+  <li><strong>Error recovery swallowing tokens</strong>: Synthetic values let the parser continue, but the next call might be confused by the missing token. The guard counter catches this. If a test hangs, check the guard fires.</li>
+</ol>
+
+<div class="callout tip">
+<strong>Adding a new statement or operator:</strong> You need to touch exactly these places: add a <code>Token</code> variant (if new syntax), add an <code>AstStmt</code> or <code>AstExpr</code> variant, add the parsing method, add an <code>infix_bp</code> entry (for operators), add dispatch in <code>parse_statement</code> or <code>parse_infix</code>. That's it &mdash; the Pratt loop handles the rest.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="index.html">&larr; Home</a>
+  <span><a href="05-ast.html">&larr; Chapter 5</a> &ensp; Chapter 6: The Parser &ensp; <a href="07-types.html">Chapter 7 &rarr;</a></span>
+</div>
+
+</body>
+</html>

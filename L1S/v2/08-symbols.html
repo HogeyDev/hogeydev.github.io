@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chapter 8: The Symbol Table &mdash; Building a Compiler from Scratch</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #1c2333;
+    --fg: #e6edf3;
+    --fg2: #8b949e;
+    --orange: #d29922;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --border: #30363d;
+    --line: #21262d;
+    --code-bg: #0d1117;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 3rem 6rem;
+  }
+  h1 { font-size: 2.5rem; font-weight: 800; margin: 0 0 0.25rem; color: var(--orange); line-height: 1.2; }
+  h2 { font-size: 1.6rem; font-weight: 700; margin: 2.5rem 0 0.75rem; color: var(--fg); padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.5rem; color: var(--blue); }
+  h4 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.25rem; color: var(--cyan); }
+  p, li { color: var(--fg); margin-bottom: 0.75rem; }
+  a { color: var(--blue); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+  li { margin-bottom: 0.25rem; }
+  strong { color: var(--fg); }
+  em { color: var(--fg2); }
+  blockquote {
+    border-left: 3px solid var(--orange);
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    background: var(--bg3);
+    border-radius: 0 6px 6px 0;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+    font-size: 0.85em;
+    background: var(--bg3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 0.85rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+    color: var(--fg);
+  }
+  pre .kw  { color: var(--red); }
+  pre .ty  { color: var(--orange); }
+  pre .str { color: var(--green); }
+  pre .cm  { color: var(--fg2); font-style: italic; }
+  pre .num { color: var(--purple); }
+  pre .fn  { color: var(--blue); }
+  pre .op  { color: var(--cyan); }
+  pre .lb  { color: var(--orange); font-weight: 600; }
+  pre .pp  { color: var(--red); font-weight: 600; }
+  .code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 0.35rem 1rem;
+    font-size: 0.75rem;
+    color: var(--fg2);
+    margin-top: 1rem;
+  }
+  .code-header + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .callout {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid;
+  }
+  .callout.info { background: #0c2d6b; border-color: var(--blue); }
+  .callout.warn { background: #3b2e00; border-color: var(--orange); }
+  .callout.tip { background: #0b3626; border-color: var(--green); }
+  .callout strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--fg2);
+  }
+  .diagram .arrow { color: var(--orange); }
+  .diagram .box {
+    display: inline-block;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.75rem;
+    margin: 0 0.25rem;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .file-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; }
+  .file-table th, .file-table td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .file-table th { color: var(--fg2); font-weight: 600; background: var(--bg2); }
+  .nav-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .nav-bar a { color: var(--fg2); text-decoration: none; }
+  .nav-bar a:hover { color: var(--blue); }
+  @media (max-width: 600px) {
+    body { padding: 1.5rem 1.25rem 4rem; }
+    h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="07-types.html">&larr; Chapter 7</a> &ensp; Chapter 8: The Symbol Table &ensp; <a href="09-typeck.html">Chapter 9 &rarr;</a></span>
+</div>
+
+<h2 id="symbols">8 &ensp; The Symbol Table</h2>
+
+<h3>Concept: Name &rarr; Definition Mapping</h3>
+
+<p>A compiler needs to answer one question more than any other: <em>what does this name refer to?</em> When the parser produces an identifier node like <code>x</code> or <code>main</code>, the compiler must resolve it to a specific declaration &mdash; a variable, a function, a type, or an enum variant. The data structure that handles this is the <strong>symbol table</strong>: a mapping from names to their definitions.</p>
+
+<p>Consider this program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="num">1</span>;
+    {
+        <span class="kw">let</span> x: <span class="ty">i32</span> = <span class="num">2</span>;  <span class="cm">// shadows outer x</span>
+    }
+}</code></pre>
+
+<p>The identifier <code>x</code> appears three times: two <em>definitions</em> (the outer and inner declarations) and one <em>use</em> (inside the inner block for the initializer <code>2</code>). The use of <code>x</code> in the initializer <code>2</code> refers to the <em>inner</em> definition, not the outer one. This is the essence of <strong>lexical scoping</strong>: a name refers to the innermost enclosing definition.</p>
+
+<h3>Tradeoffs &amp; Design Space</h3>
+
+<p><strong>Flat map vs. scope chain.</strong> The simplest approach is a single flat <code>HashMap&lt;String, Entry&gt;</code>. It works for languages with no nesting (some assembly dialects) but breaks badly for structured programming. You would need to <em>mangle</em> names (e.g., <code>_main_inner_x</code>) to handle shadowing, which produces confusing error messages and makes semantic analysis impossible.</p>
+
+<p>The standard solution is a <strong>scope chain</strong>: a linked list of nested maps. Each scope has a parent pointer. Name lookup starts at the innermost scope and walks outward. This directly mirrors how programming languages handle nested blocks, function bodies, and module boundaries.</p>
+
+<p><strong>Persistent vs. ephemeral scopes.</strong> Some compilers (like GCC's early C frontend) use a tree of scopes that persists for the entire compilation. Others allocate scopes temporarily during parsing and type checking, discarding them afterward. Persisting scopes enables querying between functions (e.g., for module-level analysis), at the cost of memory. L1S takes a middle path: scopes are stored in a <code>Vec</code> and never deallocated, but only the chain from current to root is active.</p>
+
+<p><strong>What does each symbol entry store?</strong> At minimum, the entry needs a type and a declaration span. Some compilers also store mutability, visibility, alignment hints, or linker symbols. L1S keeps it minimal: a <code>SymbolKind</code> enum that discriminates between variables, functions, types, enum variants, specs, modules, and statics.</p>
+
+<h3>Ignis Implementation</h3>
+
+<p>Ignis implements the classic scope chain pattern. The core types are <code>Scope</code>, <code>ScopeId</code>, and <code>SymbolTable</code>:</p>
+
+<div class="code-header"><span>src/symbol.rs &mdash; scope chain infrastructure</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">Scope</span> {
+    <span class="kw">pub</span> symbols: <span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">SymbolEntry</span>&gt;,
+    <span class="kw">pub</span> parent: <span class="ty">Option</span>&lt;<span class="ty">ScopeId</span>&gt;,
+}
+
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">SymbolTable</span> {
+    scopes: <span class="ty">Vec</span>&lt;<span class="ty">Scope</span>&gt;,
+    current: <span class="ty">ScopeId</span>,
+}</code></pre>
+
+<p><code>ScopeId</code> is a newtype over <code>u32</code> that indexes into the <code>scopes</code> vector. The root scope (index 0) has <code>parent: None</code> and holds all global declarations. <code>push_scope</code> appends a new scope whose parent is the current scope, then updates <code>current</code>. <code>pop_scope</code> follows the parent pointer back:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">push_scope</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">ScopeId</span> {
+    <span class="kw">let</span> id = <span class="ty">ScopeId</span>(<span class="kw">self</span>.scopes.<span class="fn">len</span>() <span class="kw">as</span> <span class="ty">u32</span>);
+    <span class="kw">self</span>.scopes.<span class="fn">push</span>(<span class="ty">Scope</span> {
+        symbols: <span class="ty">HashMap</span>::<span class="fn">new</span>(),
+        parent: <span class="ty">Some</span>(<span class="kw">self</span>.current),
+    });
+    <span class="kw">self</span>.current = id;
+    id
+}
+
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">pop_scope</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+    <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(parent) = <span class="kw">self</span>.scopes[<span class="kw">self</span>.current.<span class="num">0</span> <span class="kw">as</span> <span class="ty">usize</span>].parent {
+        <span class="kw">self</span>.current = parent;
+    }
+}</code></pre>
+
+<p>The critical insight: scopes are <em>never removed</em> from the vector. This means <code>ScopeId</code> values remain valid for the lifetime of the table, enabling persistent queries. But only the chain from <code>current</code> to root is reachable via <code>lookup</code>.</p>
+
+<p><strong>Lookup</strong> walks the chain:</p>
+
+<div class="code-header"><span>src/symbol.rs &mdash; scope-walking lookup</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">fn</span> <span class="fn">lookup</span>(&amp;<span class="kw">self</span>, name: &amp;<span class="ty">str</span>) -&gt; <span class="ty">Option</span>&lt;&amp;<span class="ty">SymbolEntry</span>&gt; {
+    <span class="kw">let</span> <span class="kw">mut</span> sid = <span class="ty">Some</span>(<span class="kw">self</span>.current);
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(id) = sid {
+        <span class="kw">let</span> scope = &amp;<span class="kw">self</span>.scopes[id.<span class="num">0</span> <span class="kw">as</span> <span class="ty">usize</span>];
+        <span class="kw">if</span> <span class="kw">let</span> <span class="ty">Some</span>(entry) = scope.symbols.<span class="fn">get</span>(name) {
+            <span class="kw">return</span> <span class="ty">Some</span>(entry);
+        }
+        sid = scope.parent;
+    }
+    <span class="ty">None</span>
+}</code></pre>
+
+<p>The loop terminates because the root scope has <code>parent: None</code>. This is O(d) where d is the nesting depth &mdash; typically a small constant in practice.</p>
+
+<p><strong>Two insertion paths:</strong> <code>insert</code> adds to the current scope (used for local variables and parameters). <code>insert_global</code> always adds to scope 0 (used for top-level declarations like functions and structs). The split ensures that a function body's temporary scopes don't accidentally capture global declarations.</p>
+
+<p><strong>Symbol entries</strong> carry four fields:</p>
+
+<pre><code><span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">SymbolEntry</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> kind: <span class="ty">SymbolKind</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> is_pub: <span class="ty">bool</span>,
+}</code></pre>
+
+<p>The <code>span</code> enables "previously defined here" error diagnostics. The <code>kind</code> discriminates via the <code>SymbolKind</code> enum: <code>Variable(TypeId)</code>, <code>Function(TypeId)</code>, <code>TypeDecl(TypeId)</code>, <code>Spec(Vec&lt;(String, TypeId)&gt;)</code>, <code>EnumVariant(u64)</code>, <code>Module(Vec&lt;String&gt;)</code>, and <code>StaticVar(TypeId)</code>.</p>
+
+<div class="callout info">
+<strong>Why an enum and not traits?</strong> An enum is closed and exhaustive: the type checker can match on every variant and the compiler ensures no case is missed. A trait-based approach would be more extensible but would require dynamic dispatch or downcasting. For a fixed set of symbol kinds, an enum is simpler and faster.
+</div>
+
+<h3>Example: Tracing Nested Scope Resolution</h3>
+
+<p>Let's trace the symbol table state for this program:</p>
+
+<pre><code><span class="kw">func</span> <span class="fn">main</span>(<span class="ty">i32</span>) {
+    <span class="kw">let</span> a: <span class="ty">i32</span> = <span class="num">1</span>;
+    {
+        <span class="kw">let</span> b: <span class="ty">i32</span> = <span class="num">2</span>;
+        <span class="kw">let</span> a: <span class="ty">i32</span> = <span class="num">3</span>;  <span class="cm">// shadows outer a</span>
+    }
+}</code></pre>
+
+<table class="file-table">
+<tr><th>Step</th><th>Action</th><th>Current</th><th>Scopes</th></tr>
+<tr><td>1</td><td><code>new()</code></td><td>S0</td><td>S0 (root, parent: None)</td></tr>
+<tr><td>2</td><td><code>insert_global("main")</code></td><td>S0</td><td>S0: {main}</td></tr>
+<tr><td>3</td><td><code>push_scope()</code></td><td>S1</td><td>S0 (root), S1 (parent: S0)</td></tr>
+<tr><td>4</td><td><code>insert("a")</code></td><td>S1</td><td>S0: {main}, S1: {a}</td></tr>
+<tr><td>5</td><td><code>push_scope()</code></td><td>S2</td><td>S0, S1, S2 (parent: S1)</td></tr>
+<tr><td>6</td><td><code>insert("b")</code></td><td>S2</td><td>S2: {b}</td></tr>
+<tr><td>7</td><td><code>insert("a")</code></td><td>S2</td><td>S2: {b, a} &larr; shadows S1's a</td></tr>
+<tr><td>8</td><td><code>lookup("a")</code></td><td>S2</td><td>Returns S2's a (innermost wins)</td></tr>
+<tr><td>9</td><td><code>lookup("main")</code></td><td>S2</td><td>Walks S2 &rarr; S1 &rarr; S0, finds main</td></tr>
+<tr><td>10</td><td><code>pop_scope()</code></td><td>S1</td><td>S2 still in vector, but current = S1</td></tr>
+<tr><td>11</td><td><code>lookup("b")</code></td><td>S1</td><td>Not found (b was in S2, no longer on chain)</td></tr>
+<tr><td>12</td><td><code>lookup("a")</code></td><td>S1</td><td>Returns S1's a (outer binding restored)</td></tr>
+</table>
+
+<p>Notice step 10: after popping, S2 still exists in the vector. If another part of the compiler holds a <code>ScopeId</code> for S2, it can still inspect it via <code>lookup_in_scope</code>. But the active lookup chain no longer includes S2, so "b" is invisible.</p>
+
+<h3>What Does a SymbolEntry Hold?</h3>
+
+<p>Each symbol entry stores the name, its kind, the source span of its declaration, and whether it's public. The <code>SymbolKind</code> enum captures every category of named entity in the language:</p>
+
+<div class="code-header"><span>src/symbol.rs &mdash; SymbolKind and SymbolEntry</span></div>
+<pre><code><span class="kw">pub</span> <span class="kw">enum</span> <span class="ty">SymbolKind</span> {
+    <span class="fn">Variable</span>(<span class="ty">TypeId</span>),              <span class="cm">// Local variable or parameter</span>
+    <span class="fn">Function</span>(<span class="ty">TypeId</span>),              <span class="cm">// Function (full function type)</span>
+    <span class="fn">TypeDecl</span>(<span class="ty">TypeId</span>),              <span class="cm">// Type name (struct, enum, typedef)</span>
+    <span class="fn">Spec</span>(<span class="ty">Vec</span>&lt;(<span class="ty">String</span>, <span class="ty">TypeId</span>)&gt;), <span class="cm">// Spec/trait with method signatures</span>
+    <span class="fn">EnumVariant</span>(<span class="ty">u64</span>),              <span class="cm">// Enum variant with its discriminant</span>
+    <span class="fn">Module</span>(<span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt;),          <span class="cm">// Module path for imports</span>
+    <span class="fn">StaticVar</span>(<span class="ty">TypeId</span>),             <span class="cm">// Global/static variable</span>
+}
+
+<span class="kw">pub</span> <span class="kw">struct</span> <span class="ty">SymbolEntry</span> {
+    <span class="kw">pub</span> name: <span class="ty">String</span>,
+    <span class="kw">pub</span> kind: <span class="ty">SymbolKind</span>,
+    <span class="kw">pub</span> span: <span class="ty">Span</span>,
+    <span class="kw">pub</span> is_pub: <span class="ty">bool</span>,
+}</code></pre>
+
+<p>Each variant carries precisely the data needed for that kind: variables carry a <code>TypeId</code> so the type checker can verify assignments and expressions; functions carry their full function type (parameters + return type) so call sites can be validated; enum variants carry their numeric discriminant so they can be used as integer constants in the IR.</p>
+
+<h3>The SymbolTable API</h3>
+
+<p>The full public API is minimal but complete:</p>
+
+<ul>
+<li><strong><code>new()</code></strong> &mdash; Creates the root scope with <code>ScopeId(0)</code>.</li>
+<li><strong><code>push_scope() / pop_scope()</code></strong> &mdash; Enter and exit a nested scope. Returns the new <code>ScopeId</code>.</li>
+<li><strong><code>insert(name, kind, span, is_pub)</code></strong> &mdash; Add to the current scope. Returns <code>Err</code> on duplicate.</li>
+<li><strong><code>insert_global(name, kind, span, is_pub)</code></strong> &mdash; Always add to the root scope, regardless of current nesting.</li>
+<li><strong><code>lookup(name)</code></strong> &mdash; Walk the scope chain from current to root. Returns the innermost match.</li>
+<li><strong><code>lookup_in_scope(name, scope_id)</code></strong> &mdash; Check only a specific scope (no walking). Used for targeted queries.</li>
+<li><strong><code>current_scope()</code></strong> &mdash; Returns the current <code>ScopeId</code> for saving/restoring.</li>
+</ul>
+
+<h3>Duplicate Detection &amp; Error Reporting</h3>
+
+<p><code>insert</code> checks for duplicates <em>within the same scope</em> and returns <code>Err(SymbolError::AlreadyDefined)</code> with the previous declaration's span. This is important: shadowing is allowed across scopes (an inner <code>let x</code> hides an outer one), but duplicate names in the <em>same</em> scope is an error. The type checker uses this to produce precise messages like <code>error: redefinition of 'x'</code> pointing at both the new and previous definitions.</p>
+
+<div class="callout tip">
+<strong>Debugging scope chains.</strong> When the type checker reports "undefined identifier" for something you know exists, the scope chain is likely wrong. A quick debug helper walks the chain and prints each scope's keys:
+<pre style="margin:0.5rem 0 0;font-size:0.8rem;"><code><span class="kw">fn</span> <span class="fn">dump_scopes</span>(&amp;<span class="kw">self</span>) {
+    <span class="kw">let</span> <span class="kw">mut</span> sid = <span class="ty">Some</span>(<span class="kw">self</span>.current);
+    <span class="kw">while</span> <span class="kw">let</span> <span class="ty">Some</span>(id) = sid {
+        <span class="fn">println!</span>(<span class="str">"scope {}: {:?}"</span>, id.<span class="num">0</span>, <span class="kw">self</span>.scopes[id.<span class="num">0</span> <span class="kw">as</span> <span class="ty">usize</span>].symbols.<span class="fn">keys</span>());
+        sid = <span class="kw">self</span>.scopes[id.<span class="num">0</span> <span class="kw">as</span> <span class="ty">usize</span>].parent;
+    }
+}</code></pre>
+The most common bugs are forgetting to <code>push_scope</code> at function entry or <code>pop_scope</code> after a block.
+</div>
+
+<h3>Testing the Symbol Table</h3>
+
+<p>Testing a symbol table is straightforward: create a table, insert symbols, push/pop scopes, and verify lookups return the expected results. The test module in <code>symbol.rs</code> uses two helpers to reduce boilerplate:</p>
+
+<pre><code><span class="kw">fn</span> <span class="fn">dummy_span</span>() -&gt; <span class="ty">Span</span> { <span class="ty">Span</span>::<span class="fn">new</span>(<span class="num">0</span>, <span class="num">0</span>, <span class="num">1</span>, <span class="num">1</span>) }
+<span class="kw">fn</span> <span class="fn">dummy_type</span>() -&gt; <span class="ty">TypeId</span> { <span class="ty">TypeId</span>::<span class="fn">new</span>(<span class="num">0</span>) }</code></pre>
+
+<p><strong>Key test categories:</strong></p>
+
+<p>Basic insert and lookup in the root scope:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_insert_and_lookup</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> st = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    st.<span class="fn">insert</span>(<span class="str">"x"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">false</span>).<span class="fn">unwrap</span>();
+    <span class="fn">assert_eq!</span>(st.<span class="fn">lookup</span>(<span class="str">"x"</span>).<span class="fn">unwrap</span>().name, <span class="str">"x"</span>);
+}</code></pre>
+
+<p>Scope nesting: outer symbols visible from inner, but inner symbols invisible from outer after pop:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_scope_nesting</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> st = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    st.<span class="fn">insert</span>(<span class="str">"x"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">false</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> _inner = st.<span class="fn">push_scope</span>();
+    st.<span class="fn">insert</span>(<span class="str">"y"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">false</span>).<span class="fn">unwrap</span>();
+    <span class="fn">assert!</span>(st.<span class="fn">lookup</span>(<span class="str">"x"</span>).<span class="fn">is_some</span>());   <span class="cm">// outer visible from inner</span>
+    <span class="fn">assert!</span>(st.<span class="fn">lookup</span>(<span class="str">"y"</span>).<span class="fn">is_some</span>());   <span class="cm">// inner visible</span>
+    st.<span class="fn">pop_scope</span>();
+    <span class="fn">assert!</span>(st.<span class="fn">lookup</span>(<span class="str">"y"</span>).<span class="fn">is_none</span>());    <span class="cm">// inner scope gone</span>
+    <span class="fn">assert!</span>(st.<span class="fn">lookup</span>(<span class="str">"x"</span>).<span class="fn">is_some</span>());   <span class="cm">// outer still visible</span>
+}</code></pre>
+
+<p>Shadowing: inner <code>x</code> hides outer <code>x</code> temporarily, outer restored on pop:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_shadowing</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> st = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    st.<span class="fn">insert</span>(<span class="str">"x"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">false</span>).<span class="fn">unwrap</span>();
+    st.<span class="fn">push_scope</span>();
+    st.<span class="fn">insert</span>(<span class="str">"x"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">false</span>).<span class="fn">unwrap</span>();
+    <span class="fn">assert!</span>(st.<span class="fn">lookup</span>(<span class="str">"x"</span>).<span class="fn">is_some</span>());
+    st.<span class="fn">pop_scope</span>();
+    <span class="fn">assert!</span>(st.<span class="fn">lookup</span>(<span class="str">"x"</span>).<span class="fn">is_some</span>());   <span class="cm">// outer x restored</span>
+}</code></pre>
+
+<p>Duplicate detection within the same scope:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_insert_duplicate_error</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> st = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    st.<span class="fn">insert</span>(<span class="str">"x"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">false</span>).<span class="fn">unwrap</span>();
+    <span class="fn">match</span> st.<span class="fn">insert</span>(<span class="str">"x"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">false</span>) {
+        <span class="ty">Err</span>(<span class="ty">SymbolError::AlreadyDefined</span> { name, .. }) =&gt; <span class="fn">assert_eq!</span>(name, <span class="str">"x"</span>),
+        _ =&gt; <span class="fn">panic!</span>(<span class="str">"expected AlreadyDefined"</span>),
+    }
+}</code></pre>
+
+<p>Global insert works from any scope depth:</p>
+<pre><code><span class="pp">#[test]</span>
+<span class="kw">fn</span> <span class="fn">test_insert_global</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> st = <span class="ty">SymbolTable</span>::<span class="fn">new</span>();
+    st.<span class="fn">push_scope</span>();
+    st.<span class="fn">insert_global</span>(<span class="str">"g"</span>, <span class="ty">SymbolKind::Variable</span>(<span class="fn">dummy_type</span>()), <span class="fn">dummy_span</span>(), <span class="kw">true</span>).<span class="fn">unwrap</span>();
+    st.<span class="fn">pop_scope</span>();
+    st.<span class="fn">push_scope</span>();
+    <span class="fn">assert!</span>(st.<span class="fn">lookup</span>(<span class="str">"g"</span>).<span class="fn">is_some</span>());  <span class="cm">// global visible from any scope</span>
+}</code></pre>
+
+<p>Run the symbol table tests with:</p>
+<pre><code><span style="color:var(--fg2)">$</span> cargo test -- symbol</code></pre>
+
+<h3>Common Pitfalls</h3>
+
+<ol>
+<li><strong>Scope leak from missing push/pop.</strong> If the type checker does not push a scope in <code>check_func</code>, parameters leak into the enclosing scope and can shadow globals. Every block (function body, if/while body, nested braces) must create a new scope.</li>
+<li><strong>Mutable borrow conflicts.</strong> <code>lookup</code> borrows <code>&self</code> but <code>insert</code> borrows <code>&mut self</code>. You cannot interleave them in the same iteration. The design separates reads and writes cleanly: collect phase inserts everything, check phase only reads.</li>
+<li><strong>Using <code>insert</code> where <code>insert_global</code> is needed.</strong> If the type checker is inside a function body and calls <code>insert</code> on a top-level declaration, it goes into the function's scope instead of the root. Use <code>insert_global</code> for anything that should be visible everywhere.</li>
+</ol>
+
+<div class="callout warn">
+<strong>Alternatives not taken.</strong> Some compilers use a persistent tree of scopes with explicit <code>ScopeId</code> navigation, enabling import resolution across files. L1S's flat vector approach works well for single-file compilation. Multi-file compilation would need a more sophisticated module system.
+</div>
+
+<div class="nav-bar" style="margin-top:3rem;border-top:1px solid var(--border);padding-top:0.75rem;">
+  <a href="../index.html">&larr; Home</a>
+  <span><a href="07-types.html">&larr; Chapter 7</a> &ensp; Chapter 8: The Symbol Table &ensp; <a href="09-typeck.html">Chapter 9 &rarr;</a></span>
+</div>
+
+</body>
+</html>
